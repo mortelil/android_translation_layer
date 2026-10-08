@@ -1,3 +1,21 @@
+# Experimental ATL for Linux mobile
+
+An unofficial, AI-assisted fork of **Android Translation Layer**, focused on
+getting useful apps running on Linux phones. Initial work targets Immich on
+Alpine x86_64 and aarch64. It is experimental and contains incomplete APIs.
+
+Start with [build, run and compatibility notes](doc/MobileFork.md),
+[validation](doc/MobileValidation.md) and [source provenance](doc/MobileProvenance.md).
+The matching bionic_translation and art_standalone forks are required; see
+`dependency-lock.json`. No APKs or personal media are added by this fork.
+
+Upstream: https://gitlab.com/android_translation_layer/android_translation_layer
+
+The original upstream README follows; its broad platform instructions describe
+upstream, while this experimental branch's tested recipe is linked above.
+
+---
+
 A translation layer that allows running Android apps on a Linux system
 
 ![Angry Birds 3.2.0, Worms 2 Armageddon, and Gravity Defied running side by side by side](https://gitlab.com/android_translation_layer/android_translation_layer/-/raw/master/screenshot.png)

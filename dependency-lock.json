@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "atl_upstream_base": "f9e2280c1b78174c0536e02f246276cd80284c82",
+  "dependencies": {
+    "bionic_translation": {
+      "commit": "90f7a8415ee2be6ba5fca11209f65d96b18c2d0c",
+      "upstream_base": "6253dec7f24a57a94039a088cb436d880e92e3be",
+      "upstream": "https://gitlab.com/android_translation_layer/bionic_translation.git"
+    },
+    "art_standalone": {
+      "commit": "ceec4a4e9f2750d7926a8c0de72da6cd437ab5ec",
+      "upstream_base": "66a5d9079b159e9c5819bfeef4a6fff6a5f32719",
+      "upstream": "https://gitlab.com/android_translation_layer/art_standalone.git"
+    }
+  }
+}

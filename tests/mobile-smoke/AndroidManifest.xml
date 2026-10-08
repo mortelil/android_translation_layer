@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.atl.mobile.smoke">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="26" />
+    <application android:label="ATL synthetic smoke tests">
+        <activity android:name="TestActivity" />
+    </application>
+</manifest>
