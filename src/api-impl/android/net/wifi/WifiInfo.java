@@ -10,6 +10,7 @@ public class WifiInfo {
 	}
 
 	public int getIpAddress() {
-		return -1;
+		// No Wi-Fi IPv4 address is currently available from this implementation.
+		return 0;
 	}
 }
