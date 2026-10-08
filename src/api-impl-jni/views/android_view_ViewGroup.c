@@ -68,10 +68,18 @@ JNIEXPORT void JNICALL Java_android_view_ViewGroup_native_1drawChild(JNIEnv *env
 G_DECLARE_FINAL_TYPE(JavaWidget, java_widget, JAVA, WIDGET, GtkWidget)
 bool view_dispatch_motionevent(JNIEnv *env, WrapperWidget *wrapper, GtkPropagationPhase phase, jobject motion_event, gpointer event, int action);
 
+GdkEvent *synthetic_propagation_failed = NULL;
+
 static bool dispatch_motionevent_if_JavaWidget(GtkWidget *widget, GtkPropagationPhase phase, jobject motion_event, GtkWidget *toplevel)
 {
-	if (!JAVA_IS_WIDGET(widget))
+	if (WRAPPER_IS_WIDGET(widget)) {
 		return false;
+	} else if (!JAVA_IS_WIDGET(widget)) {
+		// Flag the failed propagation. The initial view_dispatch_motionevent call will replace
+		// it with the real event pointer after returning from the synthetic propagation call stack
+		synthetic_propagation_failed = GINT_TO_POINTER(1);
+		return true;
+	}
 	JNIEnv *env = get_jni_env();
 
 	WrapperWidget *wrapper = WRAPPER_WIDGET(gtk_widget_get_parent(widget));
@@ -169,4 +177,19 @@ JNIEXPORT jboolean JNICALL Java_android_view_ViewGroup_native_1dispatchTouchEven
 	GtkWidget *picked_child = gtk_widget_pick(widget, x, y, GTK_PICK_DEFAULT);
 
 	return atl_propagate_synthetic_motionevent(picked_child, motion_event, widget);
+}
+
+JNIEXPORT void JNICALL Java_android_view_ViewGroup_native_1offsetRect(JNIEnv *env, jobject this, jlong from_widget_ptr, jlong to_widget_ptr, jobject rect)
+{
+	GtkWidget *from_widget = gtk_widget_get_parent(GTK_WIDGET(_PTR(from_widget_ptr)));
+	GtkWidget *to_widget = gtk_widget_get_parent(GTK_WIDGET(_PTR(to_widget_ptr)));
+
+	graphene_point_t point_in = {_GET_INT_FIELD(rect, "left"), _GET_INT_FIELD(rect, "top")};
+	graphene_point_t point_out;
+	if (gtk_widget_compute_point(from_widget, to_widget, &point_in, &point_out)) {
+		_SET_INT_FIELD(rect, "left", point_out.x);
+		_SET_INT_FIELD(rect, "top", point_out.y);
+		_SET_INT_FIELD(rect, "right", _GET_INT_FIELD(rect, "right") + point_out.x - point_in.x);
+		_SET_INT_FIELD(rect, "bottom", _GET_INT_FIELD(rect, "bottom") + point_out.y - point_in.y);
+	}
 }

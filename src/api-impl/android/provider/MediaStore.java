@@ -115,6 +115,17 @@ public class MediaStore {
 			public static final Uri EXTERNAL_CONTENT_URI = Uri.parse("content://media/external/video/media");
 			public static final Uri INTERNAL_CONTENT_URI = Uri.parse("content://media/internal/video/media");
 		}
+
+		public static class Thumbnails {
+			public static final Uri EXTERNAL_CONTENT_URI = Uri.parse("content://media/external/video/media");
+
+			public static Bitmap getThumbnail(ContentResolver contentResolver, long videoId, int kind, BitmapFactory.Options options) throws java.io.IOException {
+				Uri uri = Media.EXTERNAL_CONTENT_URI.buildUpon().appendPath(String.valueOf(videoId)).build();
+				try (ParcelFileDescriptor fd = contentResolver.openFileDescriptor(uri, "r")) {
+					return BitmapFactory.decodeFileDescriptor(fd.getFileDescriptor(), null, options);
+				}
+			}
+		}
 	}
 
 	public static class Audio {

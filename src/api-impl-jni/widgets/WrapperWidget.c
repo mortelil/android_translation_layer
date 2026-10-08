@@ -460,24 +460,19 @@ static gboolean on_key_released(GtkEventControllerKey *controller, guint keyval,
 	return ret;
 }
 
-static void map_cb(WrapperWidget *wrapper, jmethodID method)
-{
-	JNIEnv *env = get_jni_env();
-	(*env)->CallVoidMethod(env, wrapper->jobj, method);
-	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
-}
-
 GtkWidget *currently_unmapping = NULL;
 
-static void unmap_cb(WrapperWidget *wrapper, jmethodID method)
+static void root_changed_cb(WrapperWidget *wrapper, GParamSpec *pspec, gpointer user_data)
 {
+	GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(wrapper));
 	JNIEnv *env = get_jni_env();
-	currently_unmapping = wrapper->child;
-	(*env)->CallVoidMethod(env, wrapper->jobj, method);
+	if (!root)
+		currently_unmapping = wrapper->child;
+	(*env)->CallVoidMethod(env, wrapper->jobj, root ? handle_cache.view.onAttachedToWindow : handle_cache.view.onDetachedFromWindow);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
-	currently_unmapping = NULL;
+	if (!root)
+		currently_unmapping = NULL;
 }
 
 void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject jobj)
@@ -527,8 +522,7 @@ void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject job
 		gtk_widget_add_controller(GTK_WIDGET(wrapper), controller);
 		gtk_widget_set_focusable(GTK_WIDGET(wrapper), TRUE);
 	}
-	g_signal_connect(wrapper, "map", G_CALLBACK(map_cb), handle_cache.view.onAttachedToWindow);
-	g_signal_connect(wrapper, "unmap", G_CALLBACK(unmap_cb), handle_cache.view.onDetachedFromWindow);
+	g_signal_connect(wrapper, "notify::root", G_CALLBACK(root_changed_cb), NULL);
 }
 
 void wrapper_widget_set_layout_params(WrapperWidget *wrapper, int width, int height)
@@ -578,4 +572,32 @@ void wrapper_widget_consume_touch_events(WrapperWidget *wrapper)
 	g_signal_connect(controller, "event", G_CALLBACK(on_touch_event_consume), NULL);
 	gtk_widget_add_controller(GTK_WIDGET(wrapper), controller);
 	g_object_set_data(G_OBJECT(wrapper), "on_touch_listener", controller);
+}
+
+// ComposeUI layouts need to know when to redraw native widgets. There is no way in GTK to get
+// notified about invalidations on specific widgets, but we get that global invalidation from the
+// frame clock. Just flag it as invalidated on every global invalidation. The redraw will be a
+// no-op in GTK anyway if redraw was not needed for the specific widget.
+static void on_paint(GdkFrameClock *self, WrapperWidget *wrapper)
+{
+	JNIEnv *env = get_jni_env();
+	(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.view.propagateInvalidation);
+}
+
+static void on_realize(GtkWidget *wrapper, gpointer user_data)
+{
+	GdkFrameClock *clock = gtk_widget_get_frame_clock(wrapper);
+	g_signal_connect(clock, "paint", G_CALLBACK(on_paint), wrapper);
+}
+
+static void on_unrealize(GtkWidget *wrapper, gpointer user_data)
+{
+	GdkFrameClock *clock = gtk_widget_get_frame_clock(wrapper);
+	g_signal_handlers_disconnect_by_data(clock, wrapper);
+}
+
+void wrapper_widget_register_invalidation_listener(WrapperWidget *wrapper)
+{
+	g_signal_connect(wrapper, "realize", G_CALLBACK(on_realize), NULL);
+	g_signal_connect(wrapper, "unrealize", G_CALLBACK(on_unrealize), NULL);
 }

@@ -89,6 +89,7 @@ struct handle_cache {
 		jmethodID onAttachedToWindow;
 		jmethodID onDetachedFromWindow;
 		jmethodID dispatchHoverEvent;
+		jmethodID propagateInvalidation;
 	} view;
 	struct {
 		jclass class;
@@ -140,6 +141,7 @@ struct handle_cache {
 		jclass class;
 		jmethodID internalGetAssetManager;
 		jmethodID internalLoadChanged;
+		jmethodID internalShouldOverrideUrlLoading;
 	} webview;
 	struct {
 		jclass class;
