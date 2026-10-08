@@ -33,7 +33,8 @@ public class Layout {
 				span.getSize(paint, text, spanned.getSpanStart(span), spanned.getSpanEnd(span), paint.getFontMetricsInt());
 		}
 		String str = text != null ? text.toString() : "";
-		this.text = str;
+		// Keep live display sequences (including transformed text) for DynamicLayout.
+		this.text = text != null ? text : "";
 		this.paint = paint;
 		this.spacing_mult = spacingMult;
 		this.spacing_add = spacingAdd;

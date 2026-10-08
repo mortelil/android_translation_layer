@@ -5,6 +5,7 @@ public class TestActivity extends android.app.Activity {
 		super.onCreate(state);
 		try {
 			TestBitmap.main(new String[0]);
+			TestDynamicLayout.run();
 			TestTLS.main(new String[0]);
 			TestRange.main(new String[0]);
 			TestViews.run(this);
