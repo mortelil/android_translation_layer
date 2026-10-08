@@ -1384,8 +1384,8 @@ public class View implements Drawable.Callback {
 
 	// called from native code for GTK widgets or from invalidate() for Java widgets
 	private void propagateInvalidation() {
-		for (View child = this; child.parent instanceof View; child = (View)child.parent)
-			child.parent.onDescendantInvalidated(child, this);
+		if (parent != null)
+			parent.onDescendantInvalidated(this, this);
 	}
 
 	protected native void native_setBackgroundColor(long widget, int color);

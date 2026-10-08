@@ -6,7 +6,7 @@ public class DynamicLayout extends Layout {
 	private final TextWatcher watcher = new TextWatcher() {
 		public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
 		public void onTextChanged(CharSequence s, int start, int before, int count) {
-			native_set_text(layout, getText().toString());
+			native_set_text(layout, s.toString());
 		}
 		public void afterTextChanged(Editable text) {}
 	};
