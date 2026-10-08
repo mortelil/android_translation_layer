@@ -260,7 +260,22 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 	}
 
 	public void bringChildToFront(View child) {
-		// TODO: actually implement this (might make sense to implement it in the subclasses instead), when applicable
+		int index = children.indexOf(child);
+		if (index < 0 || index == children.size() - 1)
+			return;
+		children.remove(index);
+		children.add(child);
+		ArrayList<View> drawingOrder = new ArrayList<View>(children);
+		drawingOrder.sort(new Comparator<View>() {
+			@Override
+			public int compare(View a, View b) { return Float.compare(a.getZ(), b.getZ()); }
+		});
+		// Reorder existing widgets without detaching their surfaces or firing
+		// hierarchy add/remove callbacks. Equal Z values retain child order.
+		for (View view : drawingOrder)
+			native_addView(widget, view.widget, children.size(), null);
+		requestLayout();
+		invalidate();
 	}
 
 	/**
@@ -707,7 +722,10 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 	public native boolean native_dispatchTouchEvent(long widget, MotionEvent event, double x, double y);
 
 	@Override
-	public void onDescendantInvalidated(View child, View target) {}
+	public void onDescendantInvalidated(View child, View target) {
+		if (getParent() != null)
+			getParent().onDescendantInvalidated(this, target);
+	}
 
 	public boolean getTouchscreenBlocksFocus() { return false; }
 

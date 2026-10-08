@@ -1,5 +1,6 @@
 #include <graphene.h>
 #include <gtk/gtk.h>
+#include <math.h>
 #include <pango/pango.h>
 
 #include "../defines.h"
@@ -190,7 +191,31 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1concat(JNIEnv *env, jc
 {
 	GdkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	graphene_matrix_t *matrix = (graphene_matrix_t *)_PTR(matrix_ptr);
-	gtk_snapshot_transform_matrix(snapshot, matrix);
+	double xx, yx, xy, yy, dx, dy;
+	if (graphene_matrix_to_2d(matrix, &xx, &yx, &xy, &yy, &dx, &dy)) {
+		/* Preserve the 2D category: Cairo cannot draw a generic 3D transform. */
+#if GTK_CHECK_VERSION(4, 20, 0)
+		GskTransform *transform = gsk_transform_matrix_2d(NULL, xx, yx, xy, yy, dx, dy);
+#else
+		double sx = hypot(xx, yx), sy, rotation, skew = 0;
+		if (sx > 0) {
+			sy = (xx * yy - yx * xy) / sx;
+			rotation = atan2(yx, xx);
+			skew = atan((xx * xy + yx * yy) / (sx * sx));
+		} else {
+			sy = hypot(xy, yy);
+			rotation = atan2(-xy, yy);
+		}
+		GskTransform *transform = gsk_transform_translate(NULL, &GRAPHENE_POINT_INIT(dx, dy));
+		transform = gsk_transform_rotate(transform, rotation * 180 / G_PI);
+		transform = gsk_transform_scale(transform, sx, sy);
+		transform = gsk_transform_skew(transform, skew * 180 / G_PI, 0);
+#endif
+		gtk_snapshot_transform(snapshot, transform);
+		gsk_transform_unref(transform);
+	} else {
+		gtk_snapshot_transform_matrix(snapshot, matrix);
+	}
 }
 
 JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1clipRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom)

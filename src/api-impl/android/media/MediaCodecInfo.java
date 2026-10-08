@@ -1,5 +1,7 @@
 package android.media;
 
+import android.util.Range;
+
 public class MediaCodecInfo {
 
 	private String name;
@@ -181,6 +183,14 @@ public class MediaCodecInfo {
 	}
 
 	public static class VideoCapabilities {
+
+		public Range<Double> getAchievableFrameRatesFor(int width, int height) {
+			if (width <= 0 || height <= 0)
+				throw new IllegalArgumentException("width and height must be positive");
+			// FFmpeg does not provide device-specific frame-rate measurements.
+			// The Android API uses null to represent unavailable measurements.
+			return null;
+		}
 
 		public int getWidthAlignment() {
 			return 1;

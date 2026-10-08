@@ -5,6 +5,10 @@ import android.util.DisplayMetrics;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.Buffer;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.IntBuffer;
+import java.nio.ShortBuffer;
 
 /*
  * Bitmap is implemented as GdkTexture or GtkSnapshot. It can only be one of the two at a time.
@@ -222,6 +226,45 @@ public final class Bitmap implements Parcelable {
 		buffer.position(buffer.position() + getAllocationByteCount());
 	}
 
+	public synchronized void copyPixelsFromBuffer(Buffer buffer) {
+		if (recycled)
+			throw new IllegalStateException("Bitmap is recycled");
+		if (config == Config.HARDWARE)
+			throw new IllegalStateException("Hardware bitmap cannot be written");
+		if (config.gdk_memory_format == -1)
+			throw new UnsupportedOperationException("Unsupported bitmap format: " + config);
+		int shift;
+		if (buffer instanceof ByteBuffer)
+			shift = 0;
+		else if (buffer instanceof ShortBuffer)
+			shift = 1;
+		else if (buffer instanceof IntBuffer)
+			shift = 2;
+		else
+			throw new RuntimeException("Unsupported buffer type");
+		int count = getByteCount();
+		if (((long)buffer.remaining() << shift) < count)
+			throw new RuntimeException("Buffer is too small for bitmap pixels");
+		byte[] pixels = new byte[count];
+		ByteBuffer packed = ByteBuffer.wrap(pixels).order(ByteOrder.nativeOrder());
+		if (shift == 0)
+			((ByteBuffer)buffer).duplicate().get(pixels);
+		else if (shift == 1) {
+			ShortBuffer source = ((ShortBuffer)buffer).duplicate();
+			while (packed.remaining() >= 2)
+				packed.putShort(source.get());
+		} else {
+			IntBuffer source = ((IntBuffer)buffer).duplicate();
+			while (packed.remaining() >= 4)
+				packed.putInt(source.get());
+		}
+		long replacement = native_texture_from_bytes(pixels, width, height, stride, config.gdk_memory_format);
+		native_recycle(texture, snapshot);
+		texture = replacement;
+		snapshot = 0;
+		buffer.position(buffer.position() + (count >> shift));
+	}
+
 	public int getByteCount() {
 		return getAllocationByteCount();
 	}
@@ -263,6 +306,7 @@ public final class Bitmap implements Parcelable {
 	}
 
 	private static native long native_create_snapshot(long texture);
+	private static native long native_texture_from_bytes(byte[] pixels, int width, int height, int stride, int format);
 	private static native long native_create_texture(long snapshot, int width, int height, int stride, int format);
 	private static native int native_get_width(long texture);
 	private static native int native_get_height(long texture);

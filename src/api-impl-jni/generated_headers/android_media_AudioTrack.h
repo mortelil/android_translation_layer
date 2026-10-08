@@ -9,6 +9,12 @@ extern "C" {
 #endif
 #undef android_media_AudioTrack_ERROR_BAD_VALUE
 #define android_media_AudioTrack_ERROR_BAD_VALUE -2L
+#undef android_media_AudioTrack_ERROR_INVALID_OPERATION
+#define android_media_AudioTrack_ERROR_INVALID_OPERATION -3L
+#undef android_media_AudioTrack_STATE_UNINITIALIZED
+#define android_media_AudioTrack_STATE_UNINITIALIZED 0L
+#undef android_media_AudioTrack_STATE_INITIALIZED
+#define android_media_AudioTrack_STATE_INITIALIZED 1L
 #undef android_media_AudioTrack_PLAYSTATE_STOPPED
 #define android_media_AudioTrack_PLAYSTATE_STOPPED 1L
 #undef android_media_AudioTrack_PLAYSTATE_PAUSED

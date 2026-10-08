@@ -4,6 +4,7 @@ import android.os.Bundle;
 import android.os.LocaleList;
 
 public class EditorInfo {
+	public String[] contentMimeTypes = null;
 	public int actionId = 0;
 	public CharSequence actionLabel = null;
 	public Bundle extras = null;

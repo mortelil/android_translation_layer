@@ -1837,6 +1837,11 @@ public class PackageParser {
 
 		TypedArray sa = res.obtainAttributes(attrs,
 		                                     com.android.internal.R.styleable.AndroidManifestApplication);
+		if (sa.getBoolean(com.android.internal.R.styleable.AndroidManifestApplication_usesCleartextTraffic,
+		                  ai.targetSdkVersion < 28))
+			ai.flags |= ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC;
+		ai.networkSecurityConfigRes = sa.getResourceId(
+		    com.android.internal.R.styleable.AndroidManifestApplication_networkSecurityConfig, 0);
 
 		String name = sa.getNonConfigurationString(
 		    com.android.internal.R.styleable.AndroidManifestApplication_name, 0);

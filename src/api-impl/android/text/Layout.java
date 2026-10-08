@@ -255,6 +255,7 @@ public class Layout {
 	}
 
 	protected static native long native_constructor(String text, long paint, int width);
+	protected native void native_set_text(long layout, String text);
 	protected native void native_set_width(long layout, int width);
 	protected native int native_get_width(long layout);
 	protected native int native_get_height(long layout);

@@ -118,6 +118,17 @@ void ANativeWindow_release(struct ANativeWindow *native_window)
 {
 	native_window->refcount--;
 	if (native_window->refcount == 0) {
+		if (native_window->surface_texture) {
+			JNIEnv *env;
+			gboolean attached = (*native_window->jvm)->GetEnv(native_window->jvm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED;
+			if (attached)
+				(*native_window->jvm)->AttachCurrentThread(native_window->jvm, (void **)&env, NULL);
+			(*env)->DeleteGlobalRef(env, native_window->surface_texture);
+			if (attached)
+				(*native_window->jvm)->DetachCurrentThread(native_window->jvm);
+			free(native_window);
+			return;
+		}
 		g_clear_signal_handler(&native_window->resize_handler, native_window->surface_view_widget);
 		if (native_window->wayland_display) {
 			wl_egl_window_destroy((struct wl_egl_window *)native_window->egl_window);
@@ -131,11 +142,15 @@ void ANativeWindow_release(struct ANativeWindow *native_window)
 
 int32_t ANativeWindow_getWidth(struct ANativeWindow *native_window)
 {
+	if (native_window->surface_texture)
+		return native_window->width;
 	return gtk_widget_get_width(native_window->surface_view_widget);
 }
 
 int32_t ANativeWindow_getHeight(struct ANativeWindow *native_window)
 {
+	if (native_window->surface_texture)
+		return native_window->height;
 	return gtk_widget_get_height(native_window->surface_view_widget);
 }
 
@@ -242,6 +257,8 @@ void wl_registry_global_remove_handler(void *data, struct wl_registry *registry,
 
 static void on_resize(GtkWidget *self, gint width, gint height, ANativeWindow *native_window)
 {
+	g_atomic_int_set(&native_window->width, width);
+	g_atomic_int_set(&native_window->height, height);
 	if (native_window->wayland_display) {
 		wl_egl_window_resize((struct wl_egl_window *)native_window->egl_window, width, height, 0, 0);
 	} else if (native_window->x11_display) {
@@ -252,6 +269,14 @@ static void on_resize(GtkWidget *self, gint width, gint height, ANativeWindow *n
 extern GThread *main_thread_id;
 ANativeWindow *ANativeWindow_fromSurface(JNIEnv *env, jobject surface)
 {
+	if (!surface)
+		return NULL;
+	jobject texture = _GET_OBJ_FIELD(surface, "texture", "Landroid/graphics/SurfaceTexture;");
+	if (texture) {
+		ANativeWindow *result = ANativeWindow_fromSurfaceTexture(env, texture);
+		(*env)->DeleteLocalRef(env, texture);
+		return result;
+	}
 	int width;
 	int height;
 
@@ -385,7 +410,7 @@ ANativeWindow *ANativeWindow_fromSurface(JNIEnv *env, jobject surface)
 #pragma GCC diagnostic pop
 	}
 
-	if (getenv("ATL_DIRECT_EGL") && native_window->resize_handler == 0)
+	if (native_window->resize_handler == 0)
 		native_window->resize_handler = g_signal_connect(surface_view_widget, "resize", G_CALLBACK(on_resize), native_window);
 
 	return native_window;
@@ -393,7 +418,49 @@ ANativeWindow *ANativeWindow_fromSurface(JNIEnv *env, jobject surface)
 
 ANativeWindow *ANativeWindow_fromSurfaceTexture(JNIEnv *env, jobject surfaceTexture)
 {
-	return NULL;
+	if (!surfaceTexture)
+		return NULL;
+	jclass cls = (*env)->GetObjectClass(env, surfaceTexture);
+	jmethodID size_method = (*env)->GetMethodID(env, cls, "atlBufferSize", "()[I");
+	jintArray size = (*env)->CallObjectMethod(env, surfaceTexture, size_method);
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->DeleteLocalRef(env, cls);
+		return NULL;
+	}
+	jint dimensions[2];
+	(*env)->GetIntArrayRegion(env, size, 0, 2, dimensions);
+	ANativeWindow *result = calloc(1, sizeof(*result));
+	result->width = dimensions[0];
+	result->height = dimensions[1];
+	result->refcount = 1;
+	(*env)->GetJavaVM(env, &result->jvm);
+	result->surface_texture = (*env)->NewGlobalRef(env, surfaceTexture);
+	result->queue_frame = (*env)->GetMethodID(env, cls, "atlQueueFrame", "([BIIJ)V");
+	(*env)->DeleteLocalRef(env, size);
+	(*env)->DeleteLocalRef(env, cls);
+	return result;
+}
+
+gboolean atl_native_window_post_rgba(ANativeWindow *window, const unsigned char *pixels, int width, int height)
+{
+	JNIEnv *env;
+	gboolean attached = (*window->jvm)->GetEnv(window->jvm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED;
+	if (attached && (*window->jvm)->AttachCurrentThread(window->jvm, (void **)&env, NULL) != JNI_OK)
+		return FALSE;
+	jbyteArray array = (*env)->NewByteArray(env, width * height * 4);
+	if (array) {
+		(*env)->SetByteArrayRegion(env, array, 0, width * height * 4, (const jbyte *)pixels);
+		(*env)->CallVoidMethod(env, window->surface_texture, window->queue_frame, array, width, height, (jlong)g_get_monotonic_time() * 1000);
+		(*env)->DeleteLocalRef(env, array);
+	}
+	gboolean success = !(*env)->ExceptionCheck(env);
+	if (!success) {
+		(*env)->ExceptionDescribe(env);
+		(*env)->ExceptionClear(env);
+	}
+	if (attached)
+		(*window->jvm)->DetachCurrentThread(window->jvm);
+	return success;
 }
 
 // FIXME 1.5: this most likely belongs elsewhere

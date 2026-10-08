@@ -19,18 +19,16 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.text.NoCopySpan;
+import android.text.Selection;
 import android.text.Spannable;
+import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
-
-class Editable {}
-
-class ComposingText {
-}
 
 /**
  * Base class for implementors of the InputConnection interface, taking care
@@ -39,6 +37,8 @@ class ComposingText {
  * {@link #getEditable} to provide access to their own editable object.
  */
 public class BaseInputConnection implements InputConnection {
+	private static final Object COMPOSING = new NoCopySpan.Concrete();
+	private Editable editable;
 
 	BaseInputConnection(InputMethodManager mgr, boolean fullEditor) {
 	}
@@ -47,6 +47,10 @@ public class BaseInputConnection implements InputConnection {
 	}
 
 	public static final void removeComposingSpans(Spannable text) {
+		for (Object span : text.getSpans(0, text.length(), Object.class))
+			if ((text.getSpanFlags(span) & Spanned.SPAN_COMPOSING) != 0)
+				text.removeSpan(span);
+		text.removeSpan(COMPOSING);
 	}
 	public static void setComposingSpans(Spannable text) {
 		setComposingSpans(text, 0, text.length());
@@ -55,14 +59,15 @@ public class BaseInputConnection implements InputConnection {
 	 * @hide
 	 */
 	public static void setComposingSpans(Spannable text, int start, int end) {
+		text.setSpan(COMPOSING, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE | Spanned.SPAN_COMPOSING);
 	}
 
 	public static int getComposingSpanStart(Spannable text) {
-		return 0;
+		return text.getSpanStart(COMPOSING);
 	}
 
 	public static int getComposingSpanEnd(Spannable text) {
-		return 0;
+		return text.getSpanEnd(COMPOSING);
 	}
 
 	/**
@@ -72,7 +77,11 @@ public class BaseInputConnection implements InputConnection {
 	 * supply their own.
 	 */
 	public Editable getEditable() {
-		return new Editable();
+		if (editable == null) {
+			editable = new SpannableStringBuilder();
+			Selection.setSelection(editable, 0);
+		}
+		return editable;
 	}
 
 	/**
@@ -121,7 +130,35 @@ public class BaseInputConnection implements InputConnection {
 	 * sent for the new text and the current editable buffer cleared.
 	 */
 	public boolean commitText(CharSequence text, int newCursorPosition) {
-		return true;
+		return replaceText(text, newCursorPosition, false);
+	}
+
+	private boolean replaceText(CharSequence text, int cursor, boolean composing) {
+		Editable content = getEditable();
+		if (content == null)
+			return false;
+		beginBatchEdit();
+		try {
+			int start = getComposingSpanStart(content), end = getComposingSpanEnd(content);
+			if (start < 0 || end < 0) {
+				start = Math.max(0, Selection.getSelectionStart(content));
+				end = Math.max(0, Selection.getSelectionEnd(content));
+			}
+			if (start > end) {
+				int tmp = start;
+				start = end;
+				end = tmp;
+			}
+			removeComposingSpans(content);
+			content.replace(start, end, text);
+			if (composing && text.length() > 0)
+				setComposingSpans(content, start, start + text.length());
+			int position = cursor > 0 ? start + text.length() + cursor - 1 : start + cursor;
+			Selection.setSelection(content, Math.max(0, Math.min(content.length(), position)));
+			return true;
+		} finally {
+			endBatchEdit();
+		}
 	}
 	/**
 	 * The default implementation performs the deletion around the current
@@ -130,7 +167,32 @@ public class BaseInputConnection implements InputConnection {
 	 * @param afterLength
 	 */
 	public boolean deleteSurroundingText(int beforeLength, int afterLength) {
-		return true;
+		if (beforeLength < 0 || afterLength < 0)
+			return false;
+		Editable content = getEditable();
+		if (content == null)
+			return false;
+		int start = Selection.getSelectionStart(content), end = Selection.getSelectionEnd(content);
+		if (start < 0 || end < 0)
+			return false;
+		if (start > end) {
+			int tmp = start;
+			start = end;
+			end = tmp;
+		}
+		int composingStart = getComposingSpanStart(content), composingEnd = getComposingSpanEnd(content);
+		if (composingStart >= 0 && composingEnd >= 0) {
+			start = Math.min(start, Math.min(composingStart, composingEnd));
+			end = Math.max(end, Math.max(composingStart, composingEnd));
+		}
+		beginBatchEdit();
+		try {
+			content.delete(end, end + Math.min(afterLength, content.length() - end));
+			content.delete(Math.max(0, start - beforeLength), start);
+			return true;
+		} finally {
+			endBatchEdit();
+		}
 	}
 	/**
 	 * The default implementation removes the composing state from the
@@ -138,6 +200,15 @@ public class BaseInputConnection implements InputConnection {
 	 * sent for the new text and the current editable buffer cleared.
 	 */
 	public boolean finishComposingText() {
+		Editable content = getEditable();
+		if (content == null)
+			return false;
+		beginBatchEdit();
+		try {
+			removeComposingSpans(content);
+		} finally {
+			endBatchEdit();
+		}
 		return true;
 	}
 	/**
@@ -159,21 +230,37 @@ public class BaseInputConnection implements InputConnection {
 	 * current cursor position in the buffer.
 	 */
 	public CharSequence getTextBeforeCursor(int length, int flags) {
-		return "";
+		if (length < 0)
+			throw new IllegalArgumentException("length");
+		Editable content = getEditable();
+		if (content == null)
+			return null;
+		int end = Math.max(0, Math.min(Selection.getSelectionStart(content), Selection.getSelectionEnd(content)));
+		return content.subSequence(Math.max(0, end - length), end);
 	}
 	/**
 	 * The default implementation returns the text currently selected, or null if none is
 	 * selected.
 	 */
 	public CharSequence getSelectedText(int flags) {
-		return "";
+		Editable content = getEditable();
+		if (content == null)
+			return null;
+		int start = Selection.getSelectionStart(content), end = Selection.getSelectionEnd(content);
+		return start < 0 || end < 0 || start == end ? null : content.subSequence(Math.min(start, end), Math.max(start, end));
 	}
 	/**
 	 * The default implementation returns the given amount of text from the
 	 * current cursor position in the buffer.
 	 */
 	public CharSequence getTextAfterCursor(int length, int flags) {
-		return "";
+		if (length < 0)
+			throw new IllegalArgumentException("length");
+		Editable content = getEditable();
+		if (content == null)
+			return null;
+		int start = Math.max(0, Math.max(Selection.getSelectionStart(content), Selection.getSelectionEnd(content)));
+		return content.subSequence(start, start + Math.min(length, content.length() - start));
 	}
 	/**
 	 * The default implementation turns this into the enter key.
@@ -199,9 +286,22 @@ public class BaseInputConnection implements InputConnection {
 	 * in a composing state with the composing style.
 	 */
 	public boolean setComposingText(CharSequence text, int newCursorPosition) {
-		return true;
+		return replaceText(text, newCursorPosition, true);
 	}
 	public boolean setComposingRegion(int start, int end) {
+		Editable content = getEditable();
+		if (content == null)
+			return false;
+		beginBatchEdit();
+		try {
+			removeComposingSpans(content);
+			int lo = Math.max(0, Math.min(content.length(), Math.min(start, end)));
+			int hi = Math.max(0, Math.min(content.length(), Math.max(start, end)));
+			if (lo != hi)
+				setComposingSpans(content, lo, hi);
+		} finally {
+			endBatchEdit();
+		}
 		return true;
 	}
 	/**
@@ -209,6 +309,12 @@ public class BaseInputConnection implements InputConnection {
 	 * current editable text.
 	 */
 	public boolean setSelection(int start, int end) {
+		Editable content = getEditable();
+		if (content == null)
+			return false;
+		if (start < 0 || end < 0 || start > content.length() || end > content.length())
+			return true;
+		Selection.setSelection(content, start, end);
 		return true;
 	}
 	/**

@@ -278,6 +278,13 @@ public class DisplayMetrics {
 	}
 
 	private static int getDeviceDensity() {
+		String renderScale = System.getenv("ATL_RENDER_SCALE");
+		if (renderScale != null) {
+			float scale = Float.parseFloat(renderScale);
+			if (!(scale >= 1f && scale <= 4f))
+				throw new IllegalArgumentException("ATL_RENDER_SCALE must be between 1 and 4");
+			return Math.round(DENSITY_DEFAULT * scale);
+		}
 		// qemu.sf.lcd_density can be used to override ro.sf.lcd_density
 		// when running in the emulator, allowing for dynamic configurations.
 		// The reason for this is that ro.sf.lcd_density is write-once and is

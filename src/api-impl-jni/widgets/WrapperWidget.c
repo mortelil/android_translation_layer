@@ -324,6 +324,30 @@ static int map_key_code(int key_code)
 	else if (key_code >= GDK_KEY_KP_0 && key_code <= GDK_KEY_KP_9)
 		return key_code - GDK_KEY_KP_0 + KEYCODE_NUMPAD_0;
 	switch (key_code) {
+		case GDK_KEY_Shift_L:
+			return 59; /* KEYCODE_SHIFT_LEFT */
+		case GDK_KEY_Shift_R:
+			return 60;
+		case GDK_KEY_Control_L:
+			return 113;
+		case GDK_KEY_Control_R:
+			return 114;
+		case GDK_KEY_Alt_L:
+			return 57;
+		case GDK_KEY_Alt_R:
+			return 58;
+		case GDK_KEY_Meta_L:
+		case GDK_KEY_Super_L:
+			return 117;
+		case GDK_KEY_Meta_R:
+		case GDK_KEY_Super_R:
+			return 118;
+		case GDK_KEY_Caps_Lock:
+			return 115;
+		case GDK_KEY_Num_Lock:
+			return 143;
+		case GDK_KEY_Scroll_Lock:
+			return 116;
 		case GDK_KEY_Up:
 			return KEYCODE_DPAD_UP;
 		case GDK_KEY_Down:
@@ -416,6 +440,7 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller, guint keyval, 
 
 	jobject key_event = (*env)->NewObject(env, handle_cache.key_event.class, handle_cache.key_event.constructor, (jlong)0, (jlong)0, ACTION_DOWN, map_key_code(keyval), 0, map_meta_state(state));
 	_SET_INT_FIELD(key_event, "unicodeValue", gdk_keyval_to_unicode(keyval));
+	_SET_INT_FIELD(key_event, "mSource", 0x101); /* SOURCE_KEYBOARD */
 	gboolean ret = (*env)->CallBooleanMethod(env, wrapper->jobj, handle_cache.view.dispatchKeyEvent, key_event);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
@@ -428,6 +453,7 @@ static gboolean on_key_released(GtkEventControllerKey *controller, guint keyval,
 
 	jobject key_event = (*env)->NewObject(env, handle_cache.key_event.class, handle_cache.key_event.constructor, (jlong)0, (jlong)0, ACTION_UP, map_key_code(keyval), 0, map_meta_state(state));
 	_SET_INT_FIELD(key_event, "unicodeValue", gdk_keyval_to_unicode(keyval));
+	_SET_INT_FIELD(key_event, "mSource", 0x101); /* SOURCE_KEYBOARD */
 	gboolean ret = (*env)->CallBooleanMethod(env, wrapper->jobj, handle_cache.view.dispatchKeyEvent, key_event);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);

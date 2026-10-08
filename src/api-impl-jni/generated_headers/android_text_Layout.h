@@ -17,6 +17,14 @@ JNIEXPORT jlong JNICALL Java_android_text_Layout_native_1constructor
 
 /*
  * Class:     android_text_Layout
+ * Method:    native_set_text
+ * Signature: (JLjava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text
+  (JNIEnv *, jobject, jlong, jstring);
+
+/*
+ * Class:     android_text_Layout
  * Method:    native_set_width
  * Signature: (JI)V
  */

@@ -2,6 +2,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../widgets/WrapperWidget.h"
 #include "jni.h"
 
 #include "../generated_headers/android_view_inputmethod_InputMethodManager.h"
@@ -13,6 +14,7 @@ static jmethodID deleteSurroundingText;
 static jmethodID toString;
 
 static jobject connection;
+static GtkEventControllerKey *key_controller;
 
 static void commit_cb(GtkIMContext *context, gchar *str, gpointer user_data)
 {
@@ -157,7 +159,32 @@ JNIEXPORT jboolean JNICALL Java_android_view_inputmethod_InputMethodManager_nati
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
 	GtkIMContext *context = GTK_IM_CONTEXT(_PTR(context_ptr));
+	/* Custom Android Views receive keyboard events on their WrapperWidget,
+	 * which also owns GTK focus. Use the same widget for the IM context. */
+	GtkWidget *parent = gtk_widget_get_parent(widget);
+	if (WRAPPER_IS_WIDGET(parent) && !gtk_widget_get_focusable(widget))
+		widget = parent;
 	gtk_im_context_set_client_widget(context, widget);
+	if (key_controller) {
+		gtk_event_controller_key_set_im_context(key_controller, NULL);
+		g_clear_object(&key_controller);
+	}
+	GListModel *controllers = gtk_widget_observe_controllers(widget);
+	for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
+		GObject *controller = g_list_model_get_item(controllers, i);
+		if (GTK_IS_EVENT_CONTROLLER_KEY(controller)) {
+			key_controller = GTK_EVENT_CONTROLLER_KEY(controller);
+			gtk_event_controller_key_set_im_context(key_controller, context);
+			break;
+		}
+		g_object_unref(controller);
+	}
+	g_object_unref(controllers);
+	if (getenv("ATL_DEBUG_INPUT"))
+		g_printerr("ATL input: widget=%s focused=%d mapped=%d key-controller=%d context=%s\n",
+		           G_OBJECT_TYPE_NAME(widget), gtk_widget_has_focus(widget),
+		           gtk_widget_get_mapped(widget), key_controller != NULL,
+		           G_OBJECT_TYPE_NAME(context));
 	if (new_connection) {
 		set_input_type(context, input_type);
 		if (connection)
@@ -174,4 +201,8 @@ JNIEXPORT void JNICALL Java_android_view_inputmethod_InputMethodManager_nativeHi
 {
 	GtkIMContext *context = GTK_IM_CONTEXT(_PTR(context_ptr));
 	gtk_im_context_focus_out(context);
+	if (key_controller) {
+		gtk_event_controller_key_set_im_context(key_controller, NULL);
+		g_clear_object(&key_controller);
+	}
 }

@@ -37,6 +37,10 @@ public class InputMethodManager {
 		return activeView == view;
 	}
 
+	public boolean isAcceptingText() {
+		return activeView != null;
+	}
+
 	public List<InputMethodInfo> getEnabledInputMethodList() {
 		return input_method_list;
 	}
@@ -45,7 +49,20 @@ public class InputMethodManager {
 		return input_method_list;
 	}
 
-	public void restartInput(View view) {}
+	public void restartInput(View view) {
+		if (view != activeView)
+			return;
+		// Flutter uses one View for several Dart text fields. A new client
+		// therefore needs a fresh InputConnection even when the View is unchanged.
+		EditorInfo outAttrs = new EditorInfo();
+		InputConnection ic = view.onCreateInputConnection(outAttrs);
+		if (ic != null) {
+			nativeShowSoftInput(im_context, view.widget, ic, outAttrs.inputType);
+		} else {
+			nativeHideSoftInput(im_context);
+			activeView = null;
+		}
+	}
 
 	public void updateSelection(View view, int selStart, int selEnd, int candidatesStart, int candidatesEnd) {}
 

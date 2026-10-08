@@ -77,6 +77,14 @@ public final class Display {
 	}
 
 	public static final class Mode {
+		// ATL exposes one logical window mode through getSupportedModes().
+		public int getModeId() {
+			return 1;
+		}
+
+		public float getRefreshRate() {
+			return new Display().getRefreshRate();
+		}
 
 		public int getPhysicalWidth() {
 			return window_width;

@@ -8,6 +8,15 @@
 
 extern GtkWidget *window;
 
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text(JNIEnv *env, jobject object, jlong layout, jstring text)
+{
+	const char *str = (*env)->GetStringUTFChars(env, text, NULL);
+	if (!str)
+		return;
+	pango_layout_set_text(_PTR(layout), str, -1);
+	(*env)->ReleaseStringUTFChars(env, text, str);
+}
+
 JNIEXPORT jlong JNICALL Java_android_text_Layout_native_1constructor(JNIEnv *env, jobject object, jstring text, jlong paint, jint width)
 {
 	struct AndroidPaint *android_paint = _PTR(paint);

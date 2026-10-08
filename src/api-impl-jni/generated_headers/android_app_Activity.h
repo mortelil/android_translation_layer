@@ -19,6 +19,12 @@ extern "C" {
 #define android_app_Activity_MODE_ENABLE_WRITE_AHEAD_LOGGING 8L
 #undef android_app_Activity_MODE_NO_LOCALIZED_COLLATORS
 #define android_app_Activity_MODE_NO_LOCALIZED_COLLATORS 16L
+#undef android_app_Activity_RECEIVER_VISIBLE_TO_INSTANT_APPS
+#define android_app_Activity_RECEIVER_VISIBLE_TO_INSTANT_APPS 1L
+#undef android_app_Activity_RECEIVER_EXPORTED
+#define android_app_Activity_RECEIVER_EXPORTED 2L
+#undef android_app_Activity_RECEIVER_NOT_EXPORTED
+#define android_app_Activity_RECEIVER_NOT_EXPORTED 4L
 #undef android_app_Activity_RESULT_CANCELED
 #define android_app_Activity_RESULT_CANCELED 0L
 #undef android_app_Activity_RESULT_OK

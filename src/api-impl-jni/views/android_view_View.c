@@ -132,6 +132,16 @@ static void call_hover_callback(jobject this, int action, float x, float y, floa
 		(*env)->ExceptionDescribe(env);
 }
 
+static double android_window_scale(JNIEnv *env)
+{
+	if (!getenv("ATL_RENDER_SCALE"))
+		return 1;
+	jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
+	double scale = (*env)->GetStaticIntField(env, metrics, _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
+	(*env)->DeleteLocalRef(env, metrics);
+	return scale;
+}
+
 static void transform_coords_to_widget_relative(GtkWidget *widget, double *x, double *y)
 {
 	int ret;
@@ -198,6 +208,9 @@ static gboolean on_pointer_event(GtkEventControllerLegacy *event_controller, Gdk
 		case GDK_TOUCH_BEGIN:
 			action = pointer_index > 0 ? (ACTION_POINTER_DOWN | (pointer_index << 8)) : ACTION_DOWN;
 			break;
+		case GDK_TOUCH_CANCEL:
+			action = ACTION_CANCEL;
+			break;
 		case GDK_BUTTON_RELEASE:
 		case GDK_TOUCH_END:
 			action = pointer_index > 0 ? (ACTION_POINTER_UP | (pointer_index << 8)) : ACTION_UP;
@@ -227,6 +240,9 @@ static gboolean on_pointer_event(GtkEventControllerLegacy *event_controller, Gdk
 	gdk_event_get_position(event, &raw_x, &raw_y);
 	x = raw_x, y = raw_y;
 	transform_coords_to_widget_relative(widget, &x, &y);
+	if (getenv("ATL_DEBUG_POINTER"))
+		g_printerr("ATL pointer: action=%d widget=%s size=%dx%d raw=%.1f,%.1f local=%.1f,%.1f\n",
+		           action, G_OBJECT_TYPE_NAME(widget), gtk_widget_get_width(widget), gtk_widget_get_height(widget), raw_x, raw_y, x, y);
 
 	if (!pointers[id].id) {
 		/* if this is a new sequence, add a slot for it */
@@ -246,7 +262,7 @@ static gboolean on_pointer_event(GtkEventControllerLegacy *event_controller, Gdk
 	}
 
 	gboolean ret = call_ontouch_callback(wrapper, action, pointers, pointer_indices, phase, timestamp, event);
-	if (event_type == GDK_BUTTON_RELEASE || event_type == GDK_TOUCH_END) {
+	if (event_type == GDK_BUTTON_RELEASE || event_type == GDK_TOUCH_END || event_type == GDK_TOUCH_CANCEL) {
 		remove_pointer_fast(pointer_indices, &pointers[id]);
 	}
 	if (pointer_indices->len == 0 && wrapper->hover_exit_pending) {
@@ -266,6 +282,7 @@ static gboolean on_event(GtkEventControllerLegacy *event_controller, GdkEvent *e
 		case GDK_TOUCH_END:
 		case GDK_MOTION_NOTIFY:
 		case GDK_TOUCH_UPDATE:
+		case GDK_TOUCH_CANCEL:
 			return on_pointer_event(event_controller, event, user_data);
 		default: // not a touch or mouse event, nothing to do here
 			return false;
@@ -799,17 +816,18 @@ JNIEXPORT jboolean JNICALL Java_android_view_View_native_1getGlobalVisibleRect(J
 	if (!window)
 		return false;
 	gtk_native_get_surface_transform(GTK_NATIVE(window), &off_x, &off_y);
+	double scale = android_window_scale(env);
 	ret = gtk_widget_compute_point(widget, window, &point_in, &point_out);
 	if (!ret)
 		return false;
-	_SET_INT_FIELD(rect, "left", point_out.x + off_x);
-	_SET_INT_FIELD(rect, "top", point_out.y + off_y);
+	_SET_INT_FIELD(rect, "left", (point_out.x + off_x) * scale);
+	_SET_INT_FIELD(rect, "top", (point_out.y + off_y) * scale);
 	point_in = (graphene_point_t){Java_android_view_View_getWidth(env, this), Java_android_view_View_getHeight(env, this)};
 	ret = gtk_widget_compute_point(widget, window, &point_in, &point_out);
 	if (!ret)
 		return false;
-	_SET_INT_FIELD(rect, "right", point_out.x + off_x);
-	_SET_INT_FIELD(rect, "bottom", point_out.y + off_y);
+	_SET_INT_FIELD(rect, "right", (point_out.x + off_x) * scale);
+	_SET_INT_FIELD(rect, "bottom", (point_out.y + off_y) * scale);
 	return true;
 }
 
@@ -881,6 +899,11 @@ JNIEXPORT void JNICALL Java_android_view_View_nativeSetFullscreen(JNIEnv *env, j
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
 	GtkWindow *window = GTK_WINDOW(gtk_widget_get_native(widget));
+	if (getenv("ATL_DISABLE_FULLSCREEN")) {
+		if (gtk_window_is_fullscreen(window))
+			gtk_window_unfullscreen(window);
+		return;
+	}
 	if (fullscreen) {
 		if (gtk_window_is_maximized(window)) {
 			gtk_window_fullscreen(window);
@@ -1012,6 +1035,12 @@ JNIEXPORT void JNICALL Java_android_view_View_getWindowVisibleDisplayFrame(JNIEn
 	int width;
 	int height;
 	gtk_window_get_default_size(window, &width, &height);
+	if (getenv("ATL_RENDER_SCALE")) {
+		jclass display = (*env)->FindClass(env, "android/view/Display");
+		width = (*env)->GetStaticIntField(env, display, _STATIC_FIELD_ID(display, "window_width", "I"));
+		height = (*env)->GetStaticIntField(env, display, _STATIC_FIELD_ID(display, "window_height", "I"));
+		(*env)->DeleteLocalRef(env, display);
+	}
 	_SET_INT_FIELD(rect, "left", 0);
 	_SET_INT_FIELD(rect, "top", 0);
 	_SET_INT_FIELD(rect, "right", width);

@@ -70,8 +70,7 @@ public class WindowManagerImpl implements WindowManager, ViewManager {
 
 		@Override
 		public void onDescendantInvalidated(View child, View target) {
-			// TODO Auto-generated method stub
-			throw new UnsupportedOperationException("Unimplemented method 'onDescendantInvalidated'");
+			View.nativeInvalidate(child.widget);
 		}
 
 		@Override

@@ -15,6 +15,29 @@ import java.io.IOException;
 import java.nio.file.Files;
 
 public class ATLMediaContentProvider extends ContentProvider {
+	private ATLMediaIndex index;
+
+	private synchronized ATLMediaIndex index() {
+		String root = System.getenv("ATL_MEDIA_ROOT");
+		if (root == null || root.isEmpty())
+			return null;
+		if (index == null)
+			index = new ATLMediaIndex(getContext(), root);
+		return index;
+	}
+
+	@Override
+	public Cursor query(Uri uri, String[] projection, android.os.Bundle args, android.os.CancellationSignal signal) {
+		if (signal != null)
+			signal.throwIfCanceled();
+		ATLMediaIndex media = index();
+		if (media == null)
+			return super.query(uri, projection, args, signal);
+		return media.query(uri, projection,
+		                   args == null ? null : args.getString("android:query-arg-sql-selection"),
+		                   args == null ? null : args.getStringArray("android:query-arg-sql-selection-args"),
+		                   args == null ? null : args.getString("android:query-arg-sql-sort-order"), args);
+	}
 
 	boolean waitingForFileChooser = false;
 	File selectedFile = null;
@@ -53,6 +76,9 @@ public class ATLMediaContentProvider extends ContentProvider {
 
 	@Override
 	public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
+		ATLMediaIndex media = index();
+		if (media != null)
+			return media.query(uri, projection, selection, selectionArgs, sortOrder, null);
 		if (selectionArgs != null && selectionArgs.length > 0) {
 			selectedFile = new File(selectionArgs[0]);
 			timestamp = System.currentTimeMillis();
@@ -116,6 +142,9 @@ public class ATLMediaContentProvider extends ContentProvider {
 
 	@Override
 	public String getType(Uri uri) {
+		ATLMediaIndex media = index();
+		if (media != null)
+			return media.getType(uri);
 		try {
 			return Files.probeContentType(selectedFile.toPath());
 		} catch (IOException e) {
@@ -126,6 +155,9 @@ public class ATLMediaContentProvider extends ContentProvider {
 
 	@Override
 	public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+		ATLMediaIndex media = index();
+		if (media != null)
+			return media.open(uri, mode);
 		return ParcelFileDescriptor.open(selectedFile, ParcelFileDescriptor.parseMode(mode));
 	}
 
@@ -151,7 +183,6 @@ public class ATLMediaContentProvider extends ContentProvider {
 
 	@Override
 	public AssetFileDescriptor openAssetFile(Uri uri, String mode) throws FileNotFoundException {
-		// TODO Auto-generated method stub
-		throw new UnsupportedOperationException("Unimplemented method 'openAssetFile'");
+		return super.openAssetFile(uri, mode);
 	}
 }

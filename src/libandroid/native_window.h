@@ -15,7 +15,13 @@ struct ANativeWindow {
 	int refcount;
 	int width;
 	int height;
+	JavaVM *jvm;
+	jobject surface_texture;
+	jmethodID queue_frame;
 };
+
+struct ANativeWindow *ANativeWindow_fromSurfaceTexture(JNIEnv *env, jobject texture);
+gboolean atl_native_window_post_rgba(struct ANativeWindow *window, const unsigned char *pixels, int width, int height);
 
 struct ANativeWindow *ANativeWindow_fromSurface(JNIEnv *env, jobject surface);
 EGLSurface bionic_eglCreateWindowSurface(EGLDisplay display, EGLConfig config, struct ANativeWindow *native_window, EGLint const *attrib_list);

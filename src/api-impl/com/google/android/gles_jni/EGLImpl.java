@@ -65,6 +65,8 @@ public class EGLImpl implements EGL10 {
 			sur = holder.getSurface();
 		} else if (native_window instanceof Surface) {
 			sur = (Surface)native_window;
+		} else if (native_window instanceof android.graphics.SurfaceTexture) {
+			sur = new Surface((android.graphics.SurfaceTexture)native_window);
 		}
 
 		long eglSurfaceId;

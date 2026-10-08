@@ -30,12 +30,16 @@ public class SurfaceView extends View {
 	}
 
 	private void surfaceChanged(int format, int width, int height) {
+		if (System.getenv("ATL_DEBUG_SURFACE") != null)
+			System.err.println("ATL surfaceChanged " + width + "x" + height + " callbacks=" + mCallbacks.size());
 		for (SurfaceHolder.Callback c : mCallbacks) {
 			c.surfaceChanged(mSurfaceHolder, format, width, height);
 		}
 	}
 
 	private void surfaceCreated() {
+		if (System.getenv("ATL_DEBUG_SURFACE") != null)
+			System.err.println("ATL surfaceCreated callbacks=" + mCallbacks.size());
 		for (SurfaceHolder.Callback c : mCallbacks) {
 			c.surfaceCreated(mSurfaceHolder);
 		}

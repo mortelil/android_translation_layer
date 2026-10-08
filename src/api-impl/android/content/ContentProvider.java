@@ -57,6 +57,15 @@ public abstract class ContentProvider {
 
 	public abstract Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder);
 
+	public Cursor query(Uri uri, String[] projection, android.os.Bundle args, android.os.CancellationSignal signal) {
+		if (signal != null)
+			signal.throwIfCanceled();
+		return query(uri, projection,
+		             args == null ? null : args.getString("android:query-arg-sql-selection"),
+		             args == null ? null : args.getStringArray("android:query-arg-sql-selection-args"),
+		             args == null ? null : args.getString("android:query-arg-sql-sort-order"));
+	}
+
 	public abstract Uri insert(Uri uri, ContentValues values);
 
 	public abstract int update(Uri uri, ContentValues values, String selection, String[] selectionArgs);

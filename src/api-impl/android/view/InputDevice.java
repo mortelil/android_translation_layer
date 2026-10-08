@@ -61,13 +61,10 @@ public class InputDevice {
 	}
 
 	public List<InputDevice.MotionRange> getMotionRanges() {
-		MotionRange[] ranges = new MotionRange[32];
-
-		for (int i = 0; i < ranges.length; i++) {
-			ranges[i] = new MotionRange(i);
-		}
-
-		return new ArrayList<InputDevice.MotionRange>();
+		List<MotionRange> ranges = new ArrayList<MotionRange>();
+		ranges.add(getMotionRange(MotionEvent.AXIS_X));
+		ranges.add(getMotionRange(MotionEvent.AXIS_Y));
+		return ranges;
 	}
 
 	public boolean supportsSource(int source) {
@@ -75,7 +72,13 @@ public class InputDevice {
 	}
 
 	public MotionRange getMotionRange(int axis, int source) {
-		return new MotionRange(axis);
+		return source == SOURCE_TOUCHSCREEN ? getMotionRange(axis) : null;
+	}
+
+	public MotionRange getMotionRange(int axis) {
+		// GDK pointer events expose window coordinates, but no calibrated
+		// pressure or stylus axes through ATL's current input backend.
+		return axis == MotionEvent.AXIS_X || axis == MotionEvent.AXIS_Y ? new MotionRange(axis) : null;
 	}
 
 	public class MotionRange {
@@ -88,5 +91,12 @@ public class InputDevice {
 		public int getAxis() {
 			return this.axis;
 		}
+		public int getSource() { return SOURCE_TOUCHSCREEN; }
+		public float getMin() { return 0; }
+		public float getMax() { return axis == MotionEvent.AXIS_X ? Display.window_width : Display.window_height; }
+		public float getRange() { return getMax() - getMin(); }
+		public float getFlat() { return 0; }
+		public float getFuzz() { return 0; }
+		public float getResolution() { return 0; }
 	};
 }

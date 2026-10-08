@@ -1,14 +1,40 @@
 package android.media;
 
+import android.os.Handler;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 
-public class AudioTrack {
+public class AudioTrack implements AudioRouting {
+	private final Map<AudioRouting.OnRoutingChangedListener, Handler> routingListeners = new HashMap<>();
+
+	@Override
+	public synchronized void addOnRoutingChangedListener(AudioRouting.OnRoutingChangedListener listener, Handler handler) {
+		if (listener == null || routingListeners.containsKey(listener))
+			return;
+		routingListeners.put(listener, handler != null ? handler : new Handler(android.os.Looper.getMainLooper()));
+	}
+	@Override
+	public synchronized void removeOnRoutingChangedListener(AudioRouting.OnRoutingChangedListener listener) {
+		routingListeners.remove(listener);
+	}
+	// ALSA's default PCM is selected by the host audio server. ATL currently has
+	// no Android AudioDeviceInfo mapping or per-track device selection for it.
+	@Override
+	public AudioDeviceInfo getPreferredDevice() { return null; }
+	@Override
+	public AudioDeviceInfo getRoutedDevice() { return null; }
+	@Override
+	public boolean setPreferredDevice(AudioDeviceInfo device) { return device == null; }
 	public interface OnPlaybackPositionUpdateListener {
 		void onMarkerReached(AudioTrack track);
 		void onPeriodicNotification(AudioTrack track);
 	}
 
 	public static final int ERROR_BAD_VALUE = -2; // basically EINVAL
+	public static final int ERROR_INVALID_OPERATION = -3;
+	public static final int STATE_UNINITIALIZED = 0;
+	public static final int STATE_INITIALIZED = 1;
 
 	public static final int PLAYSTATE_STOPPED = 1;
 	public static final int PLAYSTATE_PAUSED = 2;
@@ -24,6 +50,8 @@ public class AudioTrack {
 	private int playbackState = PLAYSTATE_STOPPED;
 	private int playbackHeadPosition = 0;
 	private float volume = 1.f;
+	private int underrunCount;
+	public int getUnderrunCount() { return underrunCount; }
 
 	// for native code's use
 	long pcm_handle;
@@ -72,6 +100,8 @@ public class AudioTrack {
 	}
 
 	public void play() {
+		if (pcm_handle == 0)
+			throw new IllegalStateException("AudioTrack is not initialized");
 		System.out.println("calling AudioTrack.play()\n");
 		playbackState = PLAYSTATE_PLAYING;
 		native_play();
@@ -89,13 +119,16 @@ public class AudioTrack {
 	public void release() {
 		System.out.println("calling AudioTrack.release()\n");
 		native_release();
+		synchronized (this) { routingListeners.clear(); }
 	}
 
 	public int getState() {
-		return 1; // TODO: fix up the native part and make this work properly
+		return pcm_handle == 0 ? STATE_UNINITIALIZED : STATE_INITIALIZED;
 	}
 
 	public int write(byte[] audioData, int offsetInBytes, int sizeInBytes) {
+		if (pcm_handle == 0)
+			return ERROR_INVALID_OPERATION;
 		/* sanity check the parameters before calling native_write */
 		if ((audioData == null)
 		    || (offsetInBytes < 0) || (sizeInBytes < 0)
@@ -119,6 +152,8 @@ public class AudioTrack {
 	}
 
 	public int write(short audioData[], int offsetInShorts, int sizeInShorts) {
+		if (pcm_handle == 0)
+			return ERROR_INVALID_OPERATION;
 		/* sanity check the parameters before calling native_write */
 		if ((audioData == null)
 		    || (offsetInShorts < 0) || (sizeInShorts < 0)
@@ -153,12 +188,16 @@ public class AudioTrack {
 	}
 
 	public void pause() {
+		if (pcm_handle == 0)
+			throw new IllegalStateException("AudioTrack is not initialized");
 		System.out.println("calling AudioTrack.pause()\n");
 		playbackState = PLAYSTATE_PAUSED;
 		native_pause();
 	}
 
 	public int getPlaybackHeadPosition() {
+		if (pcm_handle == 0)
+			return 0;
 		return playbackHeadPosition - native_getPlaybackHeadPosition();
 	}
 
@@ -188,11 +227,19 @@ public class AudioTrack {
 		private AudioFormat mFormat;
 		private int mBufferSizeInBytes;
 		private int mTransferMode;
+		private int mSessionId;
 
 		public Builder() {}
 
 		public AudioTrack build() {
-			return new AudioTrack(mAttributes, mFormat, mBufferSizeInBytes, mTransferMode, 0);
+			return new AudioTrack(mAttributes, mFormat, mBufferSizeInBytes, mTransferMode, mSessionId);
+		}
+
+		public Builder setSessionId(int sessionId) {
+			if (sessionId < 0)
+				throw new IllegalArgumentException("Invalid audio session ID");
+			mSessionId = sessionId;
+			return this;
 		}
 
 		public Builder setAudioAttributes(AudioAttributes attributes) {

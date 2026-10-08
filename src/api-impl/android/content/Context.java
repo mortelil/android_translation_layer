@@ -306,6 +306,13 @@ public abstract class Context {
 		return new File[] {getCacheDir()};
 	}
 
+	public File getCodeCacheDir() {
+		File dir = new File(getApplicationInfo().dataDir, "code_cache");
+		if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory())
+			throw new IllegalStateException("Cannot create code cache directory: " + dir);
+		return dir;
+	}
+
 	public File getNoBackupFilesDir() {
 		if (nobackup_dir == null) {
 			nobackup_dir = new File(getDataDirFile(), "no_backup/" + getPackageName());
@@ -546,6 +553,24 @@ public abstract class Context {
 
 	public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, String broadcastPermission, Handler scheduler) {
 		return registerReceiver(receiver, filter);
+	}
+
+	public static final int RECEIVER_VISIBLE_TO_INSTANT_APPS = 1;
+	public static final int RECEIVER_EXPORTED = 2;
+	public static final int RECEIVER_NOT_EXPORTED = 4;
+
+	public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, int flags) {
+		return registerReceiver(receiver, filter, null, null, flags);
+	}
+
+	public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+	                               String broadcastPermission, Handler scheduler, int flags) {
+		if ((flags & RECEIVER_VISIBLE_TO_INSTANT_APPS) != 0)
+			flags |= RECEIVER_EXPORTED;
+		if ((flags & (RECEIVER_EXPORTED | RECEIVER_NOT_EXPORTED)) == (RECEIVER_EXPORTED | RECEIVER_NOT_EXPORTED))
+			throw new IllegalArgumentException("Receiver cannot be both exported and not exported");
+		// ATL currently delivers broadcasts only within this application process.
+		return registerReceiver(receiver, filter, broadcastPermission, scheduler);
 	}
 
 	public String[] fileList() {

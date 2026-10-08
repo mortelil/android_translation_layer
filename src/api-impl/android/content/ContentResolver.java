@@ -85,6 +85,11 @@ public class ContentResolver {
 	}
 
 	public Cursor query(Uri uri, String[] projection, Bundle queryArgs, CancellationSignal cancellationSignal) {
+		if (cancellationSignal != null)
+			cancellationSignal.throwIfCanceled();
+		ContentProvider provider = ContentProvider.atl_get_content_provider(uri.getAuthority());
+		if (provider != null)
+			return provider.query(uri, projection, queryArgs, cancellationSignal);
 		if ("file".equals(uri.getScheme())) {
 			MatrixCursor cursor = new MatrixCursor(projection);
 			Object[] row = new Object[projection.length];

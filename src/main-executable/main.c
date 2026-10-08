@@ -710,21 +710,25 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 	update_config_for_window(GTK_WINDOW(window));
 
-	if (!d->apk_instrumentation_class && app_icon_path) {
+	if (!d->apk_instrumentation_class && app_icon_path && *app_icon_path) {
 		char *app_icon_path_full = malloc(strlen(app_data_dir) + 1 + strlen(app_icon_path) + 1); // +1 for /, +1 for NULL
 		sprintf(app_icon_path_full, "%s/%s", app_data_dir, app_icon_path);
 
 		extract_from_apk(app_icon_path, app_icon_path);
 
 		GError *error = NULL;
-		GList *icon_list = g_list_append(NULL, gdk_texture_new_from_filename(app_icon_path_full, &error));
+		GdkTexture *icon = gdk_texture_new_from_filename(app_icon_path_full, &error);
+		free(app_icon_path_full);
 		if (error) {
 			fprintf(stderr, "gdk_texture_new_from_filename: %s\n", error->message);
 			g_clear_error(&error);
 		}
-		icon_override(window, icon_list);
-		/* if Gtk sets the icon list to NULL, override it again */
-		g_signal_connect_after(window, "realize", G_CALLBACK(icon_override), icon_list);
+		if (icon) {
+			GList *icon_list = g_list_append(NULL, icon);
+			icon_override(window, icon_list);
+			/* if Gtk sets the icon list to NULL, override it again */
+			g_signal_connect_after(window, "realize", G_CALLBACK(icon_override), icon_list);
+		}
 	}
 
 	if (!d->apk_instrumentation_class) {

@@ -1,4 +1,19 @@
 #include <gtk/gtk.h>
+#include <jni.h>
+
+JNIEXPORT jlong JNICALL Java_android_graphics_Bitmap_native_1texture_1from_1bytes(
+    JNIEnv *env, jclass clazz, jbyteArray pixels, jint width, jint height, jint stride, jint format)
+{
+	jsize size = (*env)->GetArrayLength(env, pixels);
+	jbyte *data = (*env)->GetByteArrayElements(env, pixels, NULL);
+	if (!data)
+		return 0;
+	GBytes *bytes = g_bytes_new(data, size);
+	(*env)->ReleaseByteArrayElements(env, pixels, data, JNI_ABORT);
+	GdkTexture *texture = gdk_memory_texture_new(width, height, format, bytes, stride);
+	g_bytes_unref(bytes);
+	return (jlong)texture;
+}
 
 #include "../defines.h"
 #include "../util.h"

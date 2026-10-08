@@ -1372,15 +1372,17 @@ public class View implements Drawable.Callback {
 	public void unscheduleDrawable(Drawable drawable) {}
 
 	public void invalidate(Rect dirty) {
-		nativeInvalidate(widget);
+		invalidate();
 	}
 	public void invalidate(int l, int t, int r, int b) {
-		nativeInvalidate(widget);
+		invalidate();
 	}
 	public void invalidate() {
 		nativeInvalidate(widget);
+		if (parent != null)
+			parent.onDescendantInvalidated(this, this);
 	}
-	private static native void nativeInvalidate(long widget);
+	static native void nativeInvalidate(long widget);
 
 	protected native void native_setBackgroundColor(long widget, int color);
 	public void setBackgroundColor(int color) {
@@ -1837,7 +1839,10 @@ public class View implements Drawable.Callback {
 
 	public float getRotation() { return 0.f; }
 
-	public void bringToFront() {}
+	public void bringToFront() {
+		if (parent instanceof ViewGroup)
+			((ViewGroup)parent).bringChildToFront(this);
+	}
 
 	public boolean isEnabled() { return atl_enabled; }
 	public boolean hasFocus() { return false; }
@@ -2221,6 +2226,13 @@ public class View implements Drawable.Callback {
 
 	public boolean dispatchTouchEvent(MotionEvent event) { return false; }
 
+	public void requestUnbufferedDispatch(MotionEvent event) {
+		if (event == null)
+			throw new NullPointerException("event");
+		// ATL delivers each GDK input event directly; there is no Android
+		// InputEventReceiver batch to flush or disable.
+	}
+
 	public boolean canScrollHorizontally(int direction) { return false; }
 
 	protected native boolean native_getGlobalVisibleRect(long widget, Rect visibleRect);
@@ -2388,6 +2400,17 @@ public class View implements Drawable.Callback {
 
 	public boolean onKeyDown(int keyCode, KeyEvent event) {
 		return false;
+	}
+
+	private KeyEvent.DispatcherState keyDispatcherState;
+
+	public KeyEvent.DispatcherState getKeyDispatcherState() {
+		if (!isAttachedToWindow())
+			return null;
+		View root = getRootView();
+		if (root.keyDispatcherState == null)
+			root.keyDispatcherState = new KeyEvent.DispatcherState();
+		return root.keyDispatcherState;
 	}
 
 	public boolean dispatchKeyEvent(KeyEvent event) {

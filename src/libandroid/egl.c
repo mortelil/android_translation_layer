@@ -19,6 +19,14 @@
 extern GtkWindow *window; // TODO: how do we get rid of this? the app won't pass anything useful to eglGetDisplay
 
 static GHashTable *egl_surface_hashtable;
+static GHashTable *texture_surface_hashtable;
+static GHashTable *draw_surface_hashtable;
+static GHashTable *read_surface_hashtable;
+
+static gboolean surface_matches(gpointer key, gpointer value, gpointer surface)
+{
+	return value == surface;
+}
 
 // temporary for debugging
 static void PrintConfigAttributes(EGLDisplay display, EGLConfig config)
@@ -201,6 +209,7 @@ struct _ATLSurface {
 	unsigned int renderbuffer_attachment;
 	uint32_t renderbuffer;
 	struct atl_surface_buffer {
+		int width, height;
 		struct _ATLSurface *surface;
 		EGLImage egl_image;
 		GdkGLTextureBuilder *texture_builder;
@@ -257,6 +266,19 @@ EGLSurface bionic_eglCreateWindowSurface(EGLDisplay display, EGLConfig config, s
 	// better than crashing (TODO: check if apps try to use the NULL value anyway)
 	if (!native_window)
 		return NULL;
+	if (native_window->surface_texture) {
+		if (native_window->width <= 0 || native_window->height <= 0 || (int64_t)native_window->width * native_window->height * 4 > INT32_MAX)
+			return EGL_NO_SURFACE;
+		EGLint size[] = {EGL_WIDTH, native_window->width, EGL_HEIGHT, native_window->height, EGL_NONE};
+		EGLSurface target = eglCreatePbufferSurface(display, config, size);
+		if (target != EGL_NO_SURFACE) {
+			if (!texture_surface_hashtable)
+				texture_surface_hashtable = g_hash_table_new(NULL, NULL);
+			ANativeWindow_acquire(native_window);
+			g_hash_table_insert(texture_surface_hashtable, target, native_window);
+		}
+		return target;
+	}
 
 	if (!egl_surface_hashtable)
 		egl_surface_hashtable = g_hash_table_new(NULL, NULL);
@@ -311,6 +333,15 @@ EGLSurface bionic_eglCreateWindowSurface(EGLDisplay display, EGLConfig config, s
 
 EGLBoolean bionic_eglDestroySurface(EGLDisplay display, EGLSurface surface)
 {
+	struct ANativeWindow *texture_window = texture_surface_hashtable ? g_hash_table_lookup(texture_surface_hashtable, surface) : NULL;
+	if (texture_window) {
+		EGLBoolean success = eglDestroySurface(display, surface);
+		if (success) {
+			g_hash_table_remove(texture_surface_hashtable, surface);
+			ANativeWindow_release(texture_window);
+		}
+		return success;
+	}
 	struct ANativeWindow *native_window = g_hash_table_lookup(egl_surface_hashtable, surface);
 
 	if (!native_window)
@@ -322,6 +353,10 @@ EGLBoolean bionic_eglDestroySurface(EGLDisplay display, EGLSurface surface)
 	} else {
 		ATLSurface *atl_surface = surface;
 		atl_surface->destroyed = TRUE;
+		if (draw_surface_hashtable)
+			g_hash_table_foreach_remove(draw_surface_hashtable, surface_matches, surface);
+		if (read_surface_hashtable)
+			g_hash_table_foreach_remove(read_surface_hashtable, surface_matches, surface);
 		for (int i = 0; i < NUM_BUFFERS; i++) {
 			if (atl_surface->buffers[i].egl_image)
 				eglDestroyImage(display, atl_surface->buffers[i].egl_image);
@@ -341,15 +376,46 @@ EGLBoolean bionic_eglDestroySurface(EGLDisplay display, EGLSurface surface)
 	return ret;
 }
 
-static GHashTable *draw_surface_hashtable = NULL;
-static GHashTable *read_surface_hashtable = NULL;
+/* Only a buffer returned by unused_buffers may be resized: GTK can still
+ * be displaying another buffer from the previous window size. */
+static void resize_back_buffer(ATLSurface *surface, struct ANativeWindow *window)
+{
+	struct atl_surface_buffer *buffer = surface->back_buffer;
+	int width = g_atomic_int_get(&window->width), height = g_atomic_int_get(&window->height);
+	if (!buffer || width <= 0 || height <= 0 || (buffer->width == width && buffer->height == height))
+		return;
+	GLint texture, renderbuffer;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+	glBindTexture(GL_TEXTURE_2D, buffer->gl_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, surface->framebuffer_format, width, height, 0,
+	             surface->framebuffer_format, GL_UNSIGNED_BYTE, NULL);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	if (buffer->egl_image)
+		eglDestroyImage(eglGetCurrentDisplay(), buffer->egl_image);
+	buffer->egl_image = eglCreateImage(eglGetCurrentDisplay(), eglGetCurrentContext(),
+	                                   EGL_GL_TEXTURE_2D, (EGLClientBuffer)(uintptr_t)buffer->gl_texture, NULL);
+	if (surface->renderbuffer) {
+		glGetIntegerv(GL_RENDERBUFFER_BINDING, &renderbuffer);
+		glBindRenderbuffer(GL_RENDERBUFFER, surface->renderbuffer);
+		glRenderbufferStorage(GL_RENDERBUFFER, surface->renderbuffer_format, width, height);
+		glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+	}
+	buffer->width = width;
+	buffer->height = height;
+	if (getenv("ATL_DEBUG_SURFACE"))
+		g_printerr("ATL EGL buffer resized %dx%d\n", width, height);
+}
 
 EGLBoolean bionic_eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context)
 {
 	if (getenv("ATL_DIRECT_EGL"))
 		return eglMakeCurrent(display, draw, read, context);
-	struct ANativeWindow *native_window = g_hash_table_lookup(egl_surface_hashtable, draw);
+	struct ANativeWindow *native_window = egl_surface_hashtable ? g_hash_table_lookup(egl_surface_hashtable, draw) : NULL;
 	if (!native_window) {
+		if (draw_surface_hashtable)
+			g_hash_table_remove(draw_surface_hashtable, context);
+		if (read_surface_hashtable)
+			g_hash_table_remove(read_surface_hashtable, context);
 		return eglMakeCurrent(display, draw, read, context);
 	}
 	if (!draw_surface_hashtable)
@@ -377,6 +443,8 @@ EGLBoolean bionic_eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface
 
 		for (int i = 0; i < NUM_BUFFERS; i++) {
 			atl_surface->buffers[i].surface = atl_surface;
+			atl_surface->buffers[i].width = native_window->width;
+			atl_surface->buffers[i].height = native_window->height;
 			glGenTextures(1, &atl_surface->buffers[i].gl_texture);
 			glBindTexture(GL_TEXTURE_2D, atl_surface->buffers[i].gl_texture);
 			glTexImage2D(GL_TEXTURE_2D, 0, atl_surface->framebuffer_format, native_window->width, native_window->height, 0, atl_surface->framebuffer_format, GL_UNSIGNED_BYTE, NULL);
@@ -400,6 +468,7 @@ EGLBoolean bionic_eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface
 	if (!atl_surface->back_buffer) {
 		atl_surface->back_buffer = g_async_queue_pop(atl_surface->unused_buffers);
 	}
+	resize_back_buffer(atl_surface, native_window);
 	glBindFramebuffer(GL_FRAMEBUFFER, atl_surface->back_buffer->gl_framebuffer);
 	return ret;
 }
@@ -420,16 +489,23 @@ static void frame_callback(SurfaceViewWidget *surface_view_widget)
 static gboolean queue_texture(gpointer data)
 {
 	static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES = NULL;
-	ATLSurface *atl_surface = data;
+	struct atl_surface_buffer *buffer = data;
+	ATLSurface *atl_surface = buffer->surface;
 	if (atl_surface->destroyed) {
 		g_object_unref(atl_surface);
 		return G_SOURCE_REMOVE;
 	}
-	struct atl_surface_buffer *buffer = atl_surface->front_buffer;
-	if (!buffer->texture_builder) {
+	if (buffer->egl_image) {
 		GLuint texture_id;
-		GdkGLContext *gtk_gl_context = gdk_surface_create_gl_context(gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(atl_surface->surface_view_widget))), NULL);
+		GdkGLContext *gtk_gl_context = buffer->texture_builder
+		                                 ? g_object_ref(gdk_gl_texture_builder_get_context(buffer->texture_builder))
+		                                 : gdk_surface_create_gl_context(gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(atl_surface->surface_view_widget))), NULL);
 		gdk_gl_context_make_current(gtk_gl_context);
+		if (buffer->texture_builder) {
+			GLuint old_id = gdk_gl_texture_builder_get_id(buffer->texture_builder);
+			glDeleteTextures(1, &old_id);
+			g_clear_object(&buffer->texture_builder);
+		}
 		glGenTextures(1, &texture_id);
 		glBindTexture(GL_TEXTURE_2D, texture_id);
 		if (!glEGLImageTargetTexture2DOES)
@@ -442,9 +518,10 @@ static gboolean queue_texture(gpointer data)
 		gdk_gl_texture_builder_set_context(buffer->texture_builder, gtk_gl_context);
 		gdk_gl_texture_builder_set_id(buffer->texture_builder, texture_id);
 		gdk_gl_texture_builder_set_format(buffer->texture_builder, GDK_MEMORY_R8G8B8A8_PREMULTIPLIED);
-		gdk_gl_texture_builder_set_width(buffer->texture_builder, atl_surface->width);
-		gdk_gl_texture_builder_set_height(buffer->texture_builder, atl_surface->height);
+		gdk_gl_texture_builder_set_width(buffer->texture_builder, buffer->width);
+		gdk_gl_texture_builder_set_height(buffer->texture_builder, buffer->height);
 		gdk_gl_context_clear_current();
+		g_object_unref(gtk_gl_context);
 	}
 	atl_surface->surface_view_widget->frame_callback_data = atl_surface->vsync;
 	atl_surface->surface_view_widget->frame_callback = frame_callback;
@@ -455,6 +532,34 @@ static gboolean queue_texture(gpointer data)
 
 EGLBoolean bionic_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
 {
+	struct ANativeWindow *texture_window = texture_surface_hashtable ? g_hash_table_lookup(texture_surface_hashtable, surface) : NULL;
+	if (texture_window) {
+		int width = texture_window->width, height = texture_window->height;
+		size_t stride = (size_t)width * 4;
+		unsigned char *pixels = g_malloc(stride * height);
+		GLint alignment;
+		glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+		GLenum read_error = glGetError();
+		if (read_error != GL_NO_ERROR) {
+			g_warning("Surface image readback failed: GL error 0x%x", read_error);
+			g_free(pixels);
+			return EGL_FALSE;
+		}
+		// GL rows start at the bottom; the Java image/canvas queue uses top-down RGBA.
+		unsigned char *row = g_malloc(stride);
+		for (int y = 0; y < height / 2; ++y) {
+			memcpy(row, pixels + y * stride, stride);
+			memcpy(pixels + y * stride, pixels + (height - y - 1) * stride, stride);
+			memcpy(pixels + (height - y - 1) * stride, row, stride);
+		}
+		g_free(row);
+		gboolean posted = atl_native_window_post_rgba(texture_window, pixels, width, height);
+		g_free(pixels);
+		return posted ? EGL_TRUE : EGL_FALSE;
+	}
 	if (getenv("ATL_DIRECT_EGL"))
 		return eglSwapBuffers(display, surface);
 	struct ANativeWindow *native_window = g_hash_table_lookup(egl_surface_hashtable, surface);
@@ -468,9 +573,11 @@ EGLBoolean bionic_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
 		g_async_queue_timeout_pop(atl_surface->vsync, 50000); // 50ms
 		atl_surface->front_buffer = atl_surface->back_buffer;
 		atl_surface->back_buffer = NULL;
-		g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, queue_texture, g_object_ref(atl_surface), NULL);
+		g_object_ref(atl_surface);
+		g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, queue_texture, atl_surface->front_buffer, NULL);
 	}
 	atl_surface->back_buffer = g_async_queue_timeout_pop(atl_surface->unused_buffers, 100000); // 100ms
+	resize_back_buffer(atl_surface, native_window);
 	if (atl_surface->back_buffer)
 		glBindFramebuffer(GL_FRAMEBUFFER, atl_surface->back_buffer->gl_framebuffer);
 	else
@@ -487,9 +594,9 @@ EGLBoolean bionic_eglQuerySurface(EGLDisplay display, EGLSurface surface, EGLint
 	if (!native_window)
 		return eglQuerySurface(display, surface, attribute, value);
 	if (attribute == EGL_WIDTH) {
-		*value = native_window->width;
+		*value = g_atomic_int_get(&native_window->width);
 	} else if (attribute == EGL_HEIGHT) {
-		*value = native_window->height;
+		*value = g_atomic_int_get(&native_window->height);
 	} else {
 		printf("bionic_eglQuerySurface(%p, %p, %d, %p): attribute not implemented\n", display, surface, attribute, value);
 		return eglQuerySurface(display, surface, attribute, value);
@@ -503,9 +610,9 @@ EGLSurface bionic_eglGetCurrentSurface(EGLint readdraw)
 		return eglGetCurrentSurface(readdraw);
 	EGLContext current_context = eglGetCurrentContext();
 	if (readdraw == EGL_READ)
-		return g_hash_table_lookup(read_surface_hashtable, current_context);
+		return read_surface_hashtable && g_hash_table_contains(read_surface_hashtable, current_context) ? g_hash_table_lookup(read_surface_hashtable, current_context) : eglGetCurrentSurface(readdraw);
 	else if (readdraw == EGL_DRAW)
-		return g_hash_table_lookup(draw_surface_hashtable, current_context);
+		return draw_surface_hashtable && g_hash_table_contains(draw_surface_hashtable, current_context) ? g_hash_table_lookup(draw_surface_hashtable, current_context) : eglGetCurrentSurface(readdraw);
 
 	return NULL;
 }
@@ -514,6 +621,6 @@ void bionic_glBindFramebuffer(GLenum target, GLuint framebuffer)
 {
 	if (getenv("ATL_DIRECT_EGL") || framebuffer != 0)
 		return glBindFramebuffer(target, framebuffer);
-	ATLSurface *atl_surface = g_hash_table_lookup(draw_surface_hashtable, eglGetCurrentContext());
-	return glBindFramebuffer(target, atl_surface ? atl_surface->back_buffer->gl_framebuffer : 0);
+	ATLSurface *atl_surface = draw_surface_hashtable ? g_hash_table_lookup(draw_surface_hashtable, eglGetCurrentContext()) : NULL;
+	return glBindFramebuffer(target, atl_surface && atl_surface->back_buffer ? atl_surface->back_buffer->gl_framebuffer : 0);
 }

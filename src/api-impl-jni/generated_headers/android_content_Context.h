@@ -19,6 +19,12 @@ extern "C" {
 #define android_content_Context_MODE_ENABLE_WRITE_AHEAD_LOGGING 8L
 #undef android_content_Context_MODE_NO_LOCALIZED_COLLATORS
 #define android_content_Context_MODE_NO_LOCALIZED_COLLATORS 16L
+#undef android_content_Context_RECEIVER_VISIBLE_TO_INSTANT_APPS
+#define android_content_Context_RECEIVER_VISIBLE_TO_INSTANT_APPS 1L
+#undef android_content_Context_RECEIVER_EXPORTED
+#define android_content_Context_RECEIVER_EXPORTED 2L
+#undef android_content_Context_RECEIVER_NOT_EXPORTED
+#define android_content_Context_RECEIVER_NOT_EXPORTED 4L
 /*
  * Class:     android_content_Context
  * Method:    native_updateConfig

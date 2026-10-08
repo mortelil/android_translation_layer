@@ -472,6 +472,8 @@ public class ApplicationInfo extends PackageItemInfo {
 	 * behavior was introduced.
 	 */
 	public int targetSdkVersion;
+	public static final int FLAG_USES_CLEARTEXT_TRAFFIC = 1 << 27;
+	public int networkSecurityConfigRes;
 
 	/**
 	 * When false, indicates that all components within this application are
@@ -599,6 +601,7 @@ public class ApplicationInfo extends PackageItemInfo {
 		uid = orig.uid;
 		minSdkVersion = orig.minSdkVersion;
 		targetSdkVersion = orig.targetSdkVersion;
+		networkSecurityConfigRes = orig.networkSecurityConfigRes;
 		enabled = orig.enabled;
 		enabledSetting = orig.enabledSetting;
 		installLocation = orig.installLocation;

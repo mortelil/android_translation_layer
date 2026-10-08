@@ -181,6 +181,8 @@ public final class ContextImpl extends Context {
 				return new InputMethodManager();
 			case "accessibility":
 				return new AccessibilityManager();
+			case "textservices":
+				return new android.view.textservice.TextServicesManager();
 			case "layout_inflater":
 				return layout_inflater;
 			case "wifi":

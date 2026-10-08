@@ -25,6 +25,7 @@
 #include "../util.h"
 #include "../generated_headers/android_media_MediaCodec.h"
 #include "../../libandroid/native_window.h"
+#include "../widgets/WrapperWidget.h"
 #include "../widgets/android_view_SurfaceView.h"
 #include "jni.h"
 
@@ -163,8 +164,10 @@ static guint schedule_render(GSourceFunc render_fn, struct render_frame_data *da
 	if (data->release_time_ns > 0)
 		delay_us = (data->release_time_ns - RENDER_LEAD_US * 1000 - g_get_monotonic_time() * 1000) / 1000; // all in ns
 	if (delay_us > 0)
-		return g_timeout_add_full(G_PRIORITY_DEFAULT_IDLE, MAX(delay_us / 1000, 1), render_fn, data, NULL);
-	return g_idle_add(render_fn, data);
+		return g_timeout_add_full(G_PRIORITY_DEFAULT, MAX(delay_us / 1000, 1), render_fn, data, NULL);
+	/* A continuously redrawing client can keep GTK's redraw sources ready.
+	 * Video deadlines must not wait for the main context to become idle. */
+	return g_idle_add_full(G_PRIORITY_DEFAULT, render_fn, data, NULL);
 }
 
 static void handle_dmabuftexture_destroy(void *data)
@@ -394,6 +397,34 @@ JNIEXPORT jint JNICALL Java_android_media_MediaCodec_native_1dequeueOutputBuffer
 	return 0;
 }
 
+/* Native decoder frames must also invalidate the Android view hierarchy.
+ * Embedded views can redirect drawing into an offscreen Surface. */
+static void invalidate_video_view(SurfaceViewWidget *surface)
+{
+	GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(surface));
+	while (parent && !WRAPPER_IS_WIDGET(parent))
+		parent = gtk_widget_get_parent(parent);
+	if (!parent)
+		return;
+	JNIEnv *env = get_jni_env();
+	jobject view = (*env)->NewLocalRef(env, WRAPPER_WIDGET(parent)->jobj);
+	if (!view)
+		return;
+	jclass view_class = (*env)->GetObjectClass(env, view);
+	(*env)->CallVoidMethod(env, view, _METHOD(view_class, "invalidate", "()V"));
+	(*env)->DeleteLocalRef(env, view_class);
+	if ((*env)->ExceptionCheck(env))
+		(*env)->ExceptionDescribe(env);
+	(*env)->DeleteLocalRef(env, view);
+	if (getenv("ATL_DEBUG_VIDEO")) {
+		static unsigned frames;
+		if (++frames % 30 == 1)
+			g_printerr("ATL video: posted frame %u widget=%dx%d mapped=%d visible=%d\n", frames,
+			           gtk_widget_get_width(GTK_WIDGET(surface)), gtk_widget_get_height(GTK_WIDGET(surface)),
+			           gtk_widget_get_mapped(GTK_WIDGET(surface)), gtk_widget_get_visible(GTK_WIDGET(surface)));
+	}
+}
+
 // callback to perform wayland stuff on main thread
 static gboolean render_frame(void *data)
 {
@@ -422,6 +453,8 @@ static gboolean render_frame(void *data)
 
 	GdkTexture *texture = import_drm_frame_desc_as_texture(drm_frame_desc, drm_frame->width, drm_frame->height, drm_frame);
 	surface_view_widget_set_texture(d->surface_view_widget, texture, FALSE);
+	invalidate_video_view(d->surface_view_widget);
+	g_object_unref(d->surface_view_widget);
 	free(d);
 
 	return G_SOURCE_REMOVE;
@@ -432,6 +465,8 @@ static gboolean render_texture(void *data)
 	struct render_frame_data *d = (struct render_frame_data *)data;
 
 	surface_view_widget_set_texture(d->surface_view_widget, d->texture, FALSE);
+	invalidate_video_view(d->surface_view_widget);
+	g_object_unref(d->surface_view_widget);
 
 	free(d);
 	return G_SOURCE_REMOVE;
@@ -485,7 +520,7 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 			GdkTexture *texture = gdk_memory_texture_new(frame->width, frame->height, gdk_mem_fmt, bytes, stride);
 			struct render_frame_data *data = malloc(sizeof(struct render_frame_data));
 			data->texture = texture;
-			data->surface_view_widget = ctx->video.surface_view_widget;
+			data->surface_view_widget = g_object_ref(ctx->video.surface_view_widget);
 			data->release_time_ns = presentationTimeNs;
 			schedule_render(render_texture, data, texture);
 			g_bytes_unref(bytes);
@@ -496,7 +531,7 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 		struct render_frame_data *data = malloc(sizeof(struct render_frame_data));
 		data->frame = frame;
 		data->release_time_ns = presentationTimeNs;
-		data->surface_view_widget = ctx->video.surface_view_widget;
+		data->surface_view_widget = g_object_ref(ctx->video.surface_view_widget);
 		schedule_render(render_frame, data, NULL);
 	}
 }
