@@ -8,7 +8,12 @@
 
 JNIEXPORT jlong JNICALL Java_android_graphics_Matrix_native_1create(JNIEnv *env, jclass class, jlong src)
 {
-	return _INTPTR(graphene_matrix_init_identity(graphene_matrix_alloc()));
+	graphene_matrix_t *matrix = graphene_matrix_alloc();
+	if (src)
+		graphene_matrix_init_from_matrix(matrix, (graphene_matrix_t *)_PTR(src));
+	else
+		graphene_matrix_init_identity(matrix);
+	return _INTPTR(matrix);
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Matrix_native_1getValues(JNIEnv *env, jclass class, jlong src, jfloatArray values_ref)
