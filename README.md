@@ -9,6 +9,10 @@ Start with [build, run and compatibility notes](doc/MobileFork.md),
 The matching bionic_translation and art_standalone forks are required; see
 `dependency-lock.json`. No APKs or personal media are added by this fork.
 
+Companion repositories:
+- [bionic_translation](https://github.com/mortelil/bionic_translation)
+- [art_standalone](https://github.com/mortelil/art_standalone)
+
 Upstream: https://gitlab.com/android_translation_layer/android_translation_layer
 
 The original upstream README follows; its broad platform instructions describe

@@ -10,6 +10,14 @@ modify or redistribute the Immich APK.
 
 Keep these repositories beside one another:
 
+```sh
+mkdir atl-mobile-workspace
+cd atl-mobile-workspace
+git clone -b linux-mobile-experimental https://github.com/mortelil/android_translation_layer.git
+git clone -b linux-mobile-experimental https://github.com/mortelil/bionic_translation.git
+git clone -b linux-mobile-experimental https://github.com/mortelil/art_standalone.git
+```
+
 ```
 workspace/
   android_translation_layer/
