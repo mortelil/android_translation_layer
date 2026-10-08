@@ -9,6 +9,7 @@ public class TestActivity extends android.app.Activity {
 			TestRange.main(new String[0]);
 			TestViews.run(this);
 			TestMedia.run(this);
+			TestDocuments.run(this);
 			android.text.SpannableStringBuilder editable = new android.text.SpannableStringBuilder("first");
 			android.text.TextPaint paint = new android.text.TextPaint();
 			paint.setTextSize(16);

@@ -19,6 +19,14 @@ import java.util.List;
 public class ContentResolver {
 	public static final String SCHEME_CONTENT = "content";
 
+	public void takePersistableUriPermission(Uri uri, int modeFlags) {
+		android.atl.ATLDocumentsProvider.takePermission(uri, modeFlags);
+	}
+
+	public void releasePersistableUriPermission(Uri uri, int modeFlags) {
+		android.atl.ATLDocumentsProvider.releasePermission(uri, modeFlags);
+	}
+
 	public static final String SYNC_EXTRAS_IGNORE_SETTINGS = "ignore_settings";
 
 	public final void registerContentObserver(Uri uri, boolean notifyForDescendants, ContentObserver observer) {

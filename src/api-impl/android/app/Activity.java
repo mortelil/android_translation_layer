@@ -297,7 +297,15 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	// callback from native code
 	protected void fileChooserResultCallback(int requestCode, int resultCode, int action, String uri) {
-		onActivityResult(requestCode, resultCode, new Intent(FILE_CHOOSER_ACTIONS.get(action), uri != null ? Uri.parse(uri) : null));
+		Uri resultUri = uri != null ? Uri.parse(uri) : null;
+		Intent result = new Intent(FILE_CHOOSER_ACTIONS.get(action));
+		if (resultCode == RESULT_OK && resultUri != null && (action == 0 || action == 2)) {
+			resultUri = android.atl.ATLDocumentsProvider.select(resultUri, action == 2);
+			// Read + persistable; tree grants also cover descendant documents.
+			result.addFlags(1 | 64 | (action == 2 ? 128 : 0));
+		}
+		result.setData(resultUri);
+		onActivityResult(requestCode, resultCode, result);
 	}
 
 	public void startActivityForResult(Intent intent, int requestCode, Bundle options) {

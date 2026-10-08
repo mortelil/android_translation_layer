@@ -20,6 +20,7 @@ public abstract class ContentProvider {
 	static final HashMap<String, ATLProvider> atl_providers = new HashMap<>();
 
 	static void createContentProviders() {
+		atl_providers.put(android.atl.ATLDocumentsProvider.AUTHORITY, new ATLProvider(new android.atl.ATLDocumentsProvider()));
 		atl_providers.put("media", new ATLProvider(new ATLMediaContentProvider()));
 		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
 		for (PackageParser.Provider provider_parsed : primary.pkg.providers) {
