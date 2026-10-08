@@ -229,8 +229,12 @@ public class Paint {
 	public /*native*/ void setTextSkewX(float skewX) {}
 
 	public /*native*/ float descent() { return 0; }
-	public /*native*/ float getFontMetrics(FontMetrics metrics) { return 0; }
-	public /*native*/ int getFontMetricsInt(FontMetricsInt fmi) { return 0; }
+	public float getFontMetrics(FontMetrics metrics) {
+		return native_get_font_metrics(paint, metrics);
+	}
+	public int getFontMetricsInt(FontMetricsInt fmi) {
+		return native_get_font_metrics_int(paint, fmi);
+	}
 
 	public void setShadowLayer(float radius, float dx, float dy, int color) {}
 
@@ -338,13 +342,17 @@ public class Paint {
 	}
 
 	public FontMetrics getFontMetrics() {
-		return new FontMetrics();
+		FontMetrics metrics = new FontMetrics();
+		native_get_font_metrics(paint, metrics);
+		return metrics;
 	}
 
 	public void setFontMetricsInt(FontMetricsInt fmi) {}
 
 	public FontMetricsInt getFontMetricsInt() {
-		return new FontMetricsInt();
+		FontMetricsInt fmi = new FontMetricsInt();
+		native_get_font_metrics_int(paint, fmi);
+		return fmi;
 	}
 
 	public void set(Paint paint) {
@@ -417,4 +425,6 @@ public class Paint {
 	private static native void native_set_color_filter(long paint, int mode, int color);
 	private static native void native_get_text_bounds(long paint, String text, Rect bounds);
 	private static native void native_set_text_align(long paint, int align);
+	private static native float native_get_font_metrics(long paint, FontMetrics metrics);
+	private static native int native_get_font_metrics_int(long paint, FontMetricsInt metrics);
 }

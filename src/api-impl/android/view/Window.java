@@ -71,9 +71,6 @@ public class Window {
 		}
 		decorView.removeAllViews();
 		decorView.addView(view);
-		if (view != null) {
-			set_widget_as_root(native_window, decorView.widget);
-		}
 	}
 
 	public View getDecorView() {
@@ -201,7 +198,8 @@ public class Window {
 
 	public void setWindowAnimations(int resId) {}
 
-	public native void set_widget_as_root(long native_window, long widget);
+	public void setDimAmount(float dimAmount) {}
+
 	private native void set_title(long native_window, String title);
 	public native void take_input_queue(long native_window, InputQueue.Callback callback, InputQueue queue);
 	public native void set_layout(long native_window, int width, int height);

@@ -79,8 +79,8 @@ public class ATLMediaContentProvider extends ContentProvider {
 		ATLMediaIndex media = index();
 		if (media != null)
 			return media.query(uri, projection, selection, selectionArgs, sortOrder, null);
-		if (selectionArgs != null && selectionArgs.length > 0) {
-			selectedFile = new File(selectionArgs[0]);
+		if (selectionArgs != null && selectionArgs.length > 0 && selectedFile != null) {
+			// A follow-up metadata query for an already selected file must not reopen the chooser.
 			timestamp = System.currentTimeMillis();
 		}
 		// if we haven't selected a file, open the file chooser
@@ -107,8 +107,10 @@ public class ATLMediaContentProvider extends ContentProvider {
 						row[i] = 0;
 						break;
 					case "_data":
+						row[i] = selectedFile == null ? null : selectedFile.getAbsolutePath();
+						break;
 					case "title":
-						row[i] = selectedFile;
+						row[i] = selectedFile == null ? null : selectedFile.getName();
 						break;
 					case "mime_type":
 						row[i] = getType(uri);

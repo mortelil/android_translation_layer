@@ -51,6 +51,8 @@ int canceled_action = 0;
 
 static struct pointer pointers[MAX_POINTERS] = {};
 
+extern GdkEvent *synthetic_propagation_failed;
+
 bool view_dispatch_motionevent(JNIEnv *env, WrapperWidget *wrapper, GtkPropagationPhase phase, jobject motion_event, gpointer event, int action)
 {
 	int ret;
@@ -66,7 +68,18 @@ bool view_dispatch_motionevent(JNIEnv *env, WrapperWidget *wrapper, GtkPropagati
 	}
 
 	if (wrapper->custom_dispatch_touch) {
-		ret = (*env)->CallBooleanMethod(env, this, handle_cache.view.dispatchTouchEvent, motion_event);
+		if (synthetic_propagation_failed != event) { // New event. Try to handle again.
+			synthetic_propagation_failed = NULL;
+			ret = (*env)->CallBooleanMethod(env, this, handle_cache.view.dispatchTouchEvent, motion_event);
+			if ((*env)->ExceptionCheck(env))
+				(*env)->ExceptionDescribe(env);
+		}
+		if (synthetic_propagation_failed) {
+			// The app tried to synthetically propagate the event to a GTK widget, but that is not possible in GTK4,
+			// so just treat it as unhandled and let GTK propagate it the normal way.
+			synthetic_propagation_failed = event;
+			ret = false;
+		}
 	} else if (phase == GTK_PHASE_CAPTURE && _GET_BOOL_FIELD(this, "disallowIntercept")) {
 		if (action == ACTION_UP || action == ACTION_CANCEL)
 			_SET_BOOL_FIELD(this, "disallowIntercept", false);
@@ -898,7 +911,12 @@ JNIEXPORT void JNICALL Java_android_view_View_native_1drawContent(JNIEnv *env, j
 JNIEXPORT void JNICALL Java_android_view_View_nativeSetFullscreen(JNIEnv *env, jobject this, jlong widget_ptr, jboolean fullscreen)
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
-	GtkWindow *window = GTK_WINDOW(gtk_widget_get_native(widget));
+	GtkNative *native = gtk_widget_get_native(widget);
+	if (!GTK_IS_WINDOW(native)) {
+		g_debug("Ignoring fullscreen request before Android view has a GtkWindow root");
+		return;
+	}
+	GtkWindow *window = GTK_WINDOW(native);
 	if (getenv("ATL_DISABLE_FULLSCREEN")) {
 		if (gtk_window_is_fullscreen(window))
 			gtk_window_unfullscreen(window);
@@ -1019,7 +1037,7 @@ JNIEXPORT void JNICALL Java_android_view_View_native_1keep_1screen_1on(JNIEnv *e
 JNIEXPORT jboolean JNICALL Java_android_view_View_nativeIsAttachedToWindow(JNIEnv *env, jobject this, jlong widget_ptr)
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
-	return currently_unmapping == widget || gtk_widget_get_mapped(widget);
+	return currently_unmapping == widget || gtk_widget_get_root(widget);
 }
 
 JNIEXPORT jobject JNICALL Java_android_view_View_native_1get_1window(JNIEnv *env, jobject this, jlong widget_ptr)

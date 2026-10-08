@@ -43,6 +43,13 @@ public class WebView extends ViewGroup {
 		}
 	}
 
+	boolean internalShouldOverrideUrlLoading(String url) {
+		if (webViewClient != null)
+			return webViewClient.shouldOverrideUrlLoading(this, url);
+		else
+			return false;
+	}
+
 	public void setVerticalScrollBarEnabled(boolean enabled) {}
 	public void setVerticalScrollbarOverlay(boolean overlay) {}
 	public void setInitialScale(int scaleInPercent) {}
@@ -81,6 +88,8 @@ public class WebView extends ViewGroup {
 			System.out.println("loadUrl: " + url + " - not implemented yet");
 			return;
 		}
+		// webkit doesn't allow overwriting the file:// uri scheme. So we replace it with the android-asset:// scheme
+		url = url.replace("file:///android_asset/", "android-asset:///assets/");
 		native_loadUrl(widget, url);
 	}
 
