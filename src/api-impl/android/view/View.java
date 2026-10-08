@@ -1379,8 +1379,6 @@ public class View implements Drawable.Callback {
 	public void invalidate() {
 		propagateInvalidation();
 		nativeInvalidate(widget);
-		if (parent != null)
-			parent.onDescendantInvalidated(this, this);
 	}
 	static native void nativeInvalidate(long widget);
 
