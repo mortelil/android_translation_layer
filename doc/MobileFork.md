@@ -90,10 +90,15 @@ toolbox run --container atl_dev sh -lc \
 On an Alpine phone, run from its graphical session:
 
 ```sh
-ATL_DISABLE_FULLSCREEN=1 ATL_RENDER_SCALE=2.65 scripts/mobile/run.sh /absolute/path/to/app-arm64.apk
+ATL_DISABLE_FULLSCREEN=1 scripts/mobile/run.sh /absolute/path/to/app-arm64.apk
 ```
 
-Scale 2.65 was used on one phone; choose a value appropriate for your screen.
+Leave `ATL_RENDER_SCALE` unset initially. The desktop compositor may already
+scale the phone's logical display to its physical resolution; setting this to
+that same compositor factor scales the app a second time and can make controls
+too large or clip them. Set it only when you have confirmed that the app needs a
+higher-resolution backing surface, and tune it independently of compositor
+scaling. `ATL_RENDER_SCALE=1` is equivalent to the default rendering size.
 The launcher inherits Wayland/X11, D-Bus and audio session settings. It does not
 guess display names or a remote user's runtime directory.
 
