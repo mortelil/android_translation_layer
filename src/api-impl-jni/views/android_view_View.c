@@ -911,7 +911,12 @@ JNIEXPORT void JNICALL Java_android_view_View_native_1drawContent(JNIEnv *env, j
 JNIEXPORT void JNICALL Java_android_view_View_nativeSetFullscreen(JNIEnv *env, jobject this, jlong widget_ptr, jboolean fullscreen)
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
-	GtkWindow *window = GTK_WINDOW(gtk_widget_get_native(widget));
+	GtkNative *native = gtk_widget_get_native(widget);
+	if (!GTK_IS_WINDOW(native)) {
+		g_debug("Ignoring fullscreen request before Android view has a GtkWindow root");
+		return;
+	}
+	GtkWindow *window = GTK_WINDOW(native);
 	if (getenv("ATL_DISABLE_FULLSCREEN")) {
 		if (gtk_window_is_fullscreen(window))
 			gtk_window_unfullscreen(window);
