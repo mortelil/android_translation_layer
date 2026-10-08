@@ -14,6 +14,7 @@
 #include "../api-impl-jni/defines.h"
 #include "../api-impl-jni/widgets/android_view_SurfaceView.h"
 
+#include "egl_lifecycle.h"
 #include "native_window.h"
 
 extern GtkWindow *window; // TODO: how do we get rid of this? the app won't pass anything useful to eglGetDisplay
@@ -96,6 +97,10 @@ void (*bionic_eglGetProcAddress(char const *procname))(void)
 {
 	if (__unlikely__(!strcmp(procname, "eglPresentationTimeANDROID")))
 		return (void (*)(void))bionic_eglPresentationTimeANDROID;
+	if (!strcmp(procname, "eglInitialize"))
+		return (void (*)(void))bionic_eglInitialize;
+	if (!strcmp(procname, "eglTerminate"))
+		return (void (*)(void))bionic_eglTerminate;
 
 	return eglGetProcAddress(procname);
 }
@@ -108,19 +113,22 @@ EGLDisplay bionic_eglGetDisplay(EGLNativeDisplayType native_display)
 	 * than the "default" display (especially on Wayland)
 	 */
 	GdkDisplay *display = gtk_root_get_display(GTK_ROOT(window));
+	EGLDisplay egl_display;
 
 	if (GDK_IS_WAYLAND_DISPLAY(display)) {
 		struct wl_display *wl_display = gdk_wayland_display_get_wl_display(display);
-		return eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, wl_display, NULL);
+		egl_display = eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, wl_display, NULL);
 	} else if (GDK_IS_X11_DISPLAY(display)) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 		Display *x11_display = gdk_x11_display_get_xdisplay(display);
 #pragma GCC diagnostic pop
-		return eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, x11_display, NULL);
+		egl_display = eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, x11_display, NULL);
 	} else {
 		return NULL;
 	}
+	atl_egl_retain_host_display(egl_display);
+	return egl_display;
 }
 
 EGLBoolean bionic_eglChooseConfig(EGLDisplay display, EGLint *attrib_list, EGLConfig *configs, EGLint config_size, EGLint *num_config)

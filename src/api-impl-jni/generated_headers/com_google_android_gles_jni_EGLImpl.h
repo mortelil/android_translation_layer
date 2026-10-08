@@ -25,6 +25,14 @@ JNIEXPORT jboolean JNICALL Java_com_google_android_gles_1jni_EGLImpl_native_1egl
 
 /*
  * Class:     com_google_android_gles_jni_EGLImpl
+ * Method:    native_eglTerminate
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_com_google_android_gles_1jni_EGLImpl_native_1eglTerminate
+  (JNIEnv *, jobject, jlong);
+
+/*
+ * Class:     com_google_android_gles_jni_EGLImpl
  * Method:    native_eglCreateWindowSurface
  * Signature: (JJLandroid/view/Surface;[I)J
  */

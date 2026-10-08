@@ -139,7 +139,8 @@ public class EGLImpl implements EGL10 {
 	 * @hide *
 	 */
 	public boolean eglReleaseThread() { return false; }
-	public boolean eglTerminate(EGLDisplay display) { return false; }
+	public boolean eglTerminate(EGLDisplay display) { return native_eglTerminate(display.native_egl_display); }
+	private native boolean native_eglTerminate(long display);
 	public boolean eglWaitGL() { return false; }
 	public boolean eglWaitNative(int engine, Object bindTarget) { return false; }
 

@@ -3,6 +3,7 @@
 #include "../defines.h"
 #include "../util.h"
 
+#include "../../libandroid/egl_lifecycle.h"
 #include "../../libandroid/native_window.h"
 
 #include "../generated_headers/com_google_android_gles_jni_EGLImpl.h"
@@ -119,9 +120,14 @@ JNIEXPORT jlong JNICALL Java_com_google_android_gles_1jni_EGLImpl_native_1eglGet
 JNIEXPORT jboolean JNICALL Java_com_google_android_gles_1jni_EGLImpl_native_1eglInitialize(JNIEnv *env, jobject this, jlong display, jintArray _major_minor)
 {
 	EGLint *major_minor = get_int_array_crit(env, _major_minor);
-	bool ret = eglInitialize(_PTR(display), &major_minor[0], &major_minor[1]);
+	bool ret = bionic_eglInitialize(_PTR(display), major_minor ? &major_minor[0] : NULL, major_minor ? &major_minor[1] : NULL);
 	release_int_array_crit(env, _major_minor, major_minor);
 	return ret;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_google_android_gles_1jni_EGLImpl_native_1eglTerminate(JNIEnv *env, jobject this, jlong display)
+{
+	return bionic_eglTerminate(_PTR(display));
 }
 
 JNIEXPORT jboolean JNICALL Java_com_google_android_gles_1jni_EGLImpl_native_1eglGetConfigAttrib(JNIEnv *env, jobject this, jlong display, jlong config, jint attribute, jintArray _value)

@@ -60,6 +60,7 @@ libandroid_so = shared_library('android', [
                                           	'src/libandroid/bitmap.c',
                                           	'src/libandroid/configuration.c',
                                           	'src/libandroid/egl.c',
+                                          'src/libandroid/egl_lifecycle.c',
                                           	'src/libandroid/input.c',
                                           	'src/libandroid/looper.c',
                                           	'src/libandroid/media.c',
