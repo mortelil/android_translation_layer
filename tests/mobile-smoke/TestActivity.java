@@ -6,8 +6,22 @@ public class TestActivity extends android.app.Activity {
 		try {
 			TestStackTrace.run();
 			TestTypeface.run(this);
+			android.app.job.JobInfo delayedJob = new android.app.job.JobInfo.Builder(123,
+				new android.content.ComponentName("test.package", "test.package.JobService"))
+				.setMinimumLatency(12345678901L).build();
+			if (delayedJob.getMinLatencyMillis() != 12345678901L)
+				throw new AssertionError("JobInfo must expose its configured 64-bit minimum latency");
 			if (android.telephony.TelephonyManager.getDefault().getAllCellInfo() != null)
 				throw new AssertionError("Cell information must be unavailable without a radio backend");
+			if (android.telephony.TelephonyManager.getDefault().getSimCarrierId() != -1)
+				throw new AssertionError("Carrier ID must be unknown without a subscription backend");
+			if (android.telephony.TelephonyManager.getDefault().isDataEnabled())
+				throw new AssertionError("Cellular data must not be enabled without a radio backend");
+			if (android.telephony.TelephonyManager.getDefault().getPhoneCount() != 0)
+				throw new AssertionError("No telephony devices are exposed without a radio backend");
+			if (android.telephony.TelephonyManager.getDefault().isSmsCapable() ||
+			    android.telephony.TelephonyManager.getDefault().isVoiceCapable())
+				throw new AssertionError("SMS and telephony calls are unavailable without a radio backend");
 			android.content.pm.ApplicationInfo info = getApplicationInfo();
 			if (info.publicSourceDir == null || !info.publicSourceDir.equals(info.sourceDir) ||
 			    !new java.io.File(info.publicSourceDir).isFile())

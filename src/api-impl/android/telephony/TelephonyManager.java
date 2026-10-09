@@ -4,6 +4,25 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TelephonyManager {
+	public static final int UNKNOWN_CARRIER_ID = -1;
+
+	public int getSimCarrierId() {
+		// No telephony subscription backend is connected to ATL.
+		return UNKNOWN_CARRIER_ID;
+	}
+
+	public boolean isDataEnabled() {
+		// No cellular data connection is provided by ATL (Wi-Fi is separate).
+		return false;
+	}
+
+	public int getPhoneCount() {
+		return 0; // No supported telephony devices without a radio backend.
+	}
+
+	public boolean isSmsCapable() { return false; }
+	public boolean isVoiceCapable() { return false; }
+
 	public static TelephonyManager getDefault() {
 		return new TelephonyManager();
 	}

@@ -20,6 +20,7 @@ public class JobInfo {
 	private final ArrayList<TriggerContentUri> triggerContentUris = new ArrayList<>();
 
 	public long getTriggerContentUpdateDelay() { return triggerContentUpdateDelay; }
+	public long getMinLatencyMillis() { return minLatencyMillis; }
 	public long getTriggerContentMaxDelay() { return triggerContentMaxDelay; }
 	public TriggerContentUri[] getTriggerContentUris() {
 		return triggerContentUris.isEmpty() ? null : triggerContentUris.toArray(new TriggerContentUri[0]);
