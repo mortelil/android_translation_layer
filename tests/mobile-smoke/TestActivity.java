@@ -4,6 +4,7 @@ public class TestActivity extends android.app.Activity {
 	public void onCreate(android.os.Bundle state) {
 		super.onCreate(state);
 		try {
+			TestStackTrace.run();
 			if (android.os.SystemProperties.getInt("ro.build.version.sdk", -1) != android.os.Build.VERSION.SDK_INT)
 				throw new AssertionError("Java SDK property differs from Build.VERSION");
 			System.out.println("PASS: Java SDK property matches the selected API level");
