@@ -460,6 +460,11 @@ public class PackageParser {
 				pi.signatures = new Signature[0];
 			}
 		}
+		if ((flags & PackageManager.GET_SIGNING_CERTIFICATES) != 0 && p.mSignatures != null && p.mSignatures.length > 0)
+			pi.signingInfo = p.atlSigningInfo != null ? p.atlSigningInfo : new SigningInfo(p.mSignatures, null);
+		// Legacy GET_SIGNATURES reports the oldest certificate after a key rotation.
+		if ((flags & PackageManager.GET_SIGNATURES) != 0 && p.atlSigningInfo != null && p.atlSigningInfo.hasPastSigningCertificates())
+			pi.signatures = new Signature[] {p.atlSigningInfo.getSigningCertificateHistory()[0]};
 		return pi;
 	}
 
@@ -585,6 +590,7 @@ public class PackageParser {
 		//pkg.applicationInfo.sourceDir = destCodePath;
 		//pkg.applicationInfo.publicSourceDir = destRes;
 		pkg.mSignatures = null;
+		pkg.atlSigningInfo = null;
 
 		return pkg;
 	}
@@ -613,6 +619,19 @@ public class PackageParser {
 
 	public boolean collectCertificates(Package pkg, int flags) {
 		pkg.mSignatures = null;
+		pkg.atlSigningInfo = null;
+		String verifier = System.getenv("ATL_APK_VERIFIER");
+		if (verifier != null && !verifier.isEmpty()) {
+			try {
+				pkg.atlSigningInfo = android.atl.ATLApkSignatures.verify(verifier, mArchiveSourcePath);
+				pkg.mSignatures = pkg.atlSigningInfo.getApkContentsSigners();
+				return true;
+			} catch (Exception failure) {
+				Slog.w(TAG, "APK signature verification failed for " + pkg.packageName, failure);
+				mParseError = PackageManager.INSTALL_PARSE_FAILED_NO_CERTIFICATES;
+				return false; // Never fall back to unverified certificate extraction.
+			}
+		}
 
 		WeakReference<byte[]> readBufferRef;
 		byte[] readBuffer = null;
@@ -3316,6 +3335,7 @@ public class PackageParser {
 
 		// Signatures that were read from the package.
 		public Signature mSignatures[];
+		public SigningInfo atlSigningInfo;
 
 		// For use by package manager service for quick lookup of
 		// preferred up order.

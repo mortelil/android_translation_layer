@@ -1,4 +1,5 @@
 srcs = [
+	'android/atl/ATLApkSignatures.java',
 	'android/Manifest.java',
 	'android/R.java',
 	'android/accounts/Account.java',

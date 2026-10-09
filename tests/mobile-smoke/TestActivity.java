@@ -7,6 +7,7 @@ public class TestActivity extends android.app.Activity {
 			TestStackTrace.run();
 			TestTypeface.run(this);
 			TestKeySpec.run();
+			TestSigningInfo.run();
 			android.app.job.JobInfo delayedJob = new android.app.job.JobInfo.Builder(123,
 				new android.content.ComponentName("test.package", "test.package.JobService"))
 				.setMinimumLatency(12345678901L).build();

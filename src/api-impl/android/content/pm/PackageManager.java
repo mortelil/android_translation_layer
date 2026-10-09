@@ -115,6 +115,7 @@ public class PackageManager {
 	 * {@link PackageInfo} flag: return information about the
 	 * signatures included in the package.
 	 */
+	public static final int GET_SIGNING_CERTIFICATES = 0x08000000;
 	public static final int GET_SIGNATURES = 0x00000040;
 
 	/**

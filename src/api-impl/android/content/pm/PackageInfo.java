@@ -252,5 +252,5 @@ public class PackageInfo implements Parcelable {
 		return versionCode;
 	}
 
-	public SigningInfo signingInfo = new SigningInfo();
+	public SigningInfo signingInfo;
 }
