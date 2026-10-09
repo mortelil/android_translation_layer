@@ -78,6 +78,15 @@ public class TestTypeface {
 		android.widget.EditText edit = new android.widget.EditText(context);
 		edit.setTypeface(mono); edit.setText("still editable");
 		check(edit.getText().toString().equals("still editable"), "File font in editable GTK text widget");
+		TextPaint spanPaint = new TextPaint(); spanPaint.setTextSize(14); spanPaint.density = 2;
+		android.text.SpannableString sized = new android.text.SpannableString("Log in");
+		sized.setSpan(new android.text.style.AbsoluteSizeSpan(16, true), 0, sized.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+		float desired = android.text.Layout.getDesiredWidth(sized, spanPaint);
+		StaticLayout fitted = new StaticLayout(sized, spanPaint, (int)Math.ceil(desired), android.text.Layout.Alignment.ALIGN_NORMAL, 1, 0, false);
+		check(desired > android.text.Layout.getDesiredWidth("Log in", spanPaint) * 2,
+			"Desired width must include density-aware size spans");
+		check(fitted.getLineCount() == 1 && Math.abs(fitted.getLineWidth(0) - desired) <= 1,
+			"Measured styled text must fit without unexpected wrapping");
 		System.out.println("PASS: file fonts, real glyph advances, unlink lifetime, Paint copies, layout, styles, fallback and invalid input");
 	}
 }

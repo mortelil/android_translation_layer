@@ -13,7 +13,7 @@ extern "C" {
  * Signature: (J[I)V
  */
 JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes
-  (JNIEnv *, jobject, jlong, jintArray);
+  (JNIEnv *, jclass, jlong, jintArray);
 
 /*
  * Class:     android_text_Layout

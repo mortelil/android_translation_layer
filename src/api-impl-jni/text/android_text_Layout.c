@@ -9,7 +9,7 @@
 
 extern GtkWidget *window;
 
-JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes(JNIEnv *env, jobject this, jlong ptr, jintArray encoded)
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes(JNIEnv *env, jclass this, jlong ptr, jintArray encoded)
 {
 	PangoAttrList *attrs = pango_attr_list_new();
 	atl_text_attributes_apply(env, attrs, encoded);

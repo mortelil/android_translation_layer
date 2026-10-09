@@ -42,7 +42,7 @@ public class Layout {
 		layout = native_constructor(str, paint.paint, width);
 		native_set_text_attributes(layout, android.atl.TextSpanAttributes.encode(this.text, paint.density));
 	}
-	protected native void native_set_text_attributes(long layout, int[] attributes);
+	protected static native void native_set_text_attributes(long layout, int[] attributes);
 
 	public int getLineCount() {
 		return native_get_line_count(layout);
@@ -97,6 +97,7 @@ public class Layout {
 
 	public static float getDesiredWidth(CharSequence source, TextPaint paint) {
 		long layout = native_constructor(source != null ? source.toString() : "", paint.paint, -1);
+		native_set_text_attributes(layout, android.atl.TextSpanAttributes.encode(source, paint.density));
 		float width = native_get_desired_width(layout);
 		native_free(layout);
 		return width;
