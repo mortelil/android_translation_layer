@@ -28,14 +28,17 @@ public class Binder implements IBinder {
 	public static void restoreCallingIdentity(long identityToken) {}
 
 	@Override
-	public IInterface queryLocalInterface(String descriptor) { return null; }
+	public IInterface queryLocalInterface(String descriptor) {
+		return mDescriptor != null && mDescriptor.equals(descriptor) ? mOwner : null;
+	}
 
 	@Override
 	public boolean transact(int code, Parcel data, Parcel reply, int flags) { return false; }
 
-	public static int getCallingUid() { return ATLLoadedApp.getPrimaryApplication().pkg.applicationInfo.uid; }
+	// ATL currently implements only in-process Binder calls, with no remote transaction identity.
+	public static int getCallingUid() { return Process.myUid(); }
 
-	public static int getCallingPid() { return 0; }
+	public static int getCallingPid() { return Process.myPid(); }
 
 	@Override
 	public boolean equals(Object obj) {

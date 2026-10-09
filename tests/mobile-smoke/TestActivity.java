@@ -8,6 +8,19 @@ public class TestActivity extends android.app.Activity {
 			TestTypeface.run(this);
 			TestKeySpec.run();
 			TestSigningInfo.run();
+			final android.os.Binder localBinder = new android.os.Binder();
+			android.os.IInterface localOwner = new android.os.IInterface() {
+				public android.os.IBinder asBinder() { return localBinder; }
+			};
+			localBinder.attachInterface(localOwner, "org.atl.test.Local");
+			if (localBinder.queryLocalInterface("org.atl.test.Local") != localOwner ||
+			    localBinder.queryLocalInterface("org.atl.test.Other") != null ||
+			    new android.os.Binder().queryLocalInterface(null) != null)
+				throw new AssertionError("Local interface descriptor resolution");
+			if (android.os.Binder.getCallingPid() != android.os.Process.myPid() ||
+			    android.os.Binder.getCallingUid() != android.os.Process.myUid() ||
+			    android.os.Process.myUid() < 0 || getApplicationInfo().uid != android.os.Process.myUid())
+				throw new AssertionError("Local Binder identity must match the actual process");
 			android.app.job.JobInfo delayedJob = new android.app.job.JobInfo.Builder(123,
 				new android.content.ComponentName("test.package", "test.package.JobService"))
 				.setMinimumLatency(12345678901L).build();

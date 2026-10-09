@@ -125,6 +125,8 @@ public final class ATLLoadedApp {
 		if (play_services.contains(pkg.packageName)) {
 			ATLSigHelper.addGMSSignatures(pkg);
 		}
+		// Loaded applications share this host process; ATL does not assign Android sandbox UIDs.
+		pkg.applicationInfo.uid = android.os.Process.myUid();
 		pkg.applicationInfo.sourceDir = mainApk;
 		pkg.applicationInfo.publicSourceDir = mainApk;
 		return new ATLLoadedApp(resources, classLoader, pkg);
