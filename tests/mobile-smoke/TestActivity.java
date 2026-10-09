@@ -37,6 +37,9 @@ public class TestActivity extends android.app.Activity {
 			if (android.telephony.TelephonyManager.getDefault().isSmsCapable() ||
 			    android.telephony.TelephonyManager.getDefault().isVoiceCapable())
 				throw new AssertionError("SMS and telephony calls are unavailable without a radio backend");
+			if (android.telephony.SubscriptionManager.getDefaultSmsSubscriptionId() !=
+			    android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+				throw new AssertionError("No SMS subscription may be advertised without a telephony backend");
 			android.content.pm.ApplicationInfo info = getApplicationInfo();
 			if (info.publicSourceDir == null || !info.publicSourceDir.equals(info.sourceDir) ||
 			    !new java.io.File(info.publicSourceDir).isFile())

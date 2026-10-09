@@ -140,18 +140,15 @@ email and password text without the earlier fatal errors. Password masking is
 visible in `messenger-56-password.png`. No login was submitted. Some snapshots
 still lose the background/unchanged content. The same issue occurs with Cairo
 (run 57) and GSK_DEBUG=full-redraw (run 58), while a minimal standalone GTK
-control keeps its background. This remains an ATL/Messenger drawing investigation,
-not a solved renderer configuration problem. Run 58 completes input/deletion
-without fatal JNI errors, but that does not establish login or messaging support. No Messenger account,
-message exchange, or Nura compatibility has been verified.
+control keeps its background. This was still unresolved at run 58; the later composited-display tests described below supersede that diagnosis. Run 58 completes input/deletion
+without fatal JNI errors, but that does not establish login or messaging support. No Messenger account or message exchange was tested in those runs; see the later Nura results below.
 
 The full PC automated suite passes after the property callback, styled width,
 signing metadata and local identity changes (`property-full-regression.log`), including the native GTK pixel
 tests. Real signer/tamper tests pass (`styled-width-full-regression.log`); the actual
 helper protocol also passes under ART at API 28 (`signing-art-protocol.log`). These tests do not
 replace interactive regression checks of the four previously working applications.
-Nothing from this experiment has been published or installed on Nura. Read-only
-SSH confirmed the phone is reachable and runs aarch64 Nura edge. Debugger
+At that stage nothing had been published or installed on Nura. Later tests use a private source-built runtime on the aarch64 Nura phone, without replacing its system packages. Debugger
 runs establish that `STI` instructions installed by the app are deliberate signal
 hooks; debugging must let the app handle those traps.
 
@@ -170,3 +167,47 @@ ABI reference: [LLVM cross-DSO CFI design](https://clang.llvm.org/docs/ControlFl
 These changes were authored with AI assistance. No Messenger implementation,
 decompiler output or new AOSP source was copied into this repository. This
 investigation is not a compatibility claim or an upstream-ready submission.
+
+## Follow-up verification (2026-10-09)
+
+The login UI now works in isolated tests on both x86_64 Alpine and aarch64
+Nura. On PC, compositing the private Xvfb display with xcompmgr fixes the
+missing background without a renderer source patch. Synthetic email/password
+insertion, deletion, masking, the password visibility toggle and language
+chooser were exercised. On Nura, synthetic Unicode input, deletion, masking,
+focus changes, empty-login focus and opening the language chooser were verified
+with source-built ART. Physical on-screen keyboard input remains untested in
+this verification round. Extra corner outlines around input fields remain.
+No actual Messenger login was submitted.
+
+Nura also needed `SubscriptionManager.getDefaultSmsSubscriptionId()`. It
+returns `INVALID_SUBSCRIPTION_ID`, consistently with the lack of a telephony
+backend. The API contract test asserts that unavailable result.
+
+The full PC contract suite and the ARM APK contract suite passed. Native ARM
+ART Looper and alternate-signal-stack tests passed. Bionic thread destructor,
+ELF enumeration and RUNPATH fixtures passed on ARM. CFI tests now distinguish
+AArch64 BRK/SIGTRAP from x86 UD2/SIGILL; loader rejection still requires
+SIGABRT. Both handwritten hash-table variants and Clang-generated ARM CFI
+fixtures passed. The latter fixtures were cross-compiled on PC because Nura
+does not have Clang. This is not a claim that the entire ARM test script ran
+without external preparation.
+
+App regression validation is still incomplete. In particular, the available
+Plexamp APK has only ARM native libraries, preventing an x86_64 PC test.
+Plexamp's actual sign-in view and synthetic text editing passed on Nura with
+the final source ART runtime. Signal's PC phone-registration page fails on
+`Layout.getLineBottom(-1)`; the same failure reproduces with published ATL
+66c1d0fe in the same runtime. Immich authenticated image viewing and navigation
+were tested using explicitly authorized private appdata copies; backup was
+disabled in the Nura copy before launch. No personal media was modified.
+LocalSend transferred a disposable file in both directions with matching hashes;
+the fallback GTK file chooser is too wide on the phone, and the default portal
+flow has not been verified. Media playback and remaining input checks are not
+yet fully approved. The private detailed matrix and screenshots stay outside
+the repository.
+
+The normal mobile build script still does not reproduce the source ART runtime
+used here. PC also used D8-desugared core classes, jemalloc and ART compiled with
+`-fpatchable-function-entry=16`. This deployment gap and the unfinished app
+checks must be resolved before treating this branch as a validated release.
