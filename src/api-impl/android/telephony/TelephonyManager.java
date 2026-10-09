@@ -36,6 +36,11 @@ public class TelephonyManager {
 		return new ArrayList(0);
 	}
 
+	public List getAllCellInfo() {
+		// No radio backend is connected to ATL; cell information is unavailable.
+		return null;
+	}
+
 	public CellLocation getCellLocation() {
 		return new CellLocation();
 	}

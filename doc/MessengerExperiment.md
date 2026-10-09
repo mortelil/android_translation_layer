@@ -54,16 +54,46 @@ Matching Alpine ART runtime/compiler debug symbols (0_git20251009-r2), hardware
 breakpoints and allocation traces establish this sequence. Ordinary software
 breakpoints interfere with these self-modifying native hooks.
 
-A separate source build using GCC's `-fpatchable-function-entry=16` is being
-investigated. It reserves real instrumentation space while retaining function
-behavior. This is not yet a validated compatibility solution and is not enabled
-in the published runtime. See GCC's instrumentation-option documentation.
+A separate source build using GCC's `-fpatchable-function-entry=16` now gets
+Messenger past the failing hook and ensuing memory corruption. It reserves real
+instrumentation space while retaining function behavior. The full PC test suite
+passes with this runtime, including repeated and concurrent Java stack captures
+that check source filenames and adjacent line numbers. This remains an isolated
+experimental runtime, not a published build option or proof of app compatibility.
+See GCC's instrumentation-option documentation.
+
+Later startup needed the actual APK path in `ApplicationInfo.publicSourceDir`,
+which now matches `sourceDir` for the loaded, readable APK. The smoke test checks
+the path and file existence. Messenger's LoadDexes stage now completes.
+Bionic also implements `__sendto_chk`, `__recvfrom_chk` and `__getcwd_chk` with
+real bounds checks and host calls. Tests use local datagram sockets (binary data,
+peek, truncation, zero length and errno), current-directory path checks and
+subprocesses that must abort on buffer overflows. These are native API fixes,
+not success-returning substitutes for network or filesystem operations.
+
+Telephony startup probes now report unavailable cell data and an invalid default
+data subscription, because ATL has no radio/subscription backend. This adds the
+missing query methods; it does not implement telephony or collect radio data.
+Bionic now also resolves `pthread_gettid_np` using Linux per-thread CPU clock
+IDs, with tests comparing the result against kernel TIDs for live host and
+Android-created threads. See the Bionic thread-ID test notes for lifetime limits.
+
+The unavailable values follow the [TelephonyManager API](https://developer.android.com/reference/android/telephony/TelephonyManager#getAllCellInfo())
+and [SubscriptionManager API](https://developer.android.com/reference/android/telephony/SubscriptionManager#getDefaultDataSubscriptionId()).
 
 A second independently observed loader failure, `ASharedMemory_create`, now has
 a Linux memfd implementation plus `ASharedMemory_getSize`. Native tests verify
 cross-process contents, descriptor/mapping lifetime and immutable region size.
 The full PC regression suite passes after this change. Protection reduction
 and Java SharedMemory transport are not implemented or advertised.
+
+Current blocker after these fixes: Messenger reaches activity initialization and
+loads its profiler library, then crashes inside jemalloc during thread cleanup.
+Debugger runs establish that `STI` instructions installed by the app are deliberate
+signal hooks, not by themselves the fatal crash. Debugging must let the app handle
+those traps. The allocator failure remains unresolved; a separate debug allocator
+is being built to identify the invalid allocation/free sequence. No Messenger UI
+or Nura support has been verified in this pass.
 
 ResourcesImpl reflection warnings are caught by the app. Crash-report retries
 also reach unsupported AndroidCAStore behavior; fresh isolated profiles separate

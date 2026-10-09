@@ -126,6 +126,7 @@ public final class ATLLoadedApp {
 			ATLSigHelper.addGMSSignatures(pkg);
 		}
 		pkg.applicationInfo.sourceDir = mainApk;
+		pkg.applicationInfo.publicSourceDir = mainApk;
 		return new ATLLoadedApp(resources, classLoader, pkg);
 	}
 

@@ -5,6 +5,13 @@ public class TestActivity extends android.app.Activity {
 		super.onCreate(state);
 		try {
 			TestStackTrace.run();
+			if (android.telephony.TelephonyManager.getDefault().getAllCellInfo() != null)
+				throw new AssertionError("Cell information must be unavailable without a radio backend");
+			android.content.pm.ApplicationInfo info = getApplicationInfo();
+			if (info.publicSourceDir == null || !info.publicSourceDir.equals(info.sourceDir) ||
+			    !new java.io.File(info.publicSourceDir).isFile())
+				throw new AssertionError("Public APK path must identify the loaded APK");
+			System.out.println("PASS: ApplicationInfo exposes the readable public APK path");
 			if (android.os.SystemProperties.getInt("ro.build.version.sdk", -1) != android.os.Build.VERSION.SDK_INT)
 				throw new AssertionError("Java SDK property differs from Build.VERSION");
 			System.out.println("PASS: Java SDK property matches the selected API level");
