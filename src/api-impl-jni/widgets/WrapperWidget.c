@@ -191,8 +191,7 @@ static void wrapper_widget_snapshot(GtkWidget *widget, GdkSnapshot *snapshot)
 	}
 	if (wrapper->draw_method) {
 		JNIEnv *env = get_jni_env();
-		_SET_LONG_FIELD(wrapper->canvas, "snapshot", _INTPTR(snapshot));
-		(*env)->CallVoidMethod(env, wrapper->jobj, wrapper->draw_method, wrapper->canvas);
+		(*env)->CallVoidMethod(env, wrapper->canvas, wrapper->draw_method, wrapper->jobj, _INTPTR(snapshot));
 		if ((*env)->ExceptionCheck(env))
 			(*env)->ExceptionDescribe(env);
 	} else {
@@ -485,8 +484,8 @@ void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject job
 	jmethodID dispatch_draw_method = _METHOD(_CLASS(jobj), "dispatchDraw", "(Landroid/graphics/Canvas;)V");
 	jmethodID draw_method = _METHOD(_CLASS(jobj), "draw", "(Landroid/graphics/Canvas;)V");
 	if (on_draw_method != handle_cache.view.onDraw || draw_method != handle_cache.view.draw || dispatch_draw_method != handle_cache.view.dispatchDraw) {
-		wrapper->draw_method = draw_method;
 		jclass canvas_class = (*env)->FindClass(env, "android/atl/GskCanvas");
+		wrapper->draw_method = _METHOD(canvas_class, "drawView", "(Landroid/view/View;J)V");
 		jmethodID canvas_constructor = _METHOD(canvas_class, "<init>", "(J)V");
 		wrapper->canvas = _REF((*env)->NewObject(env, canvas_class, canvas_constructor, 0));
 		(*env)->DeleteLocalRef(env, canvas_class);

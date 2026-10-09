@@ -5,16 +5,25 @@
 #include "../util.h"
 #include "../generated_headers/android_text_Layout.h"
 #include "../graphics/AndroidPaint.h"
+#include "../graphics/AndroidTextAttributes.h"
 
 extern GtkWidget *window;
 
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes(JNIEnv *env, jobject this, jlong ptr, jintArray encoded)
+{
+	PangoAttrList *attrs = pango_attr_list_new();
+	atl_text_attributes_apply(env, attrs, encoded);
+	pango_layout_set_attributes(_PTR(ptr), attrs);
+	pango_attr_list_unref(attrs);
+}
+
 JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text(JNIEnv *env, jobject object, jlong layout, jstring text)
 {
-	const char *str = (*env)->GetStringUTFChars(env, text, NULL);
+	char *str = atl_text_to_utf8(env, text);
 	if (!str)
 		return;
 	pango_layout_set_text(_PTR(layout), str, -1);
-	(*env)->ReleaseStringUTFChars(env, text, str);
+	g_free(str);
 }
 
 JNIEXPORT jlong JNICALL Java_android_text_Layout_native_1constructor(JNIEnv *env, jobject object, jstring text, jlong paint, jint width)
@@ -22,9 +31,10 @@ JNIEXPORT jlong JNICALL Java_android_text_Layout_native_1constructor(JNIEnv *env
 	struct AndroidPaint *android_paint = _PTR(paint);
 	PangoLayout *layout = pango_layout_new(gtk_widget_get_pango_context(window));
 	pango_layout_set_font_description(layout, android_paint->font);
-	const char *str = (*env)->GetStringUTFChars(env, text, NULL);
+	char *str = atl_text_to_utf8(env, text);
+	if (!str) { g_object_unref(layout); return 0; }
 	pango_layout_set_text(layout, str, -1);
-	(*env)->ReleaseStringUTFChars(env, text, str);
+	g_free(str);
 	pango_layout_set_width(layout, width == -1 ? -1 : width * PANGO_SCALE);
 	return _INTPTR(layout);
 }

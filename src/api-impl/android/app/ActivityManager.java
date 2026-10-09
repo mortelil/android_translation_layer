@@ -46,6 +46,11 @@ public class ActivityManager {
 
 	public boolean isLowRamDevice() { return false; }
 
+	public boolean isBackgroundRestricted() {
+		// ATL does not implement Android's per-app background restriction policy.
+		return false;
+	}
+
 	public static class MemoryInfo implements Parcelable {
 		/* For now, just always report there's 10GB free RAM */
 		public long availMem = 10000;

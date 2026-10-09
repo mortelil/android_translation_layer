@@ -22,6 +22,18 @@ public class GskCanvas extends DisplayListCanvas {
 		state_stack.push(new Matrix());
 	}
 
+	/** Draw one view without leaking its transforms or clips into the next GTK snapshot. */
+	public void drawView(android.view.View view, long snapshot) {
+		this.snapshot = snapshot;
+		int count = save();
+		try {
+			view.draw(this);
+		} finally {
+			restoreToCount(count);
+			this.snapshot = 0;
+		}
+	}
+
 	@Override
 	public int save() {
 		native_save(snapshot);
@@ -113,6 +125,21 @@ public class GskCanvas extends DisplayListCanvas {
 	}
 
 	@Override
+	public boolean clipOutPath(Path path) {
+		if (path == null) throw new NullPointerException("path");
+		native_clipOutPath(snapshot, path.getGskPath(), path.getFillType().ordinal());
+		int save_count = getSaveCount();
+		if (push_history == null)
+			push_history = new int[save_count + 1];
+		else if (push_history.length <= save_count)
+			push_history = Arrays.copyOf(push_history, save_count + 1);
+		push_history[save_count]++;
+		// Like getClipBounds, clip-emptiness queries are currently conservative.
+		// The GSK mask itself applies the complete path subtraction when rendering.
+		return true;
+	}
+
+	@Override
 	public void drawPath(Path path, Paint paint) {
 		if (path != null)
 			native_drawPath(snapshot, path.getGskPath(), paint != null ? paint.paint : default_paint.paint);
@@ -183,6 +210,7 @@ public class GskCanvas extends DisplayListCanvas {
 	protected native void native_concat(long snapshot, long matrix);
 	protected native void native_clipRect(long snapshot, float left, float top, float right, float bottom);
 	protected native void native_clipPath(long snapshot, long path);
+	protected native void native_clipOutPath(long snapshot, long path, int fillType);
 	protected native void native_pop(long snapshot, int pop_count);
 	protected native void native_drawRenderNode(long snapshot, long render_node);
 }

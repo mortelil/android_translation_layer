@@ -229,19 +229,19 @@ JNIEXPORT jstring JNICALL Java_android_widget_EditText_native_1getText
 
 /*
  * Class:     android_widget_EditText
- * Method:    native_addTextChangedListener
- * Signature: (JLandroid/text/TextWatcher;)V
+ * Method:    native_getSelection
+ * Signature: (JZ)I
  */
-JNIEXPORT void JNICALL Java_android_widget_EditText_native_1addTextChangedListener
-  (JNIEnv *, jobject, jlong, jobject);
+JNIEXPORT jint JNICALL Java_android_widget_EditText_native_1getSelection
+  (JNIEnv *, jobject, jlong, jboolean);
 
 /*
  * Class:     android_widget_EditText
- * Method:    native_removeTextChangedListener
- * Signature: (JLandroid/text/TextWatcher;)V
+ * Method:    native_setSelection
+ * Signature: (JII)V
  */
-JNIEXPORT void JNICALL Java_android_widget_EditText_native_1removeTextChangedListener
-  (JNIEnv *, jobject, jlong, jobject);
+JNIEXPORT void JNICALL Java_android_widget_EditText_native_1setSelection
+  (JNIEnv *, jobject, jlong, jint, jint);
 
 /*
  * Class:     android_widget_EditText

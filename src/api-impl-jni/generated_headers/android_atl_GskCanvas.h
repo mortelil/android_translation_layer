@@ -139,6 +139,14 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1clipPath
 
 /*
  * Class:     android_atl_GskCanvas
+ * Method:    native_clipOutPath
+ * Signature: (JJI)V
+ */
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1clipOutPath
+  (JNIEnv *, jobject, jlong, jlong, jint);
+
+/*
+ * Class:     android_atl_GskCanvas
  * Method:    native_pop
  * Signature: (JI)V
  */

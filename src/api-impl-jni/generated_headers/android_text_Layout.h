@@ -9,6 +9,14 @@ extern "C" {
 #endif
 /*
  * Class:     android_text_Layout
+ * Method:    native_set_text_attributes
+ * Signature: (J[I)V
+ */
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes
+  (JNIEnv *, jobject, jlong, jintArray);
+
+/*
+ * Class:     android_text_Layout
  * Method:    native_constructor
  * Signature: (Ljava/lang/String;JI)J
  */

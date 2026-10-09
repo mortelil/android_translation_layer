@@ -4,6 +4,7 @@
 #include "../util.h"
 
 #include "WrapperWidget.h"
+#include "../graphics/AndroidTextAttributes.h"
 
 #include "../generated_headers/android_widget_TextView.h"
 
@@ -13,6 +14,49 @@ static GtkLabel *box_get_label(JNIEnv *env, GtkWidget *box)
 	if (!GTK_IS_LABEL(label))
 		label = gtk_widget_get_prev_sibling(label);
 	return GTK_LABEL(label);
+}
+
+static gboolean remove_span_attribute(PangoAttribute *attr, gpointer unused)
+{
+	return attr->klass->type == PANGO_ATTR_FOREGROUND || attr->klass->type == PANGO_ATTR_FOREGROUND_ALPHA || attr->klass->type == PANGO_ATTR_ABSOLUTE_SIZE;
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextAttributes(JNIEnv *env, jobject this, jintArray encoded)
+{
+	GtkWidget *widget = _PTR(_GET_LONG_FIELD(this, "widget"));
+	GtkLabel *label = GTK_IS_TEXT(widget) ? NULL : box_get_label(env, widget);
+	PangoAttrList *old = label ? gtk_label_get_attributes(label) : gtk_text_get_attributes(GTK_TEXT(widget));
+	PangoAttrList *attrs = old ? pango_attr_list_copy(old) : pango_attr_list_new();
+	PangoAttrList *removed = pango_attr_list_filter(attrs, remove_span_attribute, NULL);
+	if (removed) pango_attr_list_unref(removed);
+	atl_text_attributes_apply(env, attrs, encoded);
+	if (label) gtk_label_set_attributes(label, attrs);
+	else gtk_text_set_attributes(GTK_TEXT(widget), attrs);
+	pango_attr_list_unref(attrs);
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setFontFeatureSettings(JNIEnv *env, jobject this, jlong ptr, jstring settings)
+{
+	GtkWidget *widget = _PTR(ptr);
+	GtkLabel *label = GTK_IS_BOX(widget) ? box_get_label(env, widget) : NULL;
+	PangoAttrList *old = label ? gtk_label_get_attributes(label) :
+	                     GTK_IS_TEXT(widget) ? gtk_text_get_attributes(GTK_TEXT(widget)) : NULL;
+	if (!label && !GTK_IS_TEXT(widget)) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsupportedOperationException"), "Font features require a text widget");
+		return;
+	}
+	const char *features = settings ? (*env)->GetStringUTFChars(env, settings, NULL) : NULL;
+	if (settings && !features)
+		return;
+	PangoAttrList *attrs = old ? pango_attr_list_copy(old) : pango_attr_list_new();
+	pango_attr_list_change(attrs, pango_attr_font_features_new(features ? features : ""));
+	if (label)
+		gtk_label_set_attributes(label, attrs);
+	else
+		gtk_text_set_attributes(GTK_TEXT(widget), attrs);
+	pango_attr_list_unref(attrs);
+	if (features)
+		(*env)->ReleaseStringUTFChars(env, settings, features);
 }
 
 JNIEXPORT jlong JNICALL Java_android_widget_TextView_native_1constructor(JNIEnv *env, jobject this, jobject context, jobject attrs)
@@ -42,10 +86,14 @@ JNIEXPORT jlong JNICALL Java_android_widget_TextView_native_1constructor(JNIEnv 
 
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setText(JNIEnv *env, jobject this, jobject charseq)
 {
-	const char *text = charseq ? (*env)->GetStringUTFChars(env, charseq, NULL) : NULL;
-	atl_safe_gtk_label_set_text(box_get_label(env, _PTR(_GET_LONG_FIELD(this, "widget"))), text ?: "");
-	if (text)
-		(*env)->ReleaseStringUTFChars(env, charseq, text);
+	char *text = charseq ? atl_text_to_utf8(env, charseq) : NULL;
+	if (charseq && !text) return;
+	GtkWidget *widget = _PTR(_GET_LONG_FIELD(this, "widget"));
+	if (GTK_IS_TEXT(widget))
+		gtk_editable_set_text(GTK_EDITABLE(widget), text ?: "");
+	else
+		atl_safe_gtk_label_set_text(box_get_label(env, widget), text ?: "");
+	g_free(text);
 }
 
 /* we kinda need per-widget css */
@@ -92,6 +140,7 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_setTextSize(JNIEnv *env, job
 
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1set_1markup(JNIEnv *env, jobject this, jint value)
 {
+	if (GTK_IS_TEXT(_PTR(_GET_LONG_FIELD(this, "widget")))) return;
 	GtkLabel *label = box_get_label(env, _PTR(_GET_LONG_FIELD(this, "widget")));
 
 	gtk_label_set_use_markup(label, value);
@@ -118,5 +167,14 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setCompoundDrawables
 	} else if (paintable) {
 		picture = gtk_picture_new_for_paintable(paintable);
 		gtk_widget_insert_before(picture, box, NULL);
+	}
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setPasswordVisibility(JNIEnv *env, jobject this, jlong ptr, jboolean visible)
+{
+	GtkWidget *widget = _PTR(ptr);
+	if (GTK_IS_TEXT(widget)) {
+		gtk_text_set_visibility(GTK_TEXT(widget), visible);
+		gtk_text_set_input_purpose(GTK_TEXT(widget), visible ? GTK_INPUT_PURPOSE_FREE_FORM : GTK_INPUT_PURPOSE_PASSWORD);
 	}
 }

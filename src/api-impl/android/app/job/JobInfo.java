@@ -3,6 +3,7 @@ package android.app.job;
 import android.content.ComponentName;
 import android.net.Uri;
 import android.os.PersistableBundle;
+import java.util.ArrayList;
 
 public class JobInfo {
 
@@ -14,6 +15,15 @@ public class JobInfo {
 	private int id;
 	boolean running;
 	long minLatencyMillis;
+	private long triggerContentUpdateDelay = -1;
+	private long triggerContentMaxDelay = -1;
+	private final ArrayList<TriggerContentUri> triggerContentUris = new ArrayList<>();
+
+	public long getTriggerContentUpdateDelay() { return triggerContentUpdateDelay; }
+	public long getTriggerContentMaxDelay() { return triggerContentMaxDelay; }
+	public TriggerContentUri[] getTriggerContentUris() {
+		return triggerContentUris.isEmpty() ? null : triggerContentUris.toArray(new TriggerContentUri[0]);
+	}
 
 	public JobInfo() {}
 
@@ -103,7 +113,19 @@ public class JobInfo {
 			return this;
 		}
 
+		public Builder setTriggerContentUpdateDelay(long durationMs) {
+			jobInfo.triggerContentUpdateDelay = durationMs;
+			return this;
+		}
+
+		public Builder setTriggerContentMaxDelay(long durationMs) {
+			jobInfo.triggerContentMaxDelay = durationMs;
+			return this;
+		}
+
 		public Builder addTriggerContentUri(TriggerContentUri triggerContentUri) {
+			if (triggerContentUri == null) throw new NullPointerException("triggerContentUri");
+			jobInfo.triggerContentUris.add(triggerContentUri);
 			return this;
 		}
 
@@ -113,6 +135,21 @@ public class JobInfo {
 	}
 
 	public static class TriggerContentUri {
-		public TriggerContentUri(Uri uri, int flags) {}
+		public static final int FLAG_NOTIFY_FOR_DESCENDANTS = 1;
+		private final Uri uri;
+		private final int flags;
+		public TriggerContentUri(Uri uri, int flags) {
+			if (uri == null) throw new NullPointerException("uri");
+			this.uri = uri;
+			this.flags = flags;
+		}
+		public Uri getUri() { return uri; }
+		public int getFlags() { return flags; }
+		@Override public boolean equals(Object other) {
+			if (!(other instanceof TriggerContentUri)) return false;
+			TriggerContentUri trigger = (TriggerContentUri)other;
+			return flags == trigger.flags && uri.equals(trigger.uri);
+		}
+		@Override public int hashCode() { return uri.hashCode() ^ flags; }
 	}
 }

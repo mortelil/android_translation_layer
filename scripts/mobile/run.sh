@@ -11,6 +11,10 @@ test -f "$apk"
 test -f "$atl_prefix/share/art/wolfssljni-hostdex.jar" || { echo 'Run scripts/mobile/build.sh first.' >&2; exit 1; }
 export ANDROID_APP_DATA_DIR=${ANDROID_APP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/atl-mobile-experimental}
 mkdir -p "$ANDROID_APP_DATA_DIR"
+# Some Android native libraries replace HOME with an Android-only path. ART's
+# on-demand dex cache must keep a writable Linux location after that change.
+export XDG_CACHE_HOME=${XDG_CACHE_HOME:-$ANDROID_APP_DATA_DIR/.cache}
+mkdir -p "$XDG_CACHE_HOME"
 # Media access and scale are opt-in environment settings; retain the desktop session.
 ulimit -c 0
 cd "$atl_build"

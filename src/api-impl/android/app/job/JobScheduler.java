@@ -34,6 +34,10 @@ public class JobScheduler {
 	}
 
 	public int schedule(JobInfo job) {
+		if (job.getTriggerContentUris() != null) {
+			Slog.w(TAG, "Content-trigger jobs require a content observer backend; job not scheduled");
+			return 0; // RESULT_FAILURE, not an unconditional successful trigger.
+		}
 		Slog.i(TAG, "JobScheduler.schedule() called with job: " + job);
 		if (pendingJobs.containsKey(job.getId()))
 			return 1; //RESULT_SUCCESS

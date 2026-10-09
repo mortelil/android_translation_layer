@@ -14,3 +14,4 @@ tests/mobile-smoke/run.sh "$atl_build" "$output/smoke/mobile-smoke.apk" "$output
 sh "$atl_workspace/bionic_translation/tests/mobile/run.sh"
 sh "$atl_workspace/art_standalone/tests/mobile/run.sh"
 sh "$atl_repo/tests/egl-lifecycle/run.sh"
+sh "$atl_repo/tests/native-compat/run.sh"

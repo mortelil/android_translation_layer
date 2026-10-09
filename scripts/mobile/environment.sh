@@ -8,7 +8,14 @@ atl_art_dex=${ATL_ART_DEX_DIR:-/usr/lib/java/dex/art}
 export LD_LIBRARY_PATH="$atl_build:$atl_prefix/lib:/usr/lib/art:$atl_art_dex/natives:/usr/lib/java/dex/android_translation_layer/natives:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # Use the locally rebuilt provider, leaving the system's boot jars unchanged.
 BOOTCLASSPATH=
+if test -n "${ATL_CORE_JAR:-}"; then
+	test -f "$ATL_CORE_JAR" || { echo "Missing ATL_CORE_JAR: $ATL_CORE_JAR" >&2; return 1; }
+	BOOTCLASSPATH=$ATL_CORE_JAR
+fi
 for atl_jar in core-oj apachehttp apache-xml bouncycastle core-junit core-libart hamcrest junit-runner okhttp; do
+	if test -n "${ATL_CORE_JAR:-}"; then
+		case "$atl_jar" in core-oj|core-libart) continue;; esac
+	fi
 	BOOTCLASSPATH=${BOOTCLASSPATH:+$BOOTCLASSPATH:}$atl_art_dex/$atl_jar-hostdex.jar
 done
 export BOOTCLASSPATH="$BOOTCLASSPATH:$atl_prefix/share/art/wolfssljni-hostdex.jar"

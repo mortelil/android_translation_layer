@@ -598,7 +598,16 @@ public class Canvas {
 	}
 
 	public boolean clipPath(Path path, Region.Op op) {
+		if (op == Region.Op.DIFFERENCE)
+			return clipOutPath(path);
 		return clipPath(path);
+	}
+
+	public boolean clipOutPath(Path path) {
+		synchronized (bitmap) {
+			gsk_canvas.snapshot = bitmap.getSnapshot();
+			return gsk_canvas.clipOutPath(path);
+		}
 	}
 
 	public boolean isHardwareAccelerated() {

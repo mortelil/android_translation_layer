@@ -246,3 +246,12 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1clipPath(JNIEnv *env, 
 	gtk_snapshot_append_fill(snapshot, path, GSK_FILL_RULE_WINDING, &(GdkRGBA){1, 1, 1, 1});
 	gtk_snapshot_pop(snapshot);
 }
+
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1clipOutPath(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jlong path_ptr, jint fill_type)
+{
+	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
+	GskPath *path = _PTR(path_ptr);
+	gtk_snapshot_push_mask(snapshot, fill_type >= 2 ? GSK_MASK_MODE_ALPHA : GSK_MASK_MODE_INVERTED_ALPHA);
+	gtk_snapshot_append_fill(snapshot, path, (fill_type & 1) ? GSK_FILL_RULE_EVEN_ODD : GSK_FILL_RULE_WINDING, &(GdkRGBA){1, 1, 1, 1});
+	gtk_snapshot_pop(snapshot);
+}

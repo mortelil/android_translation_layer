@@ -54,3 +54,25 @@ claim here covers APKs or other software supplied separately by a user.
 
 AI assistance is disclosed throughout. These source records and passing tests
 are not independent expert review or proof of complete Android behavior.
+
+## Plexamp experiment (2026-10-09, not a completed compatibility claim)
+
+The CPU HardwareBuffer and ALSA callback-input AAudio backends, HTTP cookie JNI
+adapter, optional NFC type declarations, core-Java build script and associated
+tests were authored for this fork with AI assistance. No AOSP implementation was
+copied for these additions. The cookie adapter delegates parsing and persistence
+to the installed libsoup library, rather than copying its source. API references
+and implementation limits are recorded in MobileFork.md and the test READMEs.
+D8 is downloaded separately from Google's distribution and is not vendored.
+Plexamp APK files, decompiler output, personal app data and private diagnostic
+logs are not part of the source distribution.
+
+The subsequent EditText bridge, basic text-span/Pango attributes, NetworkInfo
+state values, full-keyboard listener, ViewTreeObserver/Canvas scope fixes and
+JobInfo metadata/tests were likewise authored for this fork with AI assistance.
+Existing AOSP notices in files such as Layout and PasswordTransformationMethod
+are retained; no new AOSP implementation was imported for these changes.
+The native-density integration preserves the patch developed with ATL Shelf,
+recorded in `mortelil/atl-shelf` commit `62ee446`. This work does not replace the
+upstream Signal contribution: Julian Winkler's MR !325 and its original commit
+history remain credited separately in this fork.

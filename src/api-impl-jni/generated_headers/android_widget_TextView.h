@@ -237,6 +237,14 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setText
 
 /*
  * Class:     android_widget_TextView
+ * Method:    native_setTextAttributes
+ * Signature: ([I)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextAttributes
+  (JNIEnv *, jobject, jintArray);
+
+/*
+ * Class:     android_widget_TextView
  * Method:    setTextSize
  * Signature: (F)V
  */
@@ -258,6 +266,22 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextColor
  */
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setCompoundDrawables
   (JNIEnv *, jobject, jlong, jlong, jlong, jlong, jlong);
+
+/*
+ * Class:     android_widget_TextView
+ * Method:    native_setFontFeatureSettings
+ * Signature: (JLjava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setFontFeatureSettings
+  (JNIEnv *, jobject, jlong, jstring);
+
+/*
+ * Class:     android_widget_TextView
+ * Method:    native_setPasswordVisibility
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setPasswordVisibility
+  (JNIEnv *, jobject, jlong, jboolean);
 
 #ifdef __cplusplus
 }

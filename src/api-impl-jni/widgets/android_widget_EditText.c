@@ -4,6 +4,14 @@
 #include "../util.h"
 
 #include "WrapperWidget.h"
+#include "../graphics/AndroidTextAttributes.h"
+
+static void changed_cb(GtkEditable *self, gpointer data);
+static void free_changed_data(gpointer data, GClosure *closure)
+{
+	JNIEnv *env = get_jni_env();
+	(*env)->DeleteWeakGlobalRef(env, data);
+}
 
 #include "../generated_headers/android_widget_EditText.h"
 
@@ -14,6 +22,8 @@ JNIEXPORT jlong JNICALL Java_android_widget_EditText_native_1constructor(JNIEnv 
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), gtk_text);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
 	wrapper_widget_register_invalidation_listener(WRAPPER_WIDGET(wrapper));
+	g_signal_connect_data(gtk_text, "changed", G_CALLBACK(changed_cb),
+	                      (*env)->NewWeakGlobalRef(env, this), free_changed_data, 0);
 	return _INTPTR(gtk_text);
 }
 
@@ -21,7 +31,11 @@ JNIEXPORT jstring JNICALL Java_android_widget_EditText_native_1getText(JNIEnv *e
 {
 	GtkText *gtk_text = GTK_TEXT(_PTR(widget_ptr));
 	const char *text = gtk_entry_buffer_get_text(gtk_text_get_buffer(gtk_text));
-	return _JSTRING(text);
+	glong length;
+	gunichar2 *utf16 = g_utf8_to_utf16(text, -1, NULL, &length, NULL);
+	jstring result = (*env)->NewString(env, utf16, length);
+	g_free(utf16);
+	return result;
 }
 
 struct changed_callback_data {
@@ -31,50 +45,25 @@ struct changed_callback_data {
 	jmethodID getText;
 };
 
-static void changed_cb(GtkEditable *self, jobject listener)
+static void changed_cb(GtkEditable *self, gpointer data)
 {
 	JNIEnv *env = get_jni_env();
-
-	const char *text = gtk_editable_get_text(self);
-	jclass spannable_string_builder = (*env)->FindClass(env, "android/text/SpannableStringBuilder");
-	jmethodID spannable_string_builder_constructor = _METHOD(spannable_string_builder, "<init>", "(Ljava/lang/CharSequence;)V");
-	jobject text_obj = (*env)->NewObject(env, spannable_string_builder, spannable_string_builder_constructor, _JSTRING(text));
-	jmethodID onTextChanged = _METHOD(_CLASS(listener), "onTextChanged", "(Ljava/lang/CharSequence;III)V");
-	(*env)->CallVoidMethod(env, listener, onTextChanged, text_obj, 0, 0, strlen(text));
-	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
-	jmethodID listener_method = _METHOD(_CLASS(listener), "afterTextChanged", "(Landroid/text/Editable;)V");
-	(*env)->CallVoidMethod(env, listener, listener_method, text_obj);
-	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
-}
-
-JNIEXPORT void JNICALL Java_android_widget_EditText_native_1addTextChangedListener(JNIEnv *env, jobject this, jlong widget_ptr, jobject listener)
-{
-	GtkText *gtk_text = GTK_TEXT(_PTR(widget_ptr));
-	listener = _REF(listener);
-
-	GList *listeners = g_object_get_data(G_OBJECT(gtk_text), "text_changed_listeners");
-	listeners = g_list_append(listeners, listener);
-	g_object_set_data(G_OBJECT(gtk_text), "text_changed_listeners", listeners);
-	g_signal_connect(GTK_EDITABLE(gtk_text), "changed", G_CALLBACK(changed_cb), listener);
-}
-
-JNIEXPORT void JNICALL Java_android_widget_EditText_native_1removeTextChangedListener(JNIEnv *env, jobject this, jlong widget_ptr, jobject listener)
-{
-	GtkText *gtk_text = GTK_TEXT(_PTR(widget_ptr));
-
-	GList *listeners = g_object_get_data(G_OBJECT(gtk_text), "text_changed_listeners");
-	GList *l;
-	for (l = listeners; l != NULL; l = l->next) {
-		if ((*env)->IsSameObject(env, l->data, listener)) {
-			g_signal_handlers_disconnect_by_func(GTK_EDITABLE(gtk_text), changed_cb, l->data);
-			_UNREF(l->data);
-			listeners = g_list_delete_link(listeners, l);
-			break;
-		}
-	}
-	g_object_set_data(G_OBJECT(gtk_text), "text_changed_listeners", listeners);
+	if ((*env)->ExceptionCheck(env)) return;
+	jobject owner = (*env)->NewLocalRef(env, data);
+	if (!owner) return;
+	glong length;
+	gunichar2 *utf16 = g_utf8_to_utf16(gtk_editable_get_text(self), -1, NULL, &length, NULL);
+	jstring text = (*env)->NewString(env, utf16, length);
+	g_free(utf16);
+	jclass cls = (*env)->GetObjectClass(env, owner);
+	jmethodID changed = (*env)->GetMethodID(env, cls, "onNativeTextChanged", "(Ljava/lang/String;)V");
+	if (changed && !(*env)->ExceptionCheck(env))
+		(*env)->CallVoidMethod(env, owner, changed, text);
+	// Do not make further Java calls when a watcher throws. Preserve the
+	// exception for the enclosing Java/GTK dispatch boundary.
+	(*env)->DeleteLocalRef(env, cls);
+	(*env)->DeleteLocalRef(env, text);
+	(*env)->DeleteLocalRef(env, owner);
 }
 
 #define IME_ACTION_SEARCH 3
@@ -108,10 +97,10 @@ JNIEXPORT void JNICALL Java_android_widget_EditText_native_1setOnEditorActionLis
 
 JNIEXPORT void JNICALL Java_android_widget_EditText_native_1setText(JNIEnv *env, jobject this, jlong widget_ptr, jstring text_jstr)
 {
-	const char *gtk_text = (*env)->GetStringUTFChars(env, text_jstr, NULL);
-	jsize length = (*env)->GetStringUTFLength(env, text_jstr);
-	gtk_entry_buffer_set_text(gtk_text_get_buffer(GTK_TEXT(_PTR(widget_ptr))), gtk_text, length);
-	(*env)->ReleaseStringUTFChars(env, text_jstr, gtk_text);
+	char *text = atl_text_to_utf8(env, text_jstr);
+	if (!text) return;
+	gtk_entry_buffer_set_text(gtk_text_get_buffer(GTK_TEXT(_PTR(widget_ptr))), text, -1);
+	g_free(text);
 }
 
 JNIEXPORT void JNICALL Java_android_widget_EditText_native_1setHint(JNIEnv *env, jobject this, jlong widget_ptr, jstring text_jstr)
@@ -126,4 +115,23 @@ JNIEXPORT jstring JNICALL Java_android_widget_EditText_native_1getHint(JNIEnv *e
 	GtkText *gtk_text = GTK_TEXT(_PTR(widget_ptr));
 	const char *text = gtk_text_get_placeholder_text(gtk_text);
 	return _JSTRING(text);
+}
+
+JNIEXPORT jint JNICALL Java_android_widget_EditText_native_1getSelection(JNIEnv *env, jobject this, jlong ptr, jboolean end)
+{
+	GtkEditable *editable = GTK_EDITABLE(_PTR(ptr));
+	int start_pos, end_pos;
+	if (!gtk_editable_get_selection_bounds(editable, &start_pos, &end_pos))
+		start_pos = end_pos = gtk_editable_get_position(editable);
+	const char *text = gtk_editable_get_text(editable);
+	const char *limit = g_utf8_offset_to_pointer(text, end ? end_pos : start_pos);
+	int utf16 = 0;
+	for (const char *p = text; p < limit; p = g_utf8_next_char(p))
+		utf16 += g_utf8_get_char(p) > 0xffff ? 2 : 1;
+	return utf16;
+}
+
+JNIEXPORT void JNICALL Java_android_widget_EditText_native_1setSelection(JNIEnv *env, jobject this, jlong ptr, jint start, jint end)
+{
+	gtk_editable_select_region(GTK_EDITABLE(_PTR(ptr)), start, end);
 }

@@ -46,6 +46,14 @@ public class StaticLayout extends Layout {
 
 		public Builder setLineSpacing(float add, float mult) { return this; }
 
+		public Builder setUseLineSpacingFromFallbacks(boolean useFallbackLineSpacing) {
+			// Pango already includes the fonts used by each shaped run in line metrics.
+			// Suppressing those metrics needs a separate fixed-font-metrics implementation.
+			if (!useFallbackLineSpacing)
+				throw new UnsupportedOperationException("Pango layouts require fallback font line metrics");
+			return this;
+		}
+
 		public Builder setIncludePad(boolean includepad) { return this; }
 
 		public Builder setBreakStrategy(int strategy) { return this; }

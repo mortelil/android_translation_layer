@@ -48,8 +48,8 @@ was also added to make a first run work. The full scripts were then rerun.
 
 The original source underlying this fork was also tested on ARM64/Plasma Mobile:
 Immich login/server photos, local-image viewing, a small backup, progressing video
-frames, pause/back and timeline scrolling were observed. The publication cleanup
-has not been redeployed or GUI-tested on the phone. No claim is made that every
+frames, pause/back and timeline scrolling were observed. The original publication cleanup was not redeployed at that point; the later
+2026-10-09 checks below cover a newer build on the phone. No claim is made that every
 APK/version/device works. TextureView/Places, advanced IME, media metadata,
 network model, automatic scale/insets and video performance remain limited.
 
@@ -57,3 +57,43 @@ Next useful tests: a fresh container build, the published branch on ARM64,
 repeated video open/close and resize, suspend/resume, complex text composition,
 large synthetic media sets, and callback/queue/thread lifetime stress tests.
 No independent human expert review or full Android CTS run is claimed.
+
+
+## 2026-10-09: Plexamp text input and compatibility regression pass
+
+Plexamp 4.50.19 (ARM64) reaches its real onboarding/sign-in screen. A diagnostic
+helper entered and deleted synthetic email/password strings in the actual GTK
+fields, checked that React Native retained the result, and verified that the
+password field uses native masking. It did not submit the form. Authentication,
+library access and playback are deliberately outside this pass. The icon font
+and some Android audio/device APIs are still incomplete.
+
+The x86_64 and ARM64 API JARs were rebuilt from empty compiled-class directories
+and without the previous incremental DX output. The full x86_64 mobile suite and
+ARM64 smoke/native-compat suites pass, including text watchers/Unicode/selection,
+password configuration, dynamic text spans, cookie policy, real Canvas pixels,
+CPU buffers, ALSA null-device callbacks and synthetic media/document access.
+The checked-strncat tests also pass; the matching Bionic revision is pinned in
+`dependency-lock.json`. ART source is unchanged in this experiment.
+
+On PC, independent Xvfb displays were used for real mouse-event tests of fresh,
+isolated profiles: Signal 8.29.3 advances from onboarding to its permissions page;
+Immich 3.3.0 opens Settings; LocalSend 1.18.2 switches to Send and Settings. Each
+transition was verified in an app-window screenshot, with the process still alive.
+The user's locked Mint desktop was not used for these interactions.
+
+On Nura, the same source is built natively inside Alpine. Immich's endpoint page
+and Settings navigation were observed using a synthetic call to the Flutter
+view's Android touch handler on the unlocked phone. LocalSend switches to Send,
+and Signal advances to its permissions page, also verified in app-window
+screenshots. These tests exercise app event handling; they do not replace a
+physical touchscreen/IME/suspend-resume test.
+The phone test launcher must use phone-sized initial window arguments (408x794
+in this session); ATL's default 960x540 initially selects a tablet layout in Signal.
+
+All test appdata, screenshots and logs are outside this source repository in the
+private `atl-plexamp-logs`/phone test workspace. No real login, photo upload,
+message, call or file-transfer acceptance is part of this pass. Prior successful
+account/media/transfer observations remain historical results, not fresh proof
+of every feature on this revision. Some existing GTK and unsupported-API warnings
+remain. No Android CTS run or independent human code review is claimed.

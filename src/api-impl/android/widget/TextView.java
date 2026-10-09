@@ -33,6 +33,8 @@ import android.view.View;
 public class TextView extends View {
 	private ColorStateList colors = new ColorStateList(new int[][] {new int[0]}, new int[1]);
 	private CharSequence text = "";
+	private int inputType;
+	private TransformationMethod transformationMethod;
 	private TextPaint paint = new TextPaint();
 	private boolean include_padding = false;
 	private int break_strategy = 0 /*BREAK_STRATEGY_SIMPLE*/;
@@ -114,8 +116,10 @@ public class TextView extends View {
 		this.text = text == null ? "" : text;
 		native_setText(text != null ? text.toString() : null);
 
-		if (text instanceof android.text.Spanned)
+		int[] spans = android.atl.TextSpanAttributes.encode(this.text, getResources().getDisplayMetrics().density);
+		if (text instanceof android.text.Spanned && spans.length == 0)
 			native_set_markup(1);
+		native_setTextAttributes(spans);
 		if (!isLayoutRequested())
 			requestLayout();
 	}
@@ -135,6 +139,7 @@ public class TextView extends View {
 	private native final void native_set_markup(int bool);
 
 	public native final void native_setText(String text);
+	private native void native_setTextAttributes(int[] attributes);
 
 	public void setTextSize(int unit, float size) {
 		if (unit != TypedValue.COMPLEX_UNIT_SP)
@@ -176,7 +181,13 @@ public class TextView extends View {
 	public void setLineSpacing(float add, float mult) {}
 	public final void setLinksClickable(boolean whether) {}
 
-	public void setInputType(int type) {}
+	public void setInputType(int type) {
+		inputType = type;
+		int klass = type & 0xf, variation = type & 0xff0;
+		boolean password = (klass == 1 && (variation == 0x80 || variation == 0xe0))
+		                || (klass == 2 && variation == 0x10);
+		setTransformationMethod(password ? android.text.method.PasswordTransformationMethod.getInstance() : null);
+	}
 	public void setFilters(InputFilter[] filters) {}
 	public void setCursorVisible(boolean visible) {}
 	public void setImeOptions(int imeOptions) {}
@@ -193,7 +204,7 @@ public class TextView extends View {
 	public void setOnEditorActionListener(TextView.OnEditorActionListener l) {}
 
 	public TransformationMethod getTransformationMethod() {
-		return null;
+		return transformationMethod;
 	}
 
 	public void setHintTextColor(ColorStateList colorStateList) {}
@@ -275,9 +286,24 @@ public class TextView extends View {
 
 	public KeyListener getKeyListener() { return null; }
 
-	public int getInputType() { return 0; }
+	private String fontFeatureSettings;
 
-	public final void setTransformationMethod(TransformationMethod method) {}
+	public String getFontFeatureSettings() { return fontFeatureSettings; }
+
+	public void setFontFeatureSettings(String settings) {
+		native_setFontFeatureSettings(widget, settings);
+		fontFeatureSettings = settings;
+	}
+
+	private native void native_setFontFeatureSettings(long widget, String settings);
+
+	public int getInputType() { return inputType; }
+
+	public final void setTransformationMethod(TransformationMethod method) {
+		transformationMethod = method;
+		native_setPasswordVisibility(widget, !(method instanceof android.text.method.PasswordTransformationMethod));
+	}
+	private native void native_setPasswordVisibility(long widget, boolean visible);
 
 	public InputFilter[] getFilters() { return new InputFilter[0]; }
 
@@ -381,7 +407,7 @@ public class TextView extends View {
 
 	public int getExtendedPaddingTop() { return 0; }
 
-	public void setRawInputType(int type) {}
+	public void setRawInputType(int type) { inputType = type; }
 
 	public TextUtils.TruncateAt getEllipsize() { return null; }
 

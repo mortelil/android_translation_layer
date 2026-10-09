@@ -62,6 +62,8 @@ libandroid_so = shared_library('android', [
                                           	'src/libandroid/egl.c',
                                           'src/libandroid/egl_lifecycle.c',
                                           	'src/libandroid/input.c',
+                                          'src/libandroid/hardware_buffer.c',
+                                          'src/libandroid/aaudio.c',
                                           	'src/libandroid/looper.c',
                                           	'src/libandroid/media.c',
                                           	'src/libandroid/native_window.c',
@@ -71,7 +73,7 @@ libandroid_so = shared_library('android', [
                                           install: true,
                                           soversion: 0,
                                           dependencies: [
-                                          	dependency('gtk4'), dependency('jni'), dependency('vulkan'), dependency('openxr').partial_dependency(includes: true),
+                                          dependency('alsa'), dependency('threads'), dependency('gtk4'), dependency('jni'), dependency('vulkan'), dependency('openxr').partial_dependency(includes: true),
                                           	art_incdir_dep
                                           ],
                                           c_args: [
@@ -92,6 +94,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                   	'src/api-impl-jni/android_opengl_GLES20.c',
                                                                   	'src/api-impl-jni/android_opengl_GLUtils.c',
                                                                   	'src/api-impl-jni/android_os_Environment.c',
+                                                                        'src/api-impl-jni/android_webkit_CookieManager.c',
                                                                   	'src/api-impl-jni/android_os_MemoryFile.c',
                                                                   	'src/api-impl-jni/android_os_MessageQueue.c',
                                                                   	'src/api-impl-jni/android_os_SystemClock.c',
@@ -187,7 +190,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                         extra_deps,
                                                                   	dependency('gtk4', version: '>=4.14'), dependency('gl'), dependency('egl'), dependency('wayland-client'), dependency('jni'),
                                                                   	dependency('libportal'), dependency('sqlite3'), dependency('libavcodec', version: '>=59'), dependency('libdrm'),
-                                                                  	dependency('gudev-1.0'), dependency('libswscale'), dependency('webkitgtk-6.0'), dependency('libsecret-1'),
+                                                                        dependency('gudev-1.0'), dependency('libswscale'), dependency('webkitgtk-6.0'), dependency('libsoup-3.0'), dependency('libsecret-1'),
                                                                         libart_dep, wayland_protos_dep
                                                                   ],
                                                                   link_with: [ libandroid_so ],

@@ -22,6 +22,17 @@ public class TestDynamicLayout {
 		};
 		TextPaint paint = new TextPaint();
 		paint.setTextSize(16);
+		StaticLayout.Builder builder = StaticLayout.Builder.obtain("Latin\n\u0928\u092e\u0938\u094d\u0924\u0947", 0, 12, paint, 500);
+		if (builder.setUseLineSpacingFromFallbacks(true) != builder)
+			throw new AssertionError("Fallback spacing builder chaining");
+		StaticLayout fallback = builder.build();
+		if (fallback.getLineCount() != 2 || fallback.getHeight() <= 0
+		    || fallback.getLineBaseline(1) <= fallback.getLineBaseline(0))
+			throw new AssertionError("Fallback-font lines must have usable metrics");
+		try {
+			builder.setUseLineSpacingFromFallbacks(false);
+			throw new AssertionError("Unsupported primary-font-only metrics must not be silently accepted");
+		} catch (UnsupportedOperationException expected) {}
 		DynamicLayout plain = new DynamicLayout(base, paint, 500, Layout.Alignment.ALIGN_NORMAL, 1, 0, false);
 		DynamicLayout hidden = new DynamicLayout(base, masked, paint, 500, Layout.Alignment.ALIGN_NORMAL, 1, 0, false);
 		if (plain.getText() != base || hidden.getText() != masked)

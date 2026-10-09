@@ -40,7 +40,9 @@ public class Layout {
 		this.spacing_add = spacingAdd;
 		this.align = align;
 		layout = native_constructor(str, paint.paint, width);
+		native_set_text_attributes(layout, android.atl.TextSpanAttributes.encode(this.text, paint.density));
 	}
+	protected native void native_set_text_attributes(long layout, int[] attributes);
 
 	public int getLineCount() {
 		return native_get_line_count(layout);

@@ -166,11 +166,8 @@ public class Settings {
 		}
 
 		public static String getString(ContentResolver cr, String key) {
-			switch (key) {
-				default:
-					Slog.w(TAG, "!!!! getString: unknown key: >" + key + "<");
-					return "STRING_FROM_SETTINGS_GLOBAL_WITH_KEY_" + key;
-			}
+			Float value = getFloatOrNull(cr, key);
+			return value == null ? null : Float.toString(value);
 		}
 
 		protected static Integer getIntOrNull(ContentResolver content_resolver, String key) {
@@ -201,6 +198,8 @@ public class Settings {
 
 		protected static Float getFloatOrNull(ContentResolver cr, String key) {
 			switch (key) {
+				case "window_animation_scale":
+				case "transition_animation_scale":
 				case "animator_duration_scale":
 					return 1.f;
 				default:

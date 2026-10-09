@@ -1349,7 +1349,8 @@ public class View implements Drawable.Callback {
 				window.view_tree_observer = new ViewTreeObserver(window);
 			return window.view_tree_observer;
 		} else {
-			floating_observer = new ViewTreeObserver(null);
+			if (floating_observer == null || !floating_observer.isAlive())
+				floating_observer = new ViewTreeObserver(null);
 			return floating_observer;
 		}
 	}
@@ -2376,9 +2377,21 @@ public class View implements Drawable.Callback {
 
 	public void setTooltipText(CharSequence tooltip) {}
 
-	public int getImportantForAutofill() { return 0; }
+	private int importantForAutofill;
+	private String[] autofillHints;
 
-	public void setImportantForAutofill(int flag) {}
+	public int getImportantForAutofill() { return importantForAutofill; }
+
+	public void setImportantForAutofill(int flag) { importantForAutofill = flag; }
+
+	// View metadata can be retained even when there is no host autofill provider.
+	public void setAutofillHints(String... hints) {
+		autofillHints = hints == null || hints.length == 0 ? null : hints.clone();
+	}
+
+	public String[] getAutofillHints() {
+		return autofillHints == null ? null : autofillHints.clone();
+	}
 
 	public void setDefaultFocusHighlightEnabled(boolean enabled) {}
 

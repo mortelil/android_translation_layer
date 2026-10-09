@@ -3,6 +3,10 @@ package android.media;
 import android.os.Handler;
 
 public class AudioManager {
+	public static abstract class AudioPlaybackCallback {
+		public void onPlaybackConfigChanged(java.util.List<AudioPlaybackConfiguration> configs) {}
+	}
+
 	public static final String PROPERTY_OUTPUT_FRAMES_PER_BUFFER = "android.media.property.OUTPUT_FRAMES_PER_BUFFER";
 	public static final String PROPERTY_OUTPUT_SAMPLE_RATE = "android.media.property.OUTPUT_SAMPLE_RATE";
 
