@@ -174,7 +174,9 @@ static inline void make_touch_event(GdkEvent *event, GtkEventControllerLegacy *e
 	// apps expect it to start at the top left of the area where child widgets get placed, so that
 	// the top left of the window is the same as the top left of a single widget filling the entire window
 	// while it's quite hacky, the following should realistically work for most if not all cases
-	if ((child = gtk_window_get_child(GTK_WINDOW(window)))) {
+	child = g_object_get_data(G_OBJECT(window), "atl-content");
+	if (!child) child = gtk_window_get_child(GTK_WINDOW(window));
+	if (child) {
 		int ret;
 		graphene_point_t p;
 		ret = gtk_widget_compute_point(window, child, &GRAPHENE_POINT_INIT(ainput_event->x, ainput_event->y), &p);

@@ -1,6 +1,7 @@
 #include <gio/gio.h>
 #include <glib.h>
 #include <gtk/gtk.h>
+#include "../android_view_Window.h"
 #include <gtk4-layer-shell/gtk4-layer-shell.h>
 #include <jni.h>
 
@@ -176,7 +177,7 @@ JNIEXPORT jlong JNICALL Java_android_atl_ATLKeyboardDialog_nativeInit(JNIEnv *en
 
 	connect_osk_dbus_iface(dialog);
 
-	gtk_window_set_child(GTK_WINDOW(dialog), gtk_widget_get_parent(decor_view));
+	atl_window_set_content(env, GTK_WINDOW(dialog), gtk_widget_get_parent(decor_view));
 	g_signal_connect_swapped(dialog, "response", G_CALLBACK(gtk_window_destroy), dialog);
 	g_signal_connect(GTK_WINDOW(dialog), "close-request", G_CALLBACK(on_close_request), _REF(this));
 

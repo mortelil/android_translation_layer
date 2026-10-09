@@ -1,4 +1,5 @@
 #include <gtk/gtk.h>
+#include "../android_view_Window.h"
 #include <jni.h>
 
 #include "../defines.h"
@@ -58,7 +59,7 @@ JNIEXPORT jlong JNICALL Java_android_app_Dialog_nativeInit(JNIEnv *env, jobject 
 	GtkWidget *decor_view = GTK_WIDGET(_PTR(decor_view_ptr));
 	GtkWidget *dialog = gtk_window_new();
 	gtk_window_set_transient_for(GTK_WINDOW(dialog), window);
-	gtk_window_set_child(GTK_WINDOW(dialog), gtk_widget_get_parent(decor_view));
+	atl_window_set_content(env, GTK_WINDOW(dialog), gtk_widget_get_parent(decor_view));
 	g_signal_connect(GTK_WINDOW(dialog), "close-request", G_CALLBACK(on_close_request), _REF(this));
 	return _INTPTR(g_object_ref(dialog));
 }
@@ -76,7 +77,7 @@ JNIEXPORT void JNICALL Java_android_app_Dialog_nativeSetContentView(JNIEnv *env,
 	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
 
-	gtk_window_set_child(dialog, gtk_widget_get_parent(widget));
+	atl_window_set_content(env, dialog, gtk_widget_get_parent(widget));
 }
 
 JNIEXPORT void JNICALL Java_android_app_Dialog_nativeShow(JNIEnv *env, jobject this, jlong ptr)

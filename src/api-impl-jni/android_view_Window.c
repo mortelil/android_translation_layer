@@ -2,6 +2,7 @@
 
 #include "defines.h"
 #include "util.h"
+#include "android_view_Window.h"
 
 #include "generated_headers/android_view_Window.h"
 
@@ -73,27 +74,37 @@ static void atl_scale_root_class_init(ATLScaleRootClass *klass)
 
 static void atl_scale_root_init(ATLScaleRoot *root) { root->scale = 1; }
 
+GtkWidget *atl_window_get_content(GtkWindow *window)
+{
+    GtkWidget *child = gtk_window_get_child(window);
+    if (child && G_TYPE_CHECK_INSTANCE_TYPE(child, atl_scale_root_get_type()))
+        return ((ATLScaleRoot *)child)->child;
+    return child;
+}
+
+void atl_window_set_content(JNIEnv *env, GtkWindow *window, GtkWidget *content)
+{
+    if (atl_window_get_content(window) == content)
+        return;
+    if (getenv("ATL_RENDER_SCALE")) {
+        jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
+        double scale = (*env)->GetStaticIntField(env, metrics, _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
+        (*env)->DeleteLocalRef(env, metrics);
+        ATLScaleRoot *root = g_object_new(atl_scale_root_get_type(), NULL);
+        root->scale = scale;
+        root->child = content;
+        gtk_widget_set_parent(content, GTK_WIDGET(root));
+        gtk_window_set_child(window, GTK_WIDGET(root));
+    } else {
+        gtk_window_set_child(window, content);
+    }
+    /* Also expose Android coordinates to libandroid's native input queue. */
+    g_object_set_data(G_OBJECT(window), "atl-content", content);
+}
+
 JNIEXPORT void JNICALL Java_android_view_Window_set_1widget_1as_1root(JNIEnv *env, jobject this, jlong window, jlong widget)
 {
-	GtkWindow *gtk_window = GTK_WINDOW(_PTR(window));
-	GtkWidget *gtk_widget = gtk_widget_get_parent(GTK_WIDGET(_PTR(widget)));
-	if (getenv("ATL_RENDER_SCALE")) {
-		jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
-		double scale = (*env)->GetStaticIntField(env, metrics, _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
-		(*env)->DeleteLocalRef(env, metrics);
-		GtkWidget *existing = gtk_window_get_child(gtk_window);
-		if (existing && G_TYPE_CHECK_INSTANCE_TYPE(existing, atl_scale_root_get_type()) && ((ATLScaleRoot *)existing)->child == gtk_widget)
-			return;
-		ATLScaleRoot *root = g_object_new(atl_scale_root_get_type(), NULL);
-		root->scale = scale;
-		root->child = gtk_widget;
-		gtk_widget_set_parent(gtk_widget, GTK_WIDGET(root));
-		gtk_window_set_child(gtk_window, GTK_WIDGET(root));
-		return;
-	}
-	if (gtk_widget != gtk_window_get_child(gtk_window)) {
-		gtk_window_set_child(gtk_window, gtk_widget);
-	}
+    atl_window_set_content(env, GTK_WINDOW(_PTR(window)), gtk_widget_get_parent(GTK_WIDGET(_PTR(widget))));
 }
 
 JNIEXPORT void JNICALL Java_android_view_Window_set_1title(JNIEnv *env, jobject this, jlong window, jstring title_jstr)

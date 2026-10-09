@@ -8,6 +8,7 @@
 
 #include "../api-impl-jni/defines.h"
 #include "../api-impl-jni/util.h"
+#include "../api-impl-jni/android_view_Window.h"
 #include "../api-impl-jni/app/android_app_Activity.h"
 #include "../api-impl-jni/content/android_content_Context.h"
 
@@ -479,7 +480,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	window = gtk_application_window_new(app);
 	GtkWidget *stack = gtk_stack_new();
 	gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
-	gtk_window_set_child(GTK_WINDOW(window), stack);
+	atl_window_set_content(env, GTK_WINDOW(window), stack);
 
 	const char *disable_decoration_env = getenv("ATL_DISABLE_WINDOW_DECORATIONS");
 	gboolean decorated;

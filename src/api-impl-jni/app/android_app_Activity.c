@@ -1,4 +1,5 @@
 #include <gtk/gtk.h>
+#include "../android_view_Window.h"
 #include <libportal/portal.h>
 
 #include <jni.h>
@@ -32,7 +33,7 @@ static void activity_close(JNIEnv *env, jobject activity)
 	}
 
 	GtkWidget *decor_view = get_decor_view(env, activity);
-	GtkStack *stack = GTK_STACK(gtk_window_get_child(window));
+	GtkStack *stack = GTK_STACK(atl_window_get_content(window));
 	gtk_stack_remove(stack, decor_view);
 
 	/* -- run the activity's onDestroy -- */
@@ -70,7 +71,7 @@ static void activity_focus(JNIEnv *env, jobject activity)
 		return;
 
 	GtkWidget *decor_view = get_decor_view(env, activity);
-	GtkStack *stack = GTK_STACK(gtk_window_get_child(window));
+	GtkStack *stack = GTK_STACK(atl_window_get_content(window));
 	gtk_stack_set_visible_child(stack, decor_view);
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onResume);
@@ -196,7 +197,7 @@ void activity_start(JNIEnv *env, jobject activity_object)
 	activity_backlog = g_list_prepend(activity_backlog, _REF(activity_object));
 
 	GtkWidget *decor_view = get_decor_view(env, activity_object);
-	GtkStack *stack = GTK_STACK(gtk_window_get_child(window));
+	GtkStack *stack = GTK_STACK(atl_window_get_content(window));
 	gtk_stack_add_child(stack, decor_view);
 
 	activity_update_current(env);
