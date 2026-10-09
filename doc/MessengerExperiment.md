@@ -207,7 +207,31 @@ flow has not been verified. Media playback and remaining input checks are not
 yet fully approved. The private detailed matrix and screenshots stay outside
 the repository.
 
-The normal mobile build script still does not reproduce the source ART runtime
-used here. PC also used D8-desugared core classes, jemalloc and ART compiled with
-`-fpatchable-function-entry=16`. This deployment gap and the unfinished app
+`scripts/mobile/build-art-runtime.sh` now provides the previously manual native
+ART build. It builds libart, its compiler, libutils and their dependencies into
+an architecture-specific output directory and links them into `ATL_PREFIX`.
+On x86_64 it reserves function-entry instrumentation space with
+`-fpatchable-function-entry=16`, matching the tested Messenger configuration.
+ARM uses the ordinary GCC configuration. Neither mode installs system packages.
+The output directory must remain available because the overlay uses symlinks.
+An incremental invocation against the already source-built outputs passed on
+both architectures; a second clean build was not performed for this script.
+
+Run inside Alpine, using the same private prefix for each command:
+
+```sh
+export ATL_PREFIX="$HOME/atl-runtime-messenger"
+sh scripts/mobile/build.sh
+sh scripts/mobile/build-art-runtime.sh
+# Requires the pinned R8 JAR; see build-core-java.sh for its checksum.
+R8_JAR=/absolute/path/to/r8-8.3.37.jar sh scripts/mobile/build-core-java.sh
+# Requires the separately built optional apksig helper; see ApkSignatures.md.
+ATL_CORE_JAR="$ATL_PREFIX/share/art/core-all-hostdex.jar" \
+LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+sh scripts/mobile/run.sh /absolute/path/to/messenger.apk
+```
+
+The ordinary build/launcher defaults still use packaged ART/core classes unless
+these steps and explicit options are used. This is an experimental configuration,
+not a claim that the default install now supports Messenger. The unfinished app
 checks must be resolved before treating this branch as a validated release.
