@@ -78,6 +78,17 @@ class Movie {}
  * href="{@docRoot}guide/topics/resources/index.html">Application Resources</a>.</p>
  */
 public class Resources {
+	private ClassLoader mClassLoader = ClassLoader.getSystemClassLoader();
+
+	public ClassLoader getClassLoader() {
+		return mClassLoader;
+	}
+
+	public Resources(AssetManager assets, DisplayMetrics metrics, Configuration config, ClassLoader loader) {
+		this(assets, metrics, config);
+		if (loader != null) mClassLoader = loader;
+	}
+
 	static final String TAG = "Resources";
 	private static final boolean DEBUG_LOAD = false;
 	private static final boolean DEBUG_CONFIG = false;

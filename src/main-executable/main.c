@@ -475,6 +475,20 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	(*env)->GetJavaVM(env, &jvm);
 	set_up_handle_cache(env);
 
+	// Use the same selected API level for Java and Android native libraries.
+	// Build.VERSION applies ATL's existing explicit/minSdk selection policy.
+	jclass version_class = (*env)->FindClass(env, "android/os/Build$VERSION");
+	if (!version_class) { (*env)->ExceptionDescribe(env); exit(1); }
+	jfieldID sdk_field = (*env)->GetStaticFieldID(env, version_class, "SDK_INT", "I");
+	if (!sdk_field) { (*env)->ExceptionDescribe(env); exit(1); }
+	jint sdk = (*env)->GetStaticIntField(env, version_class, sdk_field);
+	(*env)->DeleteLocalRef(env, version_class);
+	int (*set_sdk_version)(int) = dlsym(RTLD_DEFAULT, "bionic_set_android_sdk_version");
+	if ((*env)->ExceptionCheck(env) || !set_sdk_version || set_sdk_version(sdk)) {
+		fprintf(stderr, "Unable to synchronize Android API level; use the pinned bionic_translation runtime\n");
+		exit(1);
+	}
+
 	/* -- misc -- */
 
 	window = gtk_application_window_new(app);

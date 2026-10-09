@@ -108,7 +108,7 @@ public final class ATLLoadedApp {
 		    classLoaderPath, nativePath, ATLLoadedApp.class.getClassLoader());
 		AssetManager assetManager = new AssetManager(classLoaderPath + ":" + System.getProperty("java.class.path"));
 		PackageParser packageParser = new PackageParser(mainApk);
-		Resources resources = new Resources(assetManager, new DisplayMetrics(), Context.sys_config);
+		Resources resources = new Resources(assetManager, new DisplayMetrics(), Context.sys_config, classLoader);
 		String[] outError = new String[1];
 		PackageParser.Package pkg;
 		try {
@@ -138,7 +138,7 @@ public final class ATLLoadedApp {
 			displayMetrics = this.default_resources.getDisplayMetrics();
 		if (configuration == null)
 			configuration = Context.sys_config;
-		Resources resources = new Resources(this.default_resources.getAssets(), displayMetrics, configuration);
+		Resources resources = new Resources(this.default_resources.getAssets(), displayMetrics, configuration, class_loader);
 		return resources;
 	}
 

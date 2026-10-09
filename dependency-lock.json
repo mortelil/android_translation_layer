@@ -3,7 +3,7 @@
   "atl_upstream_base": "f9e2280c1b78174c0536e02f246276cd80284c82",
   "dependencies": {
     "bionic_translation": {
-      "commit": "9d01b3a8235e26099ea28086a0a4cda2994064eb",
+      "commit": "0db5b242fbd66e92eac8bf5e9e4de90d547e97ae",
       "upstream_base": "6253dec7f24a57a94039a088cb436d880e92e3be",
       "upstream": "https://gitlab.com/android_translation_layer/bionic_translation.git",
       "fork": "https://github.com/mortelil/bionic_translation.git"
