@@ -44,13 +44,26 @@ The native CFI tests also pass after replacing repeated host dlopen/dlclose with
 ELF lookup inside loader enumeration. This avoids debugger library events on
 every JNI CFI check. ARM64 has not been validated for these new changes.
 
-The current startup blocker is memory corruption during ART class debug-info
-creation. Matching Alpine runtime/compiler debug symbols locate the failure
-in a dwarf abbreviation hash table. In the debugger, its bucket array aliases
-a live debug-entry vector. Disabling jemalloc's thread cache changes the outcome
-and reaches a missing `ASharedMemory_create`, followed by a crash in the app's
-crash handler. Neither observation is a fix; allocator tracing is ongoing.
-The installed ART runtime and compiler are both Alpine 0_git20251009-r2.
+The main startup blocker was traced beyond its ART crash site. Allocation tracing
+shows a double free inside the APK's Breakpad `distract_hook` failure path. It
+happens when Dextricks attempts `ART_HACK_DEX_PC_LINENUM`, targeting the host
+ART `art::annotations::GetLineNumFromPC` implementation. The freed block later
+appears twice in jemalloc's cache and is assigned to both an ART hash table and
+a vector. Disabling the thread cache only changes the symptom; it is not a fix.
+Matching Alpine ART runtime/compiler debug symbols (0_git20251009-r2), hardware
+breakpoints and allocation traces establish this sequence. Ordinary software
+breakpoints interfere with these self-modifying native hooks.
+
+A separate source build using GCC's `-fpatchable-function-entry=16` is being
+investigated. It reserves real instrumentation space while retaining function
+behavior. This is not yet a validated compatibility solution and is not enabled
+in the published runtime. See GCC's instrumentation-option documentation.
+
+A second independently observed loader failure, `ASharedMemory_create`, now has
+a Linux memfd implementation plus `ASharedMemory_getSize`. Native tests verify
+cross-process contents, descriptor/mapping lifetime and immutable region size.
+The full PC regression suite passes after this change. Protection reduction
+and Java SharedMemory transport are not implemented or advertised.
 
 ResourcesImpl reflection warnings are caught by the app. Crash-report retries
 also reach unsupported AndroidCAStore behavior; fresh isolated profiles separate
@@ -59,7 +72,7 @@ with a success-returning stub.
 
 Local diagnostic logs and helper scripts are in `~/src/atl-messenger-logs/`;
 these are not shipped. Relevant runs: `startup-gdb16.log` (ART locals),
-`startup-gdb17.log` (thread-cache diagnostic), `jemalloc-regression-tests.log`,
+`startup-gdb24.log` (double-free tracing), `startup-gdb31.log` (hook targets), `jemalloc-regression-tests.log`,
 `cfi-hash-tests.log`, and `mallinfo-final-tests.log`.
 
 ABI reference: [LLVM cross-DSO CFI design](https://clang.llvm.org/docs/ControlFlowIntegrityDesign.html#shared-library-support).

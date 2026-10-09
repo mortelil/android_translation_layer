@@ -64,6 +64,7 @@ libandroid_so = shared_library('android', [
                                           	'src/libandroid/input.c',
                                           'src/libandroid/hardware_buffer.c',
                                           'src/libandroid/aaudio.c',
+                                          'src/libandroid/shared_memory.c',
                                           	'src/libandroid/looper.c',
                                           	'src/libandroid/media.c',
                                           	'src/libandroid/native_window.c',

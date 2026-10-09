@@ -6,6 +6,8 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cc "$repo/tests/native-compat/test-hardware-buffer.c" "$repo/src/libandroid/hardware_buffer.c" -I"$repo/src/libandroid" -I"${JAVA_HOME:-/usr/lib/jvm/default-jvm}/include" -I"${JAVA_HOME:-/usr/lib/jvm/default-jvm}/include/linux" -o "$out/hardware-test"
 "$out/hardware-test"
+cc "$repo/tests/native-compat/test-shared-memory.c" "$repo/src/libandroid/shared_memory.c" -o "$out/shared-memory-test"
+"$out/shared-memory-test"
 cc "$repo/tests/native-compat/test-aaudio.c" $(pkg-config --cflags --libs alsa) -pthread -o "$out/audio-test"
 # Synthetic ALSA device only: this test must never open a microphone.
 printf 'pcm.!default { type null }\n' > "$out/alsa.conf"
