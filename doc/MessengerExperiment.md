@@ -109,20 +109,51 @@ adding a global search path. Tests cover both ORIGIN spellings, colon-separated
 paths and explicit library-path priority. See Bionic's `tests/runpath/README.md`
 for unsupported tokens and remaining loader limits.
 
-Latest run (`startup-patchable-20.log`) passes these native startup blockers but
-stops with `NoSuchMethodError: Typeface.Builder(File)` on CombinedTP10. Existing
-ATL Typeface/Builder and Paint font selection largely return placeholder values;
-proper file-backed font loading/rendering is the next task, not another fake
-successful builder. Caught sensor-listener and TrafficStats query errors also
-remain. A screenshot before the fatal error shows a blank window only. No usable
-Messenger UI or Nura support has been verified.
+The file-font blocker is fixed by real Fontconfig/Pango font loading; see
+`FileFonts.md` and local commit `5a1b8bb9`. Later changes add view/autofill metadata,
+GTK text selection/placeholder/shadow styling, and explicit rejection of unsupported
+hardware key attestation before software key generation. GTK pixel tests caught
+and corrected CSS that did not initially reach the placeholder/selection nodes.
 
-The full PC automated regression suite passes after the loader and ART fixes
-(`runpath-full-regression.log`). This does not replace interactive regression
-checks of the four previously working applications. No changes from this experiment
-have been published or installed on Nura. Debugger runs also establish that `STI`
-instructions installed by the app are deliberate signal hooks; debugging must
-let it handle those traps.
+The next fatal errors were missing APK signing metadata and incorrect local Binder
+caller identity. Optional AOSP apksig verification now supplies real v2/v3 signer
+certificates and SigningInfo (see `ApkSignatures.md`). Binder local calls return
+the process's real PID/UID; loaded app metadata uses that UID. The former
+`Process.myUid() == -1` workaround is removed. This is local-process behavior,
+not Android sandboxing or remote Binder support; WhatsApp's earlier workaround
+has not been revalidated. API contract: [Binder caller identity](https://developer.android.com/reference/android/os/Binder#getCallingPid()).
+
+Run `startup-patchable-47.log` reached a visible Messenger login screen, captured
+in `messenger-47-live.png`. A delayed background
+call then failed on the missing `TrafficStats.getTotalRxBytes()` method. Total
+traffic queries now explicitly report UNSUPPORTED because ATL has no persistent
+since-boot accounting backend; they do not fabricate zero traffic. Local Binder interface lookup now returns the attached owner, avoiding a proxy
+transaction against an empty Parcel. Desired text width now includes supported
+size spans, fixing incorrectly wrapped login labels. Tests demonstrate typing
+and deleting a synthetic email address. Password input reaches the GTK buffer,
+but its validation fails while loading libcore.so because OpenSL ES was absent.
+Alpine libopensles-standalone (0_git20250913-r0) is now installed. The next
+missing Bionic entry point, __system_property_read_callback, is implemented
+using a consistent atomic SDK value/revision snapshot, with callback/reentry tests.
+Run `startup-input56.log` uses both fixes and completes typing/deleting synthetic
+email and password text without the earlier fatal errors. Password masking is
+visible in `messenger-56-password.png`. No login was submitted. Some snapshots
+still lose the background/unchanged content. The same issue occurs with Cairo
+(run 57) and GSK_DEBUG=full-redraw (run 58), while a minimal standalone GTK
+control keeps its background. This remains an ATL/Messenger drawing investigation,
+not a solved renderer configuration problem. Run 58 completes input/deletion
+without fatal JNI errors, but that does not establish login or messaging support. No Messenger account,
+message exchange, or Nura compatibility has been verified.
+
+The full PC automated suite passes after the property callback, styled width,
+signing metadata and local identity changes (`property-full-regression.log`), including the native GTK pixel
+tests. Real signer/tamper tests pass (`styled-width-full-regression.log`); the actual
+helper protocol also passes under ART at API 28 (`signing-art-protocol.log`). These tests do not
+replace interactive regression checks of the four previously working applications.
+Nothing from this experiment has been published or installed on Nura. Read-only
+SSH confirmed the phone is reachable and runs aarch64 Nura edge. Debugger
+runs establish that `STI` instructions installed by the app are deliberate signal
+hooks; debugging must let the app handle those traps.
 
 ResourcesImpl reflection warnings are caught by the app. Crash-report retries
 also reach unsupported AndroidCAStore behavior; fresh isolated profiles separate

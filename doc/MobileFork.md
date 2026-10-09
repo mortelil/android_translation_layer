@@ -46,7 +46,7 @@ sudo apk add git build-base meson python3 pkgconf java-common openjdk8-jdk \
   android-build-tools elfutils-dev libunwind-dev libbsd-dev libcap-dev \
   pc:alsa pc:glib-2.0 pc:gtk4 pc:fontconfig pc:pangoft2 pc:pangocairo pc:gudev-1.0 pc:libportal pc:openxr \
   pc:vulkan pc:webkitgtk-6.0 pc:libsoup-3.0 pc:libsecret-1 ffmpeg-dev \
-  bionic_translation-dev art_standalone-dev libandroidfw-dev
+  bionic_translation-dev art_standalone-dev libandroidfw-dev libopensles-standalone
 ```
 
 Alpine's edge/testing repository must be enabled for the ATL dependencies; see
