@@ -1,8 +1,8 @@
 # Text layout line contracts: first milestone
 
-This work is on `text-layout-contracts`, separate from Messenger verification.
-The phase-1 publication gate is still open; this branch must not be included in
-that publication merely because it starts from the Messenger candidate.
+This milestone was developed on `text-layout-contracts`, separately from the
+Messenger patches. Its implementation is covered by APK contract tests on both
+architectures and the application checks in [RegressionVerification.md](RegressionVerification.md).
 
 ## Choice and evidence
 
@@ -66,7 +66,7 @@ Signal's phone-registration page now renders on PC and Nura instead of exiting
 in Layout. The Nura test uses app-local touch events to choose Continue and
 Not now; physical keyboard input is not covered.
 Typing a fictitious number updates its formatting and enables Next. Repeated
-Backspace deletes characters and disables Next for an incomplete number. Full
-clearing was not verified before the test harness expired; Ctrl+A did not select
-the field contents in this run. No Next/SMS action was taken. The remaining app regressions have not yet been repeated with phase-2 code,
-so this is not a release-ready claim.
+Backspace deletes characters and disables Next for an incomplete number. The final PC run also verified complete clearing with repeated Backspace;
+Ctrl+A did not select the field contents. No Next/SMS action was taken.
+See the regression matrix for application coverage and the remaining limits;
+this is a bounded layout milestone, not complete Android text support.

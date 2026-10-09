@@ -193,19 +193,15 @@ fixtures passed. The latter fixtures were cross-compiled on PC because Nura
 does not have Clang. This is not a claim that the entire ARM test script ran
 without external preparation.
 
-App regression validation is still incomplete. In particular, the available
-Plexamp APK has only ARM native libraries, preventing an x86_64 PC test.
-Plexamp's actual sign-in view and synthetic text editing passed on Nura with
-the final source ART runtime. Signal's PC phone-registration page fails on
-`Layout.getLineBottom(-1)`; the same failure reproduces with published ATL
-66c1d0fe in the same runtime. Immich authenticated image viewing and navigation
-were tested using explicitly authorized private appdata copies; backup was
-disabled in the Nura copy before launch. No personal media was modified.
-LocalSend transferred a disposable file in both directions with matching hashes;
-the fallback GTK file chooser is too wide on the phone, and the default portal
-flow has not been verified. Media playback and remaining input checks are not
-yet fully approved. The private detailed matrix and screenshots stay outside
-the repository.
+The final application checks are recorded in
+[RegressionVerification.md](RegressionVerification.md). Plexamp is ARM-only and
+was tested only on Nura. Signal's registration crash in `getLineBottom(-1)` also
+reproduced on the published baseline; the separately tested layout-line milestone
+now fixes it on both architectures. Immich authenticated viewing used explicitly
+authorized private appdata copies, with backup disabled in the Nura copy and an
+empty local media root. No personal media was modified. LocalSend transferred a
+disposable file in both directions with matching hashes. The matrix explicitly
+records the untested physical IME/portal paths and media limitations.
 
 `scripts/mobile/build-art-runtime.sh` now provides the previously manual native
 ART build. It builds libart, its compiler, libutils and their dependencies into
@@ -233,5 +229,5 @@ sh scripts/mobile/run.sh /absolute/path/to/messenger.apk
 
 The ordinary build/launcher defaults still use packaged ART/core classes unless
 these steps and explicit options are used. This is an experimental configuration,
-not a claim that the default install now supports Messenger. The unfinished app
-checks must be resolved before treating this branch as a validated release.
+not a claim that the default install now supports Messenger. The test matrix
+describes the tested configuration and does not certify general app support.
