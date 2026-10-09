@@ -62,7 +62,9 @@ the new UTF-16/line/sentinel fixtures. The visible-end query still excludes
 paragraph breaks and now counts supplementary characters correctly; its wider
 Android whitespace rules remain outside this milestone.
 
-Signal's PC phone-registration page now renders instead of exiting in Layout.
+Signal's phone-registration page now renders on PC and Nura instead of exiting
+in Layout. The Nura test uses app-local touch events to choose Continue and
+Not now; physical keyboard input is not covered.
 Typing a fictitious number updates its formatting and enables Next. Repeated
 Backspace deletes characters and disables Next for an incomplete number. Full
 clearing was not verified before the test harness expired; Ctrl+A did not select
