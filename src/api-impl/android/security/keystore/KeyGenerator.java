@@ -12,11 +12,18 @@ public abstract class KeyGenerator extends KeyGeneratorSpi {
 
 	protected javax.crypto.KeyGenerator keyGenerator;
 	protected AlgorithmParameterSpec params;
+	private static void validateAttestation(AlgorithmParameterSpec params) throws InvalidAlgorithmParameterException {
+		if (!(params instanceof KeyGenParameterSpec))
+			throw new InvalidAlgorithmParameterException("Expected KeyGenParameterSpec");
+		if (((KeyGenParameterSpec)params).getAttestationChallenge() != null)
+			throw new InvalidAlgorithmParameterException("ATL's software keystore does not provide key attestation");
+	}
 
 	public static class AES extends KeyGenerator {
 		@Override
 		protected void engineInit(AlgorithmParameterSpec params, SecureRandom random)
 		    throws InvalidAlgorithmParameterException {
+			validateAttestation(params);
 			try {
 				keyGenerator = javax.crypto.KeyGenerator.getInstance("AES", "BC");
 				this.params = params;
@@ -32,6 +39,7 @@ public abstract class KeyGenerator extends KeyGeneratorSpi {
 		@Override
 		protected void engineInit(AlgorithmParameterSpec params, SecureRandom random)
 		    throws InvalidAlgorithmParameterException {
+			validateAttestation(params);
 			try {
 				keyGenerator = javax.crypto.KeyGenerator.getInstance("HmacSHA512", "BC");
 				this.params = params;
