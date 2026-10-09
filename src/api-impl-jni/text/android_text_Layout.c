@@ -9,6 +9,15 @@
 
 extern GtkWidget *window;
 
+/* Pango byte boundaries must be exposed as Java UTF-16 code-unit offsets. */
+static int utf16_prefix_length(const char *text, const char *end)
+{
+	int units = 0;
+	for (const char *p = text; p < end; p = g_utf8_next_char(p))
+		units += g_utf8_get_char(p) > 0xffff ? 2 : 1;
+	return units;
+}
+
 JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes(JNIEnv *env, jclass this, jlong ptr, jintArray encoded)
 {
 	PangoAttrList *attrs = pango_attr_list_new();
@@ -70,7 +79,8 @@ JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1start(JNIEnv 
 	PangoLayout *pango_layout = _PTR(layout);
 	PangoLayoutLine *pango_line = pango_layout_get_line_readonly(pango_layout, line);
 	int byte_index = pango_layout_line_get_start_index(pango_line);
-	return g_utf8_strlen(pango_layout_get_text(pango_layout), byte_index);
+	const char *text = pango_layout_get_text(pango_layout);
+	return utf16_prefix_length(text, text + byte_index);
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1end(JNIEnv *env, jobject object, jlong layout, jint line)
@@ -78,7 +88,8 @@ JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1end(JNIEnv *e
 	PangoLayout *pango_layout = _PTR(layout);
 	PangoLayoutLine *pango_line = pango_layout_get_line_readonly(pango_layout, line);
 	int byte_index = pango_layout_line_get_start_index(pango_line) + pango_layout_line_get_length(pango_line);
-	return g_utf8_strlen(pango_layout_get_text(pango_layout), byte_index);
+	const char *text = pango_layout_get_text(pango_layout);
+	return utf16_prefix_length(text, text + byte_index);
 }
 
 static void get_line_metrics(PangoLayout *pango_layout, jint line, int *baseline, PangoRectangle *logical_rect)
@@ -213,8 +224,20 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw_1custom_1canvas(JNI
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1for_1offset(JNIEnv *env, jclass class, jlong layout, jint offset)
 {
 	PangoLayout *pango_layout = _PTR(layout);
-	int line;
-	pango_layout_index_to_line_x(pango_layout, offset, FALSE, &line, NULL);
+	const char *text = pango_layout_get_text(pango_layout), *previous = text;
+	int line = 0, units = 0;
+	// Scan starts, not glyph indices: offsets inside surrogate pairs and line
+	// breaks still belong to the containing line. Out-of-range offsets clamp.
+	GSList *lines = pango_layout_get_lines_readonly(pango_layout);
+	for (GSList *item = lines ? lines->next : NULL; item; item = item->next) {
+		PangoLayoutLine *next = item->data;
+		const char *start = text + pango_layout_line_get_start_index(next);
+		units += utf16_prefix_length(previous, start);
+		if (offset < units)
+			break;
+		previous = start;
+		line++;
+	}
 	return line;
 }
 

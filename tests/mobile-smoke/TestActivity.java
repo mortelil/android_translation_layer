@@ -54,6 +54,7 @@ public class TestActivity extends android.app.Activity {
 			System.out.println("PASS: Resources resolves app classes through the owning class loader");
 			TestBitmap.main(new String[0]);
 			TestDynamicLayout.run();
+			TestLayoutLines.run();
 			TestQwerty.run();
 			TestEditText.run(this);
 			android.app.job.JobInfo.TriggerContentUri trigger = new android.app.job.JobInfo.TriggerContentUri(android.net.Uri.parse("content://atl.test/items"), 1);

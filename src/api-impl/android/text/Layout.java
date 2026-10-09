@@ -154,15 +154,19 @@ public class Layout {
 	}
 
 	public int getLineTop(int line) {
-		if (line < 0 || line >= getLineCount())
+		int count = getLineCount();
+		if (line < 0 || line > count)
 			throw new ArrayIndexOutOfBoundsException();
+		if (line == count)
+			return getHeight();
 		return native_get_line_top(layout, line);
 	}
 
 	public int getLineBottom(int line) {
-		if (line < 0 || line >= getLineCount())
+		if (line < -1 || line >= getLineCount())
 			throw new ArrayIndexOutOfBoundsException();
-		return native_get_line_bottom(layout, line);
+		// Android defines this by the next line's top, including the end sentinel.
+		return getLineTop(line + 1);
 	}
 
 	public float getLineLeft(int line) {
@@ -178,15 +182,19 @@ public class Layout {
 	}
 
 	public int getLineStart(int line) {
-		if (line < 0 || line >= getLineCount())
+		int count = getLineCount();
+		if (line < 0 || line > count)
 			throw new ArrayIndexOutOfBoundsException();
+		if (line == count)
+			return getText().length();
 		return native_get_line_start(layout, line);
 	}
 
 	public int getLineEnd(int line) {
 		if (line < 0 || line >= getLineCount())
 			throw new ArrayIndexOutOfBoundsException();
-		return native_get_line_end(layout, line);
+		// Pango's line length excludes a paragraph break; Android's end includes it.
+		return getLineStart(line + 1);
 	}
 
 	public boolean isSpanned() {
@@ -251,7 +259,11 @@ public class Layout {
 	}
 
 	public int getLineVisibleEnd(int line) {
-		return getLineEnd(line);
+		if (line < 0 || line >= getLineCount())
+			throw new ArrayIndexOutOfBoundsException();
+		// Preserve Pango's exclusion of paragraph breaks. Android's additional
+		// trailing-space rules are not implemented by this query yet.
+		return native_get_line_end(layout, line);
 	}
 
 	public boolean getLineContainsTab(int line) { return text.toString().split("\n")[line].contains("\t"); }
