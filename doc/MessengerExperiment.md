@@ -87,13 +87,42 @@ cross-process contents, descriptor/mapping lifetime and immutable region size.
 The full PC regression suite passes after this change. Protection reduction
 and Java SharedMemory transport are not implemented or advertised.
 
-Current blocker after these fixes: Messenger reaches activity initialization and
-loads its profiler library, then crashes inside jemalloc during thread cleanup.
-Debugger runs establish that `STI` instructions installed by the app are deliberate
-signal hooks, not by themselves the fatal crash. Debugging must let the app handle
-those traps. The allocator failure remains unresolved; a separate debug allocator
-is being built to identify the invalid allocation/free sequence. No Messenger UI
-or Nura support has been verified in this pass.
+The later jemalloc crash was traced with a separately built debug allocator to
+`Thread::TearDownAlternateSignalStack`: ART deleted the kernel's current signal
+stack after the application replaced it with independently allocated storage.
+ART now retains its own allocation and restores a prior stack only while its own
+stack remains active. It leaves application replacements untouched. Real signal
+delivery and stack replacement tests, plus the full PC ATL suite, pass. See
+ART's `tests/mobile/signal-stack.md`. This source change is currently used only
+in the isolated source-built ART runtime; the ordinary mobile build script does
+not yet build or deploy libart.
+
+The next C++ unwinder crash was traced to ELF enumeration reporting program
+headers from a failed, already-unmapped library. Bionic now enumerates only linked
+mappings under its loader lock and advertises only the implemented info prefix.
+A standalone fixture reproduces the old failure and checks concurrent load/unload,
+readable headers and early-stop propagation after the fix.
+
+The underlying library failure was a direct dependency using `DT_RUNPATH` with
+`$ORIGIN`. Bionic now resolves this relative to the requesting object, without
+adding a global search path. Tests cover both ORIGIN spellings, colon-separated
+paths and explicit library-path priority. See Bionic's `tests/runpath/README.md`
+for unsupported tokens and remaining loader limits.
+
+Latest run (`startup-patchable-20.log`) passes these native startup blockers but
+stops with `NoSuchMethodError: Typeface.Builder(File)` on CombinedTP10. Existing
+ATL Typeface/Builder and Paint font selection largely return placeholder values;
+proper file-backed font loading/rendering is the next task, not another fake
+successful builder. Caught sensor-listener and TrafficStats query errors also
+remain. A screenshot before the fatal error shows a blank window only. No usable
+Messenger UI or Nura support has been verified.
+
+The full PC automated regression suite passes after the loader and ART fixes
+(`runpath-full-regression.log`). This does not replace interactive regression
+checks of the four previously working applications. No changes from this experiment
+have been published or installed on Nura. Debugger runs also establish that `STI`
+instructions installed by the app are deliberate signal hooks; debugging must
+let it handle those traps.
 
 ResourcesImpl reflection warnings are caught by the app. Crash-report retries
 also reach unsupported AndroidCAStore behavior; fresh isolated profiles separate

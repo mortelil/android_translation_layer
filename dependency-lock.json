@@ -3,13 +3,13 @@
   "atl_upstream_base": "f9e2280c1b78174c0536e02f246276cd80284c82",
   "dependencies": {
     "bionic_translation": {
-      "commit": "10928d019978312000c022d9499b11d8ed3e78c9",
+      "commit": "12690b54fed0a3f4d6b05d28ef9efa696f670bbd",
       "upstream_base": "6253dec7f24a57a94039a088cb436d880e92e3be",
       "upstream": "https://gitlab.com/android_translation_layer/bionic_translation.git",
       "fork": "https://github.com/mortelil/bionic_translation.git"
     },
     "art_standalone": {
-      "commit": "ceec4a4e9f2750d7926a8c0de72da6cd437ab5ec",
+      "commit": "327b9c2e5ec49176c073df9f7995d7faf69153b5",
       "upstream_base": "66a5d9079b159e9c5819bfeef4a6fff6a5f32719",
       "upstream": "https://gitlab.com/android_translation_layer/art_standalone.git",
       "fork": "https://github.com/mortelil/art_standalone.git"
