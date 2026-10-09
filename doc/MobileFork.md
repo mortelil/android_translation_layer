@@ -13,9 +13,9 @@ Keep these repositories beside one another:
 ```sh
 mkdir atl-mobile-workspace
 cd atl-mobile-workspace
-git clone -b linux-mobile-experimental https://github.com/mortelil/android_translation_layer.git
-git clone -b linux-mobile-experimental https://github.com/mortelil/bionic_translation.git
-git clone -b linux-mobile-experimental https://github.com/mortelil/art_standalone.git
+git clone -b main https://github.com/mortelil/android_translation_layer.git
+git clone -b main https://github.com/mortelil/bionic_translation.git
+git clone -b main https://github.com/mortelil/art_standalone.git
 ```
 
 ```
