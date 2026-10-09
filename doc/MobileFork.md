@@ -44,7 +44,7 @@ be shared with Toolbox. Install development packages inside Alpine:
 ```sh
 sudo apk add git build-base meson python3 pkgconf java-common openjdk8-jdk \
   android-build-tools elfutils-dev libunwind-dev libbsd-dev libcap-dev \
-  pc:alsa pc:glib-2.0 pc:gtk4 pc:gudev-1.0 pc:libportal pc:openxr \
+  pc:alsa pc:glib-2.0 pc:gtk4 pc:fontconfig pc:pangoft2 pc:pangocairo pc:gudev-1.0 pc:libportal pc:openxr \
   pc:vulkan pc:webkitgtk-6.0 pc:libsoup-3.0 pc:libsecret-1 ffmpeg-dev \
   bionic_translation-dev art_standalone-dev libandroidfw-dev
 ```
@@ -57,6 +57,7 @@ Inside the ATL checkout, inside Alpine:
 
 ```sh
 JOBS=4 scripts/mobile/build.sh
+sudo apk add font-dejavu py3-fonttools # font test fixtures
 GDK_DISABLE=glx scripts/mobile/test.sh
 ```
 

@@ -35,6 +35,22 @@ extern "C" {
 #define android_graphics_Paint_VERTICAL_TEXT_FLAG 4096L
 /*
  * Class:     android_graphics_Paint
+ * Method:    native_text_advance
+ * Signature: (JLjava/lang/String;)F
+ */
+JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1text_1advance
+  (JNIEnv *, jclass, jlong, jstring);
+
+/*
+ * Class:     android_graphics_Paint
+ * Method:    native_set_typeface
+ * Signature: (JJ)V
+ */
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1typeface
+  (JNIEnv *, jclass, jlong, jlong);
+
+/*
+ * Class:     android_graphics_Paint
  * Method:    native_create
  * Signature: ()J
  */

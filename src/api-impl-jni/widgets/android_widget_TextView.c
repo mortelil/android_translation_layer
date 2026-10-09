@@ -5,6 +5,7 @@
 
 #include "WrapperWidget.h"
 #include "../graphics/AndroidTextAttributes.h"
+#include "../graphics/AndroidTypeface.h"
 
 #include "../generated_headers/android_widget_TextView.h"
 
@@ -177,4 +178,20 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setPasswordVisibilit
 		gtk_text_set_visibility(GTK_TEXT(widget), visible);
 		gtk_text_set_input_purpose(GTK_TEXT(widget), visible ? GTK_INPUT_PURPOSE_FREE_FORM : GTK_INPUT_PURPOSE_PASSWORD);
 	}
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTypeface(JNIEnv *env, jobject this, jlong ptr, jlong typeface)
+{
+	GtkWidget *widget = _PTR(ptr);
+	GtkLabel *label = GTK_IS_BOX(widget) ? box_get_label(env, widget) : NULL;
+	if (!label && !GTK_IS_TEXT(widget)) return;
+	struct AndroidTypeface *font = _PTR(typeface);
+	GtkWidget *text = label ? GTK_WIDGET(label) : widget;
+	gtk_widget_set_font_map(text, font->map);
+	PangoAttrList *old = label ? gtk_label_get_attributes(label) : gtk_text_get_attributes(GTK_TEXT(widget));
+	PangoAttrList *attrs = old ? pango_attr_list_copy(old) : pango_attr_list_new();
+	pango_attr_list_change(attrs, pango_attr_font_desc_new(font->description));
+	if (label) gtk_label_set_attributes(label, attrs);
+	else gtk_text_set_attributes(GTK_TEXT(widget), attrs);
+	pango_attr_list_unref(attrs);
 }

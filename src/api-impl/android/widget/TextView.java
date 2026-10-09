@@ -158,26 +158,12 @@ public class TextView extends View {
 			native_setTextColor(colors.getDefaultColor()); // TODO: do this properly
 		}
 	}
-	public void setTypeface(Typeface tf, int style) {
-		String[] classesToRemove = {"ATL-font-bold", "ATL-font-italic"};
-		native_removeClasses(widget, classesToRemove);
-
-		switch (style) {
-			case Typeface.BOLD:
-				native_addClass(widget, "ATL-font-bold");
-				break;
-			case Typeface.ITALIC:
-				native_addClass(widget, "ATL-font-italic");
-				break;
-			case Typeface.BOLD_ITALIC:
-				native_addClass(widget, "ATL-font-bold");
-				native_addClass(widget, "ATL-font-italic");
-				break;
-			default:
-				break;
-		}
+	public void setTypeface(Typeface tf, int style) { setTypeface(Typeface.create(tf, style)); }
+	public void setTypeface(Typeface tf) {
+		paint.setTypeface(tf);
+		native_setTypeface(widget, (tf == null ? Typeface.DEFAULT : tf).native_instance);
 	}
-	public void setTypeface(Typeface tf) {}
+	private native void native_setTypeface(long widget, long typeface);
 	public void setLineSpacing(float add, float mult) {}
 	public final void setLinksClickable(boolean whether) {}
 
@@ -232,7 +218,7 @@ public class TextView extends View {
 	public void setMinWidth(int minWidth) {}
 	public void setMaxWidth(int maxWidth) {}
 
-	public Typeface getTypeface() { return null; }
+	public Typeface getTypeface() { return paint.getTypeface(); }
 
 	public float getTextSize() { return 10; }
 

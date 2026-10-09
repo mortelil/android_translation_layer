@@ -18,6 +18,7 @@ public class Paint {
 	public static final int VERTICAL_TEXT_FLAG = (1 << 12);
 
 	public long paint; // native paint
+	private Typeface typeface;
 	private Xfermode xfermode;
 	private Shader shader;
 	private Align align = Align.CENTER;
@@ -34,6 +35,12 @@ public class Paint {
 
 	public Paint(Paint paint) {
 		this.paint = native_clone(paint.paint);
+		this.typeface = paint.typeface;
+	}
+
+	@Override protected void finalize() throws Throwable {
+		try { if (paint != 0) native_recycle(paint); }
+		finally { super.finalize(); }
 	}
 
 	public void setColor(int color) {
@@ -75,6 +82,8 @@ public class Paint {
 	}
 
 	public Typeface setTypeface(Typeface typeface) {
+		this.typeface = typeface;
+		native_set_typeface(paint, (typeface == null ? Typeface.DEFAULT : typeface).native_instance);
 		return typeface;
 	}
 	public void getTextBounds(String text, int start, int end, Rect bounds) {
@@ -105,9 +114,9 @@ public class Paint {
 		return -getTextSize();
 	}
 
-	public float measureText(char[] text, int index, int count) { return 10; }
+	public float measureText(char[] text, int index, int count) { return native_text_advance(paint, new String(text, index, count)); }
 	public float measureText(String text, int start, int end) {
-		return (end - start) * getTextSize() * .6f;
+		return native_text_advance(paint, text.substring(start, end));
 	}
 	public float measureText(String text) {
 		return measureText(text, 0, text.length());
@@ -311,7 +320,7 @@ public class Paint {
 	}
 
 	public Typeface getTypeface() {
-		return new Typeface();
+		return typeface;
 	}
 
 	public void setTextAlign(Align align) {
@@ -356,8 +365,10 @@ public class Paint {
 	}
 
 	public void set(Paint paint) {
+		if (paint == this) return;
 		native_recycle(this.paint);
 		this.paint = native_clone(paint.paint);
+		this.typeface = paint.typeface;
 	}
 
 	public boolean isFilterBitmap() { return false; }
@@ -399,12 +410,15 @@ public class Paint {
 	public void reset() {
 		native_recycle(paint);
 		paint = native_create();
+		typeface = null;
 		xfermode = null;
 		shader = null;
 		align = Align.CENTER;
 		color_filter = null;
 	}
 
+	private static native float native_text_advance(long paint, String text);
+	private static native void native_set_typeface(long paint, long typeface);
 	private static native long native_create();
 	private static native long native_clone(long paint);
 	private static native void native_recycle(long paint);

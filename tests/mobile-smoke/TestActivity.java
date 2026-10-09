@@ -5,6 +5,7 @@ public class TestActivity extends android.app.Activity {
 		super.onCreate(state);
 		try {
 			TestStackTrace.run();
+			TestTypeface.run(this);
 			if (android.telephony.TelephonyManager.getDefault().getAllCellInfo() != null)
 				throw new AssertionError("Cell information must be unavailable without a radio backend");
 			android.content.pm.ApplicationInfo info = getApplicationInfo();

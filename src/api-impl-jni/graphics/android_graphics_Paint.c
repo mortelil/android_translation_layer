@@ -3,7 +3,10 @@
 #include <gtk/gtk.h>
 
 #include "../defines.h"
+#include "../util.h"
 #include "AndroidPaint.h"
+#include "AndroidTypeface.h"
+#include "AndroidTextAttributes.h"
 #include "pango/pango-font.h"
 
 #include "../generated_headers/android_graphics_Paint.h"
@@ -24,6 +27,7 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Paint_native_1clone(JNIEnv *env, j
 	struct AndroidPaint *clone = g_memdup2(paint, sizeof(struct AndroidPaint));
 	clone->gsk_stroke = gsk_stroke_copy(paint->gsk_stroke);
 	clone->font = pango_font_description_copy(paint->font);
+	if (paint->font_map) clone->font_map = g_object_ref(paint->font_map);
 	return _INTPTR(clone);
 }
 
@@ -32,6 +36,7 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1recycle(JNIEnv *env, 
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	gsk_stroke_free(paint->gsk_stroke);
 	pango_font_description_free(paint->font);
+	g_clear_object(&paint->font_map);
 	g_free(paint);
 }
 
@@ -158,7 +163,7 @@ extern GtkWidget *window;
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNIEnv *env, jclass clazz, jlong paint_ptr, jstring text_ptr, jobject bounds)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	PangoLayout *layout = pango_layout_new(gtk_widget_get_pango_context(window));
+	PangoLayout *layout = atl_paint_layout(paint, gtk_widget_get_pango_context(window));
 	pango_layout_set_font_description(layout, paint->font);
 	const char *str = (*env)->GetStringUTFChars(env, text_ptr, NULL);
 	pango_layout_set_text(layout, str, -1);
@@ -186,7 +191,7 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1text_1align(JNIE
 JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics(JNIEnv *env, jclass clazz, jlong paint_ptr, jobject metrics)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	PangoContext *context = gtk_widget_get_pango_context(window);
+	PangoContext *context = atl_paint_context(paint, gtk_widget_get_pango_context(window));
 	PangoFontMetrics *font_metrics = pango_context_get_metrics(context, paint->font, NULL);
 	float height = (float)pango_font_metrics_get_height(font_metrics) / PANGO_SCALE;
 	if (metrics) {
@@ -199,13 +204,14 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics(
 		_SET_FLOAT_FIELD(metrics, "leading", height - ascent - descent);
 	}
 	pango_font_metrics_unref(font_metrics);
+	g_object_unref(context);
 	return height;
 }
 
 JNIEXPORT jint JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics_1int(JNIEnv *env, jclass clazz, jlong paint_ptr, jobject metrics)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	PangoContext *context = gtk_widget_get_pango_context(window);
+	PangoContext *context = atl_paint_context(paint, gtk_widget_get_pango_context(window));
 	PangoFontMetrics *font_metrics = pango_context_get_metrics(context, paint->font, NULL);
 	int height = ceil((float)pango_font_metrics_get_height(font_metrics) / PANGO_SCALE);
 	if (metrics) {
@@ -218,5 +224,31 @@ JNIEXPORT jint JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics_1i
 		_SET_INT_FIELD(metrics, "leading", height - ascent - descent);
 	}
 	pango_font_metrics_unref(font_metrics);
+	g_object_unref(context);
 	return height;
+}
+
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1typeface(JNIEnv *env, jclass cls, jlong ptr, jlong typeface)
+{
+	struct AndroidPaint *paint = _PTR(ptr);
+	struct AndroidTypeface *font = _PTR(typeface);
+	// Merge only family/style/variation, preserving Paint's current text size.
+	pango_font_description_merge(paint->font, font->description, TRUE);
+	pango_font_description_set_variations(paint->font, pango_font_description_get_variations(font->description));
+	g_set_object(&paint->font_map, font->map);
+}
+
+JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1text_1advance(JNIEnv *env, jclass cls, jlong ptr, jstring text)
+{
+	struct AndroidPaint *paint = _PTR(ptr);
+	char *utf8 = atl_text_to_utf8(env, text);
+	if (!utf8) return 0;
+	PangoLayout *layout = atl_paint_layout(paint, gtk_widget_get_pango_context(window));
+	pango_layout_set_font_description(layout, paint->font);
+	pango_layout_set_single_paragraph_mode(layout, TRUE);
+	pango_layout_set_text(layout, utf8, -1);
+	int width;
+	pango_layout_get_size(layout, &width, NULL);
+	g_object_unref(layout); g_free(utf8);
+	return (float)width / PANGO_SCALE;
 }

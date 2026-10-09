@@ -29,7 +29,7 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text(JNIEnv *env, j
 JNIEXPORT jlong JNICALL Java_android_text_Layout_native_1constructor(JNIEnv *env, jobject object, jstring text, jlong paint, jint width)
 {
 	struct AndroidPaint *android_paint = _PTR(paint);
-	PangoLayout *layout = pango_layout_new(gtk_widget_get_pango_context(window));
+	PangoLayout *layout = atl_paint_layout(android_paint, gtk_widget_get_pango_context(window));
 	pango_layout_set_font_description(layout, android_paint->font);
 	char *str = atl_text_to_utf8(env, text);
 	if (!str) { g_object_unref(layout); return 0; }

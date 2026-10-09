@@ -261,6 +261,14 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextColor
 
 /*
  * Class:     android_widget_TextView
+ * Method:    native_setTypeface
+ * Signature: (JJ)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTypeface
+  (JNIEnv *, jobject, jlong, jlong);
+
+/*
+ * Class:     android_widget_TextView
  * Method:    native_setCompoundDrawables
  * Signature: (JJJJJ)V
  */
