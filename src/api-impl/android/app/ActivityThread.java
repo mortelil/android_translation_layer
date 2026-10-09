@@ -17,6 +17,9 @@ public class ActivityThread {
 	public static String currentProcessName() {
 		return Application.getProcessName();
 	}
+	public String getProcessName() {
+		return currentProcessName();
+	}
 	public static Application currentApplication() {
 		return ATLLoadedApp.getPrimaryApplication().getApplication();
 	}
