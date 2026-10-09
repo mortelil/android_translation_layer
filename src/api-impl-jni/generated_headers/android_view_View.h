@@ -13,6 +13,8 @@ extern "C" {
 #define android_view_View_NOT_FOCUSABLE 0L
 #undef android_view_View_FOCUSABLE
 #define android_view_View_FOCUSABLE 1L
+#undef android_view_View_FOCUSABLE_AUTO
+#define android_view_View_FOCUSABLE_AUTO 16L
 #undef android_view_View_FOCUSABLE_MASK
 #define android_view_View_FOCUSABLE_MASK 1L
 #undef android_view_View_FITS_SYSTEM_WINDOWS

@@ -17,6 +17,94 @@ static GtkLabel *box_get_label(JNIEnv *env, GtkWidget *box)
 	return GTK_LABEL(label);
 }
 
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShowSoftInputOnFocus(JNIEnv *env, jobject this, jlong ptr, jboolean show)
+{
+	GtkWidget *widget = _PTR(ptr);
+	if (!GTK_IS_TEXT(widget)) return; // Non-editable labels have no input method.
+	GtkInputHints hints = gtk_text_get_input_hints(GTK_TEXT(widget));
+	if (show) hints &= ~GTK_INPUT_HINT_INHIBIT_OSK;
+	else hints |= GTK_INPUT_HINT_INHIBIT_OSK;
+	gtk_text_set_input_hints(GTK_TEXT(widget), hints);
+}
+
+struct text_css_provider {
+	GtkCssProvider *provider;
+	GdkDisplay *display;
+};
+
+static void text_css_provider_free(gpointer data)
+{
+	struct text_css_provider *style = data;
+	gtk_style_context_remove_provider_for_display(style->display, GTK_STYLE_PROVIDER(style->provider));
+	g_object_unref(style->provider);
+	g_object_unref(style->display);
+	g_free(style);
+}
+
+static void set_text_css(JNIEnv *env, jlong ptr, const char *key, const char *css)
+{
+	GtkWidget *widget = _PTR(ptr);
+	if (GTK_IS_BOX(widget)) widget = GTK_WIDGET(box_get_label(env, widget));
+	if (!GTK_IS_TEXT(widget) && !GTK_IS_LABEL(widget)) return;
+	// Selection/placeholder are child CSS nodes: a provider on the parent style
+	// context alone does not reach them. Scope a display provider to this widget.
+	char *name = g_strdup_printf("atl-text-%p", (void *)widget);
+	gtk_widget_add_css_class(widget, name);
+	char *scoped = css[0] == '*' ? g_strdup_printf(".%s%s", name, css + 1)
+	                            : g_strdup_printf(".%s %s", name, css);
+	struct text_css_provider *style = g_new0(struct text_css_provider, 1);
+	style->provider = gtk_css_provider_new();
+	style->display = g_object_ref(gtk_widget_get_display(widget));
+	gtk_css_provider_load_from_string(style->provider, scoped);
+	gtk_style_context_add_provider_for_display(style->display, GTK_STYLE_PROVIDER(style->provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+	g_object_set_data_full(G_OBJECT(widget), key, style, text_css_provider_free);
+	g_free(scoped);
+	g_free(name);
+}
+
+static char *text_color_string(jint argb)
+{
+	GdkRGBA color = {((argb >> 16) & 255) / 255.f, ((argb >> 8) & 255) / 255.f,
+	                 (argb & 255) / 255.f, ((guint32)argb >> 24) / 255.f};
+	return gdk_rgba_to_string(&color);
+}
+
+static void set_text_node_color(JNIEnv *env, jlong ptr, jint argb, const char *key, const char *node, const char *property)
+{
+	char *rgba = text_color_string(argb);
+	char *css = g_strdup_printf("%s { %s: %s; }", node, property, rgba);
+	set_text_css(env, ptr, key, css);
+	g_free(css);
+	g_free(rgba);
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShadowLayer(JNIEnv *env, jobject this, jlong ptr, jfloat radius, jfloat dx, jfloat dy, jint argb)
+{
+	if (radius <= 0) {
+		set_text_css(env, ptr, "atl-text-shadow", "* { text-shadow: none; }");
+		return;
+	}
+	char x[G_ASCII_DTOSTR_BUF_SIZE], y[G_ASCII_DTOSTR_BUF_SIZE], blur[G_ASCII_DTOSTR_BUF_SIZE];
+	g_ascii_dtostr(x, sizeof(x), dx);
+	g_ascii_dtostr(y, sizeof(y), dy);
+	g_ascii_dtostr(blur, sizeof(blur), radius);
+	char *rgba = text_color_string(argb);
+	char *css = g_strdup_printf("* { text-shadow: %spx %spx %spx %s; }", x, y, blur, rgba);
+	set_text_css(env, ptr, "atl-text-shadow", css);
+	g_free(css);
+	g_free(rgba);
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setHighlightColor(JNIEnv *env, jobject this, jlong ptr, jint argb)
+{
+	set_text_node_color(env, ptr, argb, "atl-selection-style", "selection", "background-color");
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setHintTextColor(JNIEnv *env, jobject this, jlong ptr, jint argb)
+{
+	set_text_node_color(env, ptr, argb, "atl-hint-style", "placeholder", "color");
+}
+
 static gboolean remove_span_attribute(PangoAttribute *attr, gpointer unused)
 {
 	return attr->klass->type == PANGO_ATTR_FOREGROUND || attr->klass->type == PANGO_ATTR_FOREGROUND_ALPHA || attr->klass->type == PANGO_ATTR_ABSOLUTE_SIZE;

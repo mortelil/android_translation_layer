@@ -13,6 +13,8 @@ extern "C" {
 #define android_webkit_WebView_NOT_FOCUSABLE 0L
 #undef android_webkit_WebView_FOCUSABLE
 #define android_webkit_WebView_FOCUSABLE 1L
+#undef android_webkit_WebView_FOCUSABLE_AUTO
+#define android_webkit_WebView_FOCUSABLE_AUTO 16L
 #undef android_webkit_WebView_FOCUSABLE_MASK
 #define android_webkit_WebView_FOCUSABLE_MASK 1L
 #undef android_webkit_WebView_FITS_SYSTEM_WINDOWS

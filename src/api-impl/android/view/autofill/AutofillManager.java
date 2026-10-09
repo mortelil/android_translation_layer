@@ -8,6 +8,8 @@ public class AutofillManager {
 	// must be harmless, and clients must be told the service is unavailable.
 	public boolean isEnabled() { return false; }
 	public boolean isAutofillSupported() { return false; }
+	// No activity autofill client/provider exists; the API specifies null here.
+	public AutofillId getNextAutofillId() { return null; }
 	public void commit() {}
 	public void cancel() {}
 

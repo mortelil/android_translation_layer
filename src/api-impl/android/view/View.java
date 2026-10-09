@@ -98,13 +98,14 @@ public class View implements Drawable.Callback {
 	 * This view does not want keystrokes. Use with TAKES_FOCUS_MASK when
 	 * calling setFlags.
 	 */
-	private static final int NOT_FOCUSABLE = 0x00000000;
+	public static final int NOT_FOCUSABLE = 0x00000000;
 
 	/**
 	 * This view wants keystrokes. Use with TAKES_FOCUS_MASK when calling
 	 * setFlags.
 	 */
-	private static final int FOCUSABLE = 0x00000001;
+	public static final int FOCUSABLE = 0x00000001;
+	public static final int FOCUSABLE_AUTO = 0x00000010;
 
 	/**
 	 * Mask for use with setFlags indicating bits used for focus.
@@ -974,6 +975,7 @@ public class View implements Drawable.Callback {
 
 	private boolean atl_enabled = true;
 	private boolean atl_focusable = true;
+	private int atl_focusable_mode = FOCUSABLE_AUTO;
 
 	private Handler handler;
 
@@ -1053,6 +1055,7 @@ public class View implements Drawable.Callback {
 		}
 		if (a.hasValue(com.android.internal.R.styleable.View_focusable)) {
 			atl_focusable = a.getBoolean(com.android.internal.R.styleable.View_focusable, true);
+			atl_focusable_mode = atl_focusable ? FOCUSABLE : NOT_FOCUSABLE;
 		}
 		if (a.hasValue(com.android.internal.R.styleable.View_visibility)) {
 			visibility = VISIBILITY_FLAGS[a.getInt(com.android.internal.R.styleable.View_visibility, 0)];
@@ -1289,8 +1292,15 @@ public class View implements Drawable.Callback {
 
 	public void setFocusable(boolean focusable) {
 		atl_focusable = focusable;
+		atl_focusable_mode = focusable ? FOCUSABLE : NOT_FOCUSABLE;
 	}
-	public void setFocusable(int focusable) {}
+	public void setFocusable(int focusable) {
+		if (focusable != NOT_FOCUSABLE && focusable != FOCUSABLE && focusable != FOCUSABLE_AUTO)
+			throw new IllegalArgumentException("Invalid focusable mode");
+		atl_focusable_mode = focusable;
+		atl_focusable = focusable == FOCUSABLE || (focusable == FOCUSABLE_AUTO && isClickable());
+	}
+	public int getFocusable() { return atl_focusable_mode; }
 	public void setFocusableInTouchMode(boolean focusableInTouchMode) {}
 	public final boolean requestFocus() {
 		return requestFocus(View.FOCUS_DOWN);
@@ -2221,6 +2231,19 @@ public class View implements Drawable.Callback {
 
 	public void invalidateOutline() {}
 
+	// ATL has no configurable elevation shadows yet; expose Android's default
+	// outline shadow colors. These queries do not imply shadow rendering support.
+	public int getOutlineAmbientShadowColor() { return 0xff000000; }
+	public int getOutlineSpotShadowColor() { return 0xff000000; }
+	public void setOutlineAmbientShadowColor(int color) {
+		if (color != getOutlineAmbientShadowColor())
+			throw new UnsupportedOperationException("Custom elevation shadow colors are not rendered by ATL");
+	}
+	public void setOutlineSpotShadowColor(int color) {
+		if (color != getOutlineSpotShadowColor())
+			throw new UnsupportedOperationException("Custom elevation shadow colors are not rendered by ATL");
+	}
+
 	public int getMeasuredWidthAndState() {
 		return measuredWidth;
 	}
@@ -2507,9 +2530,16 @@ public class View implements Drawable.Callback {
 		scrollTo(scrollX + x, scrollY + y);
 	}
 
-	public void setAccessibilityPaneTitle(CharSequence paneTitle) {}
+	private CharSequence accessibilityPaneTitle;
+	private boolean accessibilityHeading;
+	private boolean screenReaderFocusable;
+	public void setScreenReaderFocusable(boolean focusable) { screenReaderFocusable = focusable; }
+	public boolean isScreenReaderFocusable() { return screenReaderFocusable; }
+	public void setAccessibilityPaneTitle(CharSequence paneTitle) { accessibilityPaneTitle = paneTitle; }
+	public CharSequence getAccessibilityPaneTitle() { return accessibilityPaneTitle; }
 
-	public void setAccessibilityHeading(boolean heading) {}
+	public void setAccessibilityHeading(boolean heading) { accessibilityHeading = heading; }
+	public boolean isAccessibilityHeading() { return accessibilityHeading; }
 
 	public WindowInsets computeSystemWindowInsets(WindowInsets insets, Rect contentInsets) { return insets; }
 
@@ -2547,7 +2577,16 @@ public class View implements Drawable.Callback {
 
 	public void setKeyboardNavigationCluster(boolean isCluster) {}
 
-	public AutofillId getAutofillId() { return new AutofillId(); }
+	private AutofillId autofillId;
+	public AutofillId getAutofillId() {
+		if (autofillId == null) autofillId = new AutofillId();
+		return autofillId;
+	}
+	public void setAutofillId(AutofillId id) {
+		if (id == null) return; // An unsupported AutofillManager returns null.
+		if (isAttachedToWindow()) throw new IllegalStateException("Cannot change autofill ID while attached");
+		autofillId = id;
+	}
 
 	public AccessibilityDelegate getAccessibilityDelegate() { return null; }
 

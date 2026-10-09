@@ -34,6 +34,8 @@ public class TextView extends View {
 	private ColorStateList colors = new ColorStateList(new int[][] {new int[0]}, new int[1]);
 	private CharSequence text = "";
 	private int inputType;
+	private int highlightColor = 0x6633b5e5;
+	private ColorStateList hintColors = ColorStateList.valueOf(0xff808080);
 	private TransformationMethod transformationMethod;
 	private TextPaint paint = new TextPaint();
 	private boolean include_padding = false;
@@ -58,6 +60,9 @@ public class TextView extends View {
 
 		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.TextView, defStyleAttr, 0);
 		try {
+			setHighlightColor(a.getColor(com.android.internal.R.styleable.TextView_textColorHighlight, highlightColor));
+			ColorStateList hintStyle = a.getColorStateList(com.android.internal.R.styleable.TextView_textColorHint);
+			setHintTextColor(hintStyle == null ? hintColors : hintStyle);
 			if (a.hasValue(com.android.internal.R.styleable.TextView_text)) {
 				setText(a.getText(com.android.internal.R.styleable.TextView_text));
 			}
@@ -193,8 +198,14 @@ public class TextView extends View {
 		return transformationMethod;
 	}
 
-	public void setHintTextColor(ColorStateList colorStateList) {}
-	public void setHintTextColor(int i) {}
+	public void setHintTextColor(ColorStateList colors) {
+		hintColors = java.util.Objects.requireNonNull(colors);
+		native_setHintTextColor(widget, colors.getDefaultColor());
+	}
+	public void setHintTextColor(int color) { setHintTextColor(ColorStateList.valueOf(color)); }
+	public ColorStateList getHintTextColors() { return hintColors; }
+	public int getCurrentHintTextColor() { return hintColors.getDefaultColor(); }
+	private native void native_setHintTextColor(long widget, int color);
 	public void setLinkTextColor(ColorStateList colorStateList) {}
 
 	public void setSingleLine() {}
@@ -377,7 +388,12 @@ public class TextView extends View {
 		return getText().length();
 	}
 
-	public void setHighlightColor(int color) {}
+	public void setHighlightColor(int color) {
+		highlightColor = color;
+		native_setHighlightColor(widget, color);
+	}
+	public int getHighlightColor() { return highlightColor; }
+	private native void native_setHighlightColor(long widget, int color);
 
 	public Editable getEditableText() {
 		return new SpannableStringBuilder(getText());
@@ -471,7 +487,19 @@ public class TextView extends View {
 
 	public int getImeOptions() { return 0; }
 
-	public void setShadowLayer(float radius, float dx, float dy, int color) {}
+	private float shadowRadius, shadowDx, shadowDy;
+	private int shadowColor;
+	public void setShadowLayer(float radius, float dx, float dy, int color) {
+		if (!Float.isFinite(radius) || !Float.isFinite(dx) || !Float.isFinite(dy))
+			throw new IllegalArgumentException("Shadow dimensions must be finite");
+		native_setShadowLayer(widget, radius, dx, dy, color);
+		shadowRadius = radius; shadowDx = dx; shadowDy = dy; shadowColor = color;
+	}
+	public float getShadowRadius() { return shadowRadius; }
+	public float getShadowDx() { return shadowDx; }
+	public float getShadowDy() { return shadowDy; }
+	public int getShadowColor() { return shadowColor; }
+	private native void native_setShadowLayer(long widget, float radius, float dx, float dy, int color);
 
 	public int getBreakStrategy() {
 		return break_strategy;
@@ -496,7 +524,13 @@ public class TextView extends View {
 
 	public void setMarqueeRepeatLimit(int marqueeLimit) {}
 
-	public void setShowSoftInputOnFocus(boolean showSoftInputOnFocus) {}
+	private boolean showSoftInputOnFocus = true;
+	public boolean getShowSoftInputOnFocus() { return showSoftInputOnFocus; }
+	public void setShowSoftInputOnFocus(boolean show) {
+		showSoftInputOnFocus = show;
+		native_setShowSoftInputOnFocus(widget, show);
+	}
+	private native void native_setShowSoftInputOnFocus(long widget, boolean show);
 
 	public void setCustomInsertionActionModeCallback(ActionMode.Callback actionModeCallback) {}
 

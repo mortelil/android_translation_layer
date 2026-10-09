@@ -13,6 +13,8 @@ extern "C" {
 #define android_widget_TextView_NOT_FOCUSABLE 0L
 #undef android_widget_TextView_FOCUSABLE
 #define android_widget_TextView_FOCUSABLE 1L
+#undef android_widget_TextView_FOCUSABLE_AUTO
+#define android_widget_TextView_FOCUSABLE_AUTO 16L
 #undef android_widget_TextView_FOCUSABLE_MASK
 #define android_widget_TextView_FOCUSABLE_MASK 1L
 #undef android_widget_TextView_FITS_SYSTEM_WINDOWS
@@ -269,6 +271,14 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTypeface
 
 /*
  * Class:     android_widget_TextView
+ * Method:    native_setHintTextColor
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setHintTextColor
+  (JNIEnv *, jobject, jlong, jint);
+
+/*
+ * Class:     android_widget_TextView
  * Method:    native_setCompoundDrawables
  * Signature: (JJJJJ)V
  */
@@ -289,6 +299,30 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setFontFeatureSettin
  * Signature: (JZ)V
  */
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setPasswordVisibility
+  (JNIEnv *, jobject, jlong, jboolean);
+
+/*
+ * Class:     android_widget_TextView
+ * Method:    native_setHighlightColor
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setHighlightColor
+  (JNIEnv *, jobject, jlong, jint);
+
+/*
+ * Class:     android_widget_TextView
+ * Method:    native_setShadowLayer
+ * Signature: (JFFFI)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShadowLayer
+  (JNIEnv *, jobject, jlong, jfloat, jfloat, jfloat, jint);
+
+/*
+ * Class:     android_widget_TextView
+ * Method:    native_setShowSoftInputOnFocus
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShowSoftInputOnFocus
   (JNIEnv *, jobject, jlong, jboolean);
 
 #ifdef __cplusplus

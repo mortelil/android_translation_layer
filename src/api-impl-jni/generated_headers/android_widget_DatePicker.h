@@ -13,6 +13,8 @@ extern "C" {
 #define android_widget_DatePicker_NOT_FOCUSABLE 0L
 #undef android_widget_DatePicker_FOCUSABLE
 #define android_widget_DatePicker_FOCUSABLE 1L
+#undef android_widget_DatePicker_FOCUSABLE_AUTO
+#define android_widget_DatePicker_FOCUSABLE_AUTO 16L
 #undef android_widget_DatePicker_FOCUSABLE_MASK
 #define android_widget_DatePicker_FOCUSABLE_MASK 1L
 #undef android_widget_DatePicker_FITS_SYSTEM_WINDOWS
