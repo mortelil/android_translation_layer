@@ -16,8 +16,12 @@
 #include FT_OUTLINE_H
 #include FT_MODULE_H
 #include <math.h>
+#include <stdint.h>
 
 #include "../generated_headers/android_graphics_Paint.h"
+
+/* android.graphics.Paint.LINEAR_TEXT_FLAG */
+#define ATL_LINEAR_TEXT_FLAG (1 << 6)
 
 JNIEXPORT jlong JNICALL Java_android_graphics_Paint_native_1create(JNIEnv *env, jclass clazz)
 {
@@ -206,6 +210,45 @@ static char *atl_paint_font_file(struct AndroidPaint *paint, int *index)
 	return path;
 }
 
+/* Opens a private FreeType library/face for the font file Pango resolves for this paint, with
+ * the classic TrueType interpreter (version 35) Android's emulator runs, so the hinted advances
+ * and ink boxes match. The face is not given a size here; callers set it (Skia sizes with
+ * FT_Set_Char_Size(round(size*64), 72, 72)). Returns NULL and *library_out=NULL on failure. */
+static FT_Face atl_paint_ft_face(struct AndroidPaint *paint, float text_size, FT_Library *library_out)
+{
+	int font_index = 0;
+	char *font_path = atl_paint_font_file(paint, &font_index);
+	FT_Library library = NULL;
+	FT_Face face = NULL;
+	if (font_path && text_size > 0 && !FT_Init_FreeType(&library)) {
+		FT_UInt interpreter_version = 35; /* classic TrueType interpreter, as on Android */
+		FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
+		if (FT_New_Face(library, font_path, font_index, &face)) {
+			FT_Done_FreeType(library);
+			library = NULL;
+		}
+	}
+	g_free(font_path);
+	*library_out = library;
+	return face;
+}
+
+/* Number of UTF-16 code units in the first byte_len bytes of a (modified) UTF-8 string, i.e. the
+ * code-unit index a Pango glyph cluster at that byte offset belongs to. */
+static int atl_utf16_units(const char *s, int byte_len)
+{
+	int units = 0;
+	for (int i = 0; i < byte_len; ) {
+		unsigned char c = (unsigned char)s[i];
+		if (c < 0x80) { i += 1; units += 1; }
+		else if ((c & 0xE0) == 0xC0) { i += 2; units += 1; }
+		else if ((c & 0xF0) == 0xE0) { i += 3; units += 1; }
+		else if ((c & 0xF8) == 0xF0) { i += 4; units += 2; } /* surrogate pair */
+		else { i += 1; units += 1; }
+	}
+	return units;
+}
+
 /* Android's getTextBounds returns the integer ink box of the laid out text: Skia unions, for
  * every laid out glyph, the glyph's hinted outline control box (SkGlyph::rect() == roundOut of
  * FT_Outline_Get_CBox in pixels; zero-area glyphs are dropped) placed at the pen position that
@@ -226,19 +269,8 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 
 	int left = 0, top = 0, right = 0, bottom = 0;
 	float text_size = (float)pango_font_description_get_size(paint->font) / PANGO_SCALE;
-	int font_index = 0;
-	char *font_path = atl_paint_font_file(paint, &font_index);
 	FT_Library library = NULL;
-	FT_Face face = NULL;
-	if (font_path && text_size > 0 && !FT_Init_FreeType(&library)) {
-		FT_UInt interpreter_version = 35; /* classic TrueType interpreter, as on Android */
-		FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
-		if (FT_New_Face(library, font_path, font_index, &face)) {
-			FT_Done_FreeType(library);
-			library = NULL;
-		}
-	}
-	g_free(font_path);
+	FT_Face face = atl_paint_ft_face(paint, text_size, &library);
 
 	if (face) {
 		/* SkScalerContext_FreeType sizes with SkScalarToFDot6(size) == round(size * 64) and
@@ -311,6 +343,94 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 	_SET_INT_FIELD(bounds, "right", right);
 	_SET_INT_FIELD(bounds, "bottom", bottom);
 	g_object_unref(layout);
+}
+
+/* Android's Paint.getTextWidths/measureText go through nGetTextAdvances ->
+ * MinikinUtils::measureText -> minikin::Layout::measureText, whose per-code-unit advances come
+ * from HarfBuzz shaping with Skia's glyph advances (SkScalerContext_FreeType, skia
+ * 508606366e71a3daa933a4e08bc49b84e387ec18):
+ *   - SkScalerContext_FreeType::generateMetrics: fDoLinearMetrics == false ->
+ *     SkFDot6ToFloat(FT advance.x) = advance.x/64 (hinted integer); true ->
+ *     SkFixedToScalar(linearHoriAdvance) = linearHoriAdvance/65536 (unhinted subpixel).
+ *   - fDoLinearMetrics = SkFont linear-metrics flag (Paint LINEAR_TEXT_FLAG) OR hinting
+ *     kNone (Paint.setHinting(HINTING_OFF)); Android's PaintGlue::setHinting maps any non-zero
+ *     value to kNormal, and getHinting() returns 0 only for kNone.
+ *   - MinikinUtils::prepareMinikinPaint: size = isLinearMetrics() ? getSize() : (int)getSize()
+ *     (the *flag*, not the hinting-derived linearity).
+ *   - SkScalerContext_FreeType::setupSize: FT_Set_Char_Size(SkScalarToFDot6(size), 72, 72) and
+ *     SkScalarToFDot6(x) == (SkFDot6)(x*64) truncates.
+ *   - minikin::LayoutCore returns each advance as the HarfBuzz position in 1/256 px:
+ *     (int32_t)(advance * 256) (HBFloatToFixed = scalbnf(v,+8), a truncating float->int), and
+ *     hb_font_set_scale is HBFloatToFixed(size). A legacy/GPOS kern pair adds
+ *     round(kern_units * 256 * x_ppem / upem) to the *first* glyph of the pair (the emulator's
+ *     Minikin revision scales kerning by the integer pixel size; calibrated in FONT-004 against
+ *     Android's "AV" advances at 16.3/33.4/64.0 and shared with get_text_bounds).
+ * Fills widths[0 .. text.length()) and returns the summed advance, which is exactly what
+ * measureText()'s ceil() is applied to. */
+JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(JNIEnv *env, jclass clazz, jlong paint_ptr, jstring text_ptr, jfloatArray widths, jint flags, jint hinting)
+{
+	struct AndroidPaint *paint = _PTR(paint_ptr);
+	float text_size = (float)pango_font_description_get_size(paint->font) / PANGO_SCALE;
+	bool flag_linear = (flags & ATL_LINEAR_TEXT_FLAG) != 0;
+	bool linear = flag_linear || hinting == 0;
+	float size = flag_linear ? text_size : (float)(int)text_size;
+
+	PangoLayout *layout = atl_paint_layout(paint, gtk_widget_get_pango_context(window));
+	pango_layout_set_font_description(layout, paint->font);
+	const char *str = (*env)->GetStringUTFChars(env, text_ptr, NULL);
+	pango_layout_set_text(layout, str, -1);
+
+	int width_count = widths ? (*env)->GetArrayLength(env, widths) : 0;
+	float *out = (widths && width_count > 0) ? g_new0(float, width_count) : NULL;
+
+	FT_Library library = NULL;
+	FT_Face face = atl_paint_ft_face(paint, size, &library);
+	double total = 0;
+	if (face) {
+		/* FT_Set_Char_Size(SkScalarToFDot6(size)) truncates, unlike roundf(). */
+		int size26 = (int)(size * 64.f);
+		FT_Set_Char_Size(face, size26, size26, 72, 72);
+		/* Minikin shapes with HarfBuzz and positions are 1/256 px; the pair kerning is scaled
+		 * by 256 * x_ppem (the font's integer pixel size), matching get_text_bounds. */
+		double kern_scale = 256.0 * face->size->metrics.x_ppem;
+		PangoLayoutLine *line = pango_layout_get_line_readonly(layout, 0);
+		for (GSList *run = line ? line->runs : NULL; run; run = run->next) {
+			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
+			for (int i = 0; i < glyphs->num_glyphs; i++) {
+				FT_UInt glyph = glyphs->glyphs[i].glyph;
+				int64_t hb_advance = 0;
+				if (!FT_Load_Glyph(face, glyph, FT_LOAD_TARGET_NORMAL | FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH | FT_LOAD_BITMAP_METRICS_ONLY)) {
+					float advance;
+					if (linear)
+						advance = (float)(face->glyph->linearHoriAdvance * (1.0f / 65536.0f));
+					else
+						advance = (float)face->glyph->advance.x / 64.0f;
+					hb_advance = (int64_t)scalbnf(advance, 8); /* HBFloatToFixed */
+				}
+				if (i + 1 < glyphs->num_glyphs && face->units_per_EM > 0) {
+					/* HarfBuzz adds the pair adjustment to the first glyph's advance. */
+					FT_Vector kern;
+					if (!FT_Get_Kerning(face, glyph, glyphs->glyphs[i + 1].glyph, FT_KERNING_UNSCALED, &kern))
+						hb_advance += llround((double)kern.x * kern_scale / (double)face->units_per_EM);
+				}
+				if (out) {
+					int unit = atl_utf16_units(str, glyphs->log_clusters[i]);
+					if (unit >= 0 && unit < width_count)
+						out[unit] += (float)(hb_advance * (1.0 / 256.0));
+				}
+				total += (double)(hb_advance * (1.0 / 256.0));
+			}
+		}
+		FT_Done_Face(face);
+		FT_Done_FreeType(library);
+	}
+	if (widths && out) {
+		(*env)->SetFloatArrayRegion(env, widths, 0, width_count, out);
+		g_free(out);
+	}
+	(*env)->ReleaseStringUTFChars(env, text_ptr, str);
+	g_object_unref(layout);
+	return (jfloat)total;
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1text_1align(JNIEnv *env, jclass clazz, jlong paint_ptr, jint align)

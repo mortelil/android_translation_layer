@@ -17,12 +17,19 @@ public class Paint {
 	public static final int AUTO_HINTING_TEXT_FLAG = (1 << 11);
 	public static final int VERTICAL_TEXT_FLAG = (1 << 12);
 
+	public static final int HINTING_OFF = 0x0;
+	public static final int HINTING_ON = 0x1;
+
 	public long paint; // native paint
 	private Typeface typeface;
 	private Xfermode xfermode;
 	private Shader shader;
 	private Align align = Align.CENTER;
 	private ColorFilter color_filter;
+	// Android's default Paint flags (ANTI_ALIAS|FILTER_BITMAP|DEV_KERN|EMBEDDED_BITMAP); the
+	// subpixel/linear bits added by setFlags() are what the text measurement consults.
+	private int flags = ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG | DEV_KERN_TEXT_FLAG | EMBEDDED_BITMAP_TEXT_FLAG;
+	private int hinting = HINTING_ON;
 
 	public Paint() {
 		paint = native_create();
@@ -36,6 +43,8 @@ public class Paint {
 	public Paint(Paint paint) {
 		this.paint = native_clone(paint.paint);
 		this.typeface = paint.typeface;
+		this.flags = paint.flags;
+		this.hinting = paint.hinting;
 	}
 
 	@Override protected void finalize() throws Throwable {
@@ -94,17 +103,72 @@ public class Paint {
 	public void getTextBounds(char[] text, int index, int count, Rect bounds) {
 		native_get_text_bounds(paint, new String(text, index, count), bounds);
 	}
+	public int getTextWidths(String text, float[] widths) {
+		return getTextWidths(text, 0, text.length(), widths);
+	}
 	public int getTextWidths(String text, int start, int end, float[] widths) {
-		Rect bounds = new Rect();
-		native_get_text_bounds(paint, text.substring(start, end), bounds);
-		return bounds.width();
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		if (end - start > widths.length)
+			throw new ArrayIndexOutOfBoundsException();
+		if (start == end)
+			return 0;
+		native_get_text_widths(paint, text.substring(start, end), widths, flags, hinting);
+		return end - start;
+	}
+	public int getTextWidths(char[] text, int index, int count, float[] widths) {
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((index | count) < 0 || index + count > text.length || count > widths.length)
+			throw new ArrayIndexOutOfBoundsException();
+		if (count == 0)
+			return 0;
+		native_get_text_widths(paint, new String(text, index, count), widths, flags, hinting);
+		return count;
+	}
+	public int getTextWidths(CharSequence text, int start, int end, float[] widths) {
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		if (end - start > widths.length)
+			throw new ArrayIndexOutOfBoundsException();
+		if (start == end)
+			return 0;
+		native_get_text_widths(paint, text.subSequence(start, end).toString(), widths, flags, hinting);
+		return end - start;
 	}
 	public void setFilterBitmap(boolean filter) {}
 
+	public int getFlags() { return flags; }
+
 	public void setFlags(int flags) {
+		this.flags = flags;
 		if ((flags & ANTI_ALIAS_FLAG) != 0)
 			setAntiAlias(true);
 	}
+
+	public int getHinting() { return hinting; }
+	public void setHinting(int mode) {
+		// Android maps HINTING_OFF -> SkFontHinting::kNone and every other value -> kNormal.
+		hinting = (mode == HINTING_OFF) ? HINTING_OFF : HINTING_ON;
+	}
+	public void setLinearText(boolean linearText) {
+		if (linearText)
+			flags |= LINEAR_TEXT_FLAG;
+		else
+			flags &= ~LINEAR_TEXT_FLAG;
+	}
+	public boolean isLinearText() { return (flags & LINEAR_TEXT_FLAG) != 0; }
+	public void setSubpixelText(boolean subpixelText) {
+		if (subpixelText)
+			flags |= SUBPIXEL_TEXT_FLAG;
+		else
+			flags &= ~SUBPIXEL_TEXT_FLAG;
+	}
+	public boolean isSubpixelText() { return (flags & SUBPIXEL_TEXT_FLAG) != 0; }
 
 	public void setStyle(Style style) {
 		native_set_style(paint, style.ordinal());
@@ -114,15 +178,42 @@ public class Paint {
 		return -getTextSize();
 	}
 
-	public float measureText(char[] text, int index, int count) { return (float)Math.ceil(native_text_advance(paint, new String(text, index, count))); }
+	public float measureText(char[] text, int index, int count) {
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((index | count) < 0 || index + count > text.length)
+			throw new ArrayIndexOutOfBoundsException();
+		return (float)Math.ceil(sumTextWidths(new String(text, index, count)));
+	}
 	public float measureText(String text, int start, int end) {
-		return (float)Math.ceil(native_text_advance(paint, text.substring(start, end)));
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		return (float)Math.ceil(sumTextWidths(text.substring(start, end)));
 	}
 	public float measureText(String text) {
 		return measureText(text, 0, text.length());
 	}
 	public float measureText(CharSequence text, int start, int end) {
-		return measureText(text.toString(), start, end);
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		return (float)Math.ceil(sumTextWidths(text.subSequence(start, end).toString()));
+	}
+
+	/* Android's measureText is ceil() of the summed advances nGetTextAdvances reports; the same
+	 * advances fill getTextWidths, so the sum must be taken over the widths array. */
+	private float sumTextWidths(String text) {
+		if (text.length() == 0)
+			return 0f;
+		float[] widths = new float[text.length()];
+		int count = getTextWidths(text, widths);
+		float sum = 0f;
+		for (int i = 0; i < count; i++)
+			sum += widths[i];
+		return sum;
 	}
 
 	public ColorFilter setColorFilter(ColorFilter colorFilter) {
@@ -206,18 +297,11 @@ public class Paint {
 		}
 	}
 
-	public /*native*/ int getFlags() { return 0; }
-
-	public /*native*/ int getHinting() { return 0; }
-	public /*native*/ void setHinting(int mode) {}
-
 	public /*native*/ void setDither(boolean dither) {}
 	public boolean isDither() {
 		return false;
 	}
 
-	public /*native*/ void setLinearText(boolean linearText) {}
-	public /*native*/ void setSubpixelText(boolean subpixelText) {}
 	public /*native*/ void setUnderlineText(boolean underlineText) {}
 	public /*native*/ void setStrikeThruText(boolean strikeThruText) {}
 	public /*native*/ void setFakeBoldText(boolean fakeBoldText) {}
@@ -415,8 +499,11 @@ public class Paint {
 		shader = null;
 		align = Align.CENTER;
 		color_filter = null;
+		flags = ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG | DEV_KERN_TEXT_FLAG | EMBEDDED_BITMAP_TEXT_FLAG;
+		hinting = HINTING_ON;
 	}
 
+	private static native float native_get_text_widths(long paint, String text, float[] widths, int flags, int hinting);
 	private static native float native_text_advance(long paint, String text);
 	private static native void native_set_typeface(long paint, long typeface);
 	private static native long native_create();
