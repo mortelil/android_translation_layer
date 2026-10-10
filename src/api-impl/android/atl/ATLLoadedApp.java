@@ -272,8 +272,6 @@ public final class ATLLoadedApp {
 		Service service = record.instance;
 		if (service != null)
 			return service;
-		if (!service_registry.isLive(record))
-			return null;
 		Class<? extends Service> cls = this.loadClass(record.className).asSubclass(Service.class);
 		service = cls.getConstructor().newInstance();
 		service.attachBaseContext(new ContextImpl(
@@ -304,11 +302,9 @@ public final class ATLLoadedApp {
 			public void run() {
 				try {
 					Service service = bringUpService(record);
-					if (service == null)
-						return;
 					// A client that bound without AUTO_CREATE is delivered its binder
 					// as soon as the service comes up through startService().
-					deliverBoundClients(record, intent);
+					deliverBoundClients(record);
 					service.onStartCommand(intent, 0, startId);
 				} catch (ReflectiveOperationException e) {
 					Slog.e(TAG, "startService: failed to start service " + component.getClassName(), e);
@@ -320,33 +316,46 @@ public final class ATLLoadedApp {
 	}
 
 	/**
-	 * Delivers the cached binder to every bound client that has not been notified
-	 * yet, in registration order. {@code onBind()} runs at most once per instance:
-	 * the first delivery resolves and caches the binder (which may be null, in
-	 * which case clients get {@code onNullBinding}); later clients reuse it.
-	 * Must be called on the main looper, never while the registry lock is held.
+	 * Resolves the binder for {@code intent}'s binding identity by running
+	 * {@code onBind()} once per identity on the live instance (Android keys bind
+	 * requests by {@code Intent.FilterComparison}: extras are ignored, a different
+	 * action is a new identity and re-runs {@code onBind()} on the same
+	 * instance). The returned binder is cached on the record.
 	 */
-	private void deliverBoundClients(ATLServiceRegistry.ServiceRecord record, Intent bindIntent) {
+	private void ensureBindingIdentity(ATLServiceRegistry.ServiceRecord record, Intent intent) {
+		if (record.instance == null || intent == null)
+			return;
+		if (service_registry.hasBindingIdentity(record, intent))
+			return;
+		service_registry.addBindingIdentity(record, intent);
+		record.binder = record.instance.onBind(intent);
+		record.binderResolved = true;
+	}
+
+	/**
+	 * Delivers the binder to every processed-but-undelivered client of
+	 * {@code record} in registration order, resolving each pending client's
+	 * binding identity first. A connection is notified once per instance: a second
+	 * binding identity of the same connection re-runs {@code onBind()} but does not
+	 * produce another {@code onServiceConnected} (Android: the client already holds
+	 * the connection). Must be called on the main looper, never while the registry
+	 * lock is held.
+	 */
+	private void deliverBoundClients(ATLServiceRegistry.ServiceRecord record) {
 		if (record.instance == null)
 			return;
 		java.util.ArrayList<ATLServiceRegistry.BoundClient> clients = service_registry.bindingsOf(record);
-		boolean anyPending = false;
 		for (ATLServiceRegistry.BoundClient client : clients) {
-			if (!client.delivered) {
-				anyPending = true;
-				break;
-			}
-		}
-		if (!anyPending)
-			return;
-		if (!record.binderResolved) {
-			record.binder = record.instance.onBind(bindIntent);
-			record.binderResolved = true;
+			if (client.requested && !client.delivered)
+				ensureBindingIdentity(record, client.intent);
 		}
 		for (ATLServiceRegistry.BoundClient client : clients) {
-			if (client.delivered)
+			if (!client.requested || client.delivered)
 				continue;
 			client.delivered = true;
+			if (service_registry.connectionDelivered(record, client.connection))
+				continue;
+			service_registry.markConnectionDelivered(record, client.connection);
 			if (record.binder == null) {
 				client.connection.onNullBinding(record.component);
 			} else {
@@ -362,7 +371,9 @@ public final class ATLLoadedApp {
 	 * onBind() once; a bind without it is only delivered once some later
 	 * AUTO_CREATE bind (or startService) creates the instance. All clients of the
 	 * record are delivered in registration order, so a pending client is notified
-	 * before the client whose bind created the service.
+	 * before the client whose bind created the service. Because queued work is
+	 * applied in post order, the op still runs onBind() for the identity it
+	 * captured even when a later-queued unbind already removed the connection.
 	 */
 	public ComponentName bindService(final Intent intent, final ServiceConnection serviceConnection, final int flags) {
 		if (serviceConnection == null) {
@@ -374,12 +385,18 @@ public final class ATLLoadedApp {
 			return null;
 		}
 		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component);
-		service_registry.registerBinding(record, serviceConnection, intent);
+		final ATLServiceRegistry.BoundClient client =
+		    service_registry.registerBinding(record, serviceConnection, intent);
 		final boolean autoCreate = (flags & Context.BIND_AUTO_CREATE) != 0;
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
+				// The bind op has now been processed on the main looper: mark it so
+				// deliverBoundClients() sees it. A bind without BIND_AUTO_CREATE stays
+				// pending (requested but not delivered) until a later op brings the
+				// instance up.
+				client.requested = true;
 				try {
 					if (record.instance == null) {
 						if (!autoCreate)
@@ -387,7 +404,14 @@ public final class ATLLoadedApp {
 						if (bringUpService(record) == null)
 							return;
 					}
-					deliverBoundClients(record, intent);
+					deliverBoundClients(record);
+					// Android applies the queued bind work in post order: this op has
+					// brought the instance up and must run onBind() for the binding
+					// identity it captured, even when an unbind queued after this bind
+					// (but processed before its op) already removed the connection from
+					// the registry. The unbind op owns the removal/onUnbind()/onDestroy()
+					// for that connection, so only the identity resolution happens here.
+					ensureBindingIdentity(record, intent);
 				} catch (ReflectiveOperationException e) {
 					Slog.e(TAG, "bindService: failed to bind service " + component.getClassName(), e);
 				}
@@ -400,23 +424,28 @@ public final class ATLLoadedApp {
 	/**
 	 * unbindService: removes the client from the registry and, when it was the
 	 * last client of a service that is not kept alive by a startService() request,
-	 * posts onUnbind() then onDestroy() to the main looper. Unknown connections
-	 * throw, matching Android. onServiceDisconnected() is never called for an
-	 * ordinary unbind and onRebind() never fires for a purely bound service.
+	 * posts one onUnbind() per removed binding identity then onDestroy() to the
+	 * main looper. Unknown connections throw, matching Android.
+	 * onServiceDisconnected() is never called for an ordinary unbind and
+	 * onRebind() never fires for a purely bound service.
 	 */
 	public void unbindService(ServiceConnection serviceConnection) {
 		final ATLServiceRegistry.UnbindResult result = service_registry.unbind(serviceConnection);
 		final ATLServiceRegistry.ServiceRecord record = result.record;
 		if (record == null)
 			return;
-		final Service service = record.instance;
-		if (service == null)
-			return;
-		final Intent intent = result.intent;
+		final java.util.ArrayList<Intent> intents = result.intents;
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
-				service.onUnbind(intent);
+				Service service = record.instance;
+				if (service == null)
+					return;
+				// Android delivers one onUnbind() per removed binding identity
+				// (extras-deduped), then destroys the instance.
+				for (Intent intent : intents) {
+					service.onUnbind(intent);
+				}
 				service.onDestroy();
 			}
 		});
@@ -426,7 +455,9 @@ public final class ATLLoadedApp {
 	 * stopService: detaches the record synchronously (so the returned boolean and
 	 * a second stopService observe the stopped state immediately) and posts
 	 * onDestroy() to the main looper, matching Android where onDestroy lands after
-	 * the call has returned.
+	 * the call has returned. The instance is read at op-run time, not at call
+	 * time: a startService() whose op has not run yet still creates its instance
+	 * and must be destroyed by the matching stopService().
 	 */
 	public boolean stopService(Intent intent) {
 		ComponentName component = intent.getComponent();
@@ -439,15 +470,15 @@ public final class ATLLoadedApp {
 			return false;
 		if (result.keptBound)
 			return true;
-		final Service service = result.record.instance;
-		if (service != null) {
-			new Handler(Looper.getMainLooper()).post(new Runnable() {
-				@Override
-				public void run() {
+		final ATLServiceRegistry.ServiceRecord record = result.record;
+		new Handler(Looper.getMainLooper()).post(new Runnable() {
+			@Override
+			public void run() {
+				Service service = record.instance;
+				if (service != null)
 					service.onDestroy();
-				}
-			});
-		}
+			}
+		});
 		return true;
 	}
 

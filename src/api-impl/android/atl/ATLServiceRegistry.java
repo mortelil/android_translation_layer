@@ -13,13 +13,22 @@ import java.util.Iterator;
 /**
  * Registry of same-process Android services, keyed by {@link ComponentName}.
  *
- * <p>One {@link ServiceRecord} per component holds the live {@link Service}
- * instance (null until {@code onCreate()} has run), the last start ID handed out
- * by {@code startService}, a {@code started} flag (a start request is still
- * outstanding, so the service outlives its bound clients) and the list of bound
- * clients in the order their {@code bindService} calls arrived. The result of the
- * single {@code onBind()} call per instance is cached on the record so a second
- * client never re-invokes {@code onBind()}.
+ * <p>One {@link ServiceRecord} per component lifecycle holds the live
+ * {@link Service} instance (null until {@code onCreate()} has run), the last
+ * start ID handed out by {@code startService}, a {@code started} flag (a start
+ * request is still outstanding, so the service outlives its bound clients) and
+ * the list of bound clients in the order their {@code bindService} calls
+ * arrived. A client entry is identified by (connection, binding identity) where
+ * the identity is the {@link Intent#filterEquals} relation of the bind intent:
+ * Android keys bindings by {@code Intent.FilterComparison}, so extras do not
+ * create a new binding identity while a different action does.
+ *
+ * <p>{@code onBind()} runs once per binding identity on the live instance (the
+ * caller resolves identities through {@link #hasBindingIdentity} /
+ * {@link #addBindingIdentity}), and the teardown delivers one {@code onUnbind()}
+ * per registered identity, matching AOSP. The per-instance binder itself is
+ * cached by the service in the probe, so repeated {@code onBind()} calls return
+ * the same object.
  *
  * <p>Locking: {@link #lock} is only held for map and counter mutations. It is
  * never held while application code ({@code onCreate}/{@code onBind}/
@@ -34,6 +43,8 @@ public final class ATLServiceRegistry {
 		public final Intent intent;
 		/** Set once onServiceConnected()/onNullBinding() was delivered. */
 		public boolean delivered;
+		/** Set once this bind request has been processed on the main looper. */
+		public boolean requested;
 
 		BoundClient(ServiceConnection connection, Intent intent) {
 			this.connection = connection;
@@ -41,7 +52,7 @@ public final class ATLServiceRegistry {
 		}
 	}
 
-	/** Per-component state. */
+	/** Per-component lifecycle state. */
 	public static final class ServiceRecord {
 		public final ComponentName component;
 		public final String className;
@@ -53,12 +64,16 @@ public final class ATLServiceRegistry {
 		public volatile boolean destroyed;
 		/** True while a startService() request is outstanding. */
 		public volatile boolean started;
-		/** True once onBind() ran for the current instance. */
+		/** True once onBind() resolved a binder for the current instance. */
 		public volatile boolean binderResolved;
 		/** Cached onBind() result; null when the service returned a null binder. */
 		public volatile IBinder binder;
 		/** Bound clients, in the order their bindService() calls arrived. */
 		public final ArrayList<BoundClient> bindings = new ArrayList<>();
+		/** Binding identities (filterEquals) onBind() was already run for. */
+		public final ArrayList<Intent> boundIdentities = new ArrayList<>();
+		/** Connections already notified for the current instance. */
+		public final ArrayList<ServiceConnection> deliveredConnections = new ArrayList<>();
 
 		ServiceRecord(ComponentName component) {
 			this.component = component;
@@ -86,12 +101,12 @@ public final class ATLServiceRegistry {
 	public static final class UnbindResult {
 		/** The record to tear down (last client, not started); null when it stays. */
 		public final ServiceRecord record;
-		/** The intent of the unbound binding, used for onUnbind(). */
-		public final Intent intent;
+		/** The distinct binding identities of the removed entries, for onUnbind(). */
+		public final ArrayList<Intent> intents;
 
-		UnbindResult(ServiceRecord record, Intent intent) {
+		UnbindResult(ServiceRecord record, ArrayList<Intent> intents) {
 			this.record = record;
-			this.intent = intent;
+			this.intents = intents;
 		}
 	}
 
@@ -160,14 +175,19 @@ public final class ATLServiceRegistry {
 	}
 
 	/**
-	 * Registers {@code connection} as a client of {@code record} unless the same
-	 * connection is already registered, so a repeated bind never duplicates the
-	 * delivery (Android keys bindings by connection, not by call site).
+	 * Registers {@code connection} as a client of {@code record} under the binding
+	 * identity of {@code intent}. A repeated bind of the same connection with an
+	 * {@link Intent#filterEquals}-equal intent is deduplicated (Android keys
+	 * bindings by the intent comparison, so extras do not matter); a different
+	 * action is a new binding identity and returns a fresh entry. The identity is
+	 * NOT recorded here: the caller records it through
+	 * {@link #addBindingIdentity} once {@code onBind()} has actually run, so a bind
+	 * never suppresses its own {@code onBind()}.
 	 */
 	public BoundClient registerBinding(ServiceRecord record, ServiceConnection connection, Intent intent) {
 		synchronized (lock) {
 			for (BoundClient client : record.bindings) {
-				if (client.connection == connection) {
+				if (client.connection == connection && sameIdentity(client.intent, intent)) {
 					return client;
 				}
 			}
@@ -182,6 +202,63 @@ public final class ATLServiceRegistry {
 		synchronized (lock) {
 			return new ArrayList<>(record.bindings);
 		}
+	}
+
+	/** True when onBind() already ran for {@code intent}'s identity. */
+	public boolean hasBindingIdentity(ServiceRecord record, Intent intent) {
+		synchronized (lock) {
+			for (Intent bound : record.boundIdentities) {
+				if (sameIdentity(bound, intent)) {
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
+	/** Records that onBind() was run for {@code intent}'s binding identity. */
+	public void addBindingIdentity(ServiceRecord record, Intent intent) {
+		synchronized (lock) {
+			addIdentityLocked(record, intent);
+		}
+	}
+
+	/** True when {@code connection} was already delivered a binder for this instance. */
+	public boolean connectionDelivered(ServiceRecord record, ServiceConnection connection) {
+		synchronized (lock) {
+			return record.deliveredConnections.contains(connection);
+		}
+	}
+
+	/** Marks {@code connection} as having been delivered a binder for this instance. */
+	public void markConnectionDelivered(ServiceRecord record, ServiceConnection connection) {
+		synchronized (lock) {
+			if (!record.deliveredConnections.contains(connection)) {
+				record.deliveredConnections.add(connection);
+			}
+		}
+	}
+
+	private void addIdentityLocked(ServiceRecord record, Intent intent) {
+		if (intent == null) {
+			return;
+		}
+		for (Intent bound : record.boundIdentities) {
+			if (sameIdentity(bound, intent)) {
+				return;
+			}
+		}
+		record.boundIdentities.add(intent);
+	}
+
+	private static boolean sameIdentity(Intent a, Intent b) {
+		if (a == b) {
+			return true;
+		}
+		if (a == null || b == null) {
+			return false;
+		}
+		return a.filterEquals(b);
 	}
 
 	/**
@@ -207,24 +284,25 @@ public final class ATLServiceRegistry {
 	}
 
 	/**
-	 * Removes {@code connection} from whichever record holds it. Returns the record
-	 * to tear down when this was the last client of a not-started service (the
-	 * caller then posts {@code onUnbind} + {@code onDestroy}); returns a null
-	 * record when other clients remain or the service is kept alive by a
-	 * startService() request. Throws when the connection was never registered.
+	 * Removes every binding entry of {@code connection} (Android unbinds the whole
+	 * connection, however many distinct identities it registered). Returns the
+	 * record to tear down when this was the last client of a not-started service
+	 * (the caller then posts {@code onUnbind} per removed identity +
+	 * {@code onDestroy}); returns a null record when other clients remain or the
+	 * service is kept alive by a startService() request. Throws when the
+	 * connection was never registered.
 	 */
 	public UnbindResult unbind(ServiceConnection connection) {
 		synchronized (lock) {
 			ServiceRecord found = null;
-			Intent intent = null;
+			ArrayList<Intent> intents = new ArrayList<>();
 			for (ServiceRecord record : records.values()) {
 				for (Iterator<BoundClient> it = record.bindings.iterator(); it.hasNext();) {
 					BoundClient client = it.next();
 					if (client.connection == connection) {
-						intent = client.intent;
 						it.remove();
+						addIdentityDistinct(intents, client.intent);
 						found = record;
-						break;
 					}
 				}
 				if (found != null) {
@@ -235,12 +313,25 @@ public final class ATLServiceRegistry {
 				throw new IllegalArgumentException("Service not connected: " + connection);
 			}
 			if (!found.bindings.isEmpty() || found.started) {
-				return new UnbindResult(null, intent);
+				return new UnbindResult(null, intents);
 			}
 			records.remove(found.component);
 			found.destroyed = true;
-			return new UnbindResult(found, intent);
+			return new UnbindResult(found, intents);
 		}
+	}
+
+	private static void addIdentityDistinct(ArrayList<Intent> intents, Intent intent) {
+		if (intent == null) {
+			intents.add(null);
+			return;
+		}
+		for (Intent existing : intents) {
+			if (sameIdentity(existing, intent)) {
+				return;
+			}
+		}
+		intents.add(intent);
 	}
 
 	/**

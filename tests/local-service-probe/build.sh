@@ -1,10 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# LOCAL-SERVICES probe v3 (SVC-002..009) APK build. Run INSIDE the atl_dev
+# LOCAL-SERVICES probe v4 (SVC-002..016) APK build. Run INSIDE the atl_dev
 # Toolbox container (same toolchain as the lifecycle/font probes):
 #   toolbox run --container atl_dev sh -lc \
 #     '/home/morten/ATL/local-services/tests/local-service-probe/build.sh \
-#        /home/morten/ATL/local-service-tests/build-v3'
+#        /home/morten/ATL/local-service-tests/build-v4'
 # Produces a zipaligned but UNSIGNED APK; sign it on the HOST with apksigner.
 set -eu
 if [ "$#" -ne 1 ]; then
@@ -25,7 +25,7 @@ dx --min-sdk-version=24 --dex --output="$output/classes.dex" "$output/classes"
 aapt package -f \
 	-M "$source_dir/AndroidManifest.xml" \
 	-I "$FRAMEWORK_RES" \
-	-F "$output/svc-probe-v3-unsigned.apk"
-(cd "$output" && aapt add svc-probe-v3-unsigned.apk classes.dex)
-zipalign -f 4 "$output/svc-probe-v3-unsigned.apk" "$output/svc-probe-v3-aligned.apk"
-printf '%s\n' "$output/svc-probe-v3-aligned.apk"
+	-F "$output/svc-probe-v4-unsigned.apk"
+(cd "$output" && aapt add svc-probe-v4-unsigned.apk classes.dex)
+zipalign -f 4 "$output/svc-probe-v4-unsigned.apk" "$output/svc-probe-v4-aligned.apk"
+printf '%s\n' "$output/svc-probe-v4-aligned.apk"

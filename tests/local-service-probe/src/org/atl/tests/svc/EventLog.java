@@ -42,8 +42,8 @@ import java.util.UUID;
  * instance is instance=1 exactly as the specs' planned traces require.
  */
 final class EventLog {
-    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V3";
-    static final String PROBE_ID = "SVC-PROBE-V3";
+    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V4";
+    static final String PROBE_ID = "SVC-PROBE-V4";
     static final String MARKER_BEGIN = "SVC_JSON_BEGIN";
     static final String MARKER_END = "SVC_JSON_END";
     static final String PKG = "org.atl.tests.svc";
@@ -56,6 +56,10 @@ final class EventLog {
     static final String SVC_007 = "SVC-007";
     static final String SVC_008 = "SVC-008";
     static final String SVC_009 = "SVC-009";
+    static final String SVC_010 = "SVC-010";
+    static final String SVC_011 = "SVC-011";
+    static final String SVC_013 = "SVC-013";
+    static final String SVC_016 = "SVC-016";
 
     /** Component name fields used by the v2 scenarios (labelled "component A" per spec). */
     static final String COMP_002 = PKG + "/.SvcStartIds";
@@ -71,6 +75,18 @@ final class EventLog {
     static final String COMP_BF = PKG + "/.SvcUnbindFalse";
     /** Bt — onUnbind returns true, implements onRebind. */
     static final String COMP_BT = PKG + "/.SvcUnbindTrue";
+
+    /* v4 components. */
+    /** B — SVC-010/011: logs onStartCommand too; default onUnbind (false). */
+    static final String COMP_V4B = PKG + "/.SvcV4B";
+    /** A — SVC-016: stopSelfResult/stopSelf(current start id). */
+    static final String COMP_STOP_SELF = PKG + "/.SvcStopSelfV4";
+    /** Ir — SVC-013a: re-enters startService from onStartCommand. */
+    static final String COMP_RE_START = PKG + "/.SvcReenterStart";
+    /** Ir2 — SVC-013b: bound service; client unbinds from onServiceConnected. */
+    static final String COMP_RE_BIND = PKG + "/.SvcReenterBind";
+    /** Ir3 — SVC-013c: re-enters bindService from onUnbind. */
+    static final String COMP_RE_UNBIND = PKG + "/.SvcReenterUnbind";
 
     /**
      * Scenario the currently executing service callbacks belong to. v3 reuses
@@ -313,6 +329,16 @@ final class EventLog {
         }
         if (SVC_009.equals(sid)) {
             return PKG + ".SvcNullBind";
+        }
+        if (SVC_010.equals(sid) || SVC_011.equals(sid)) {
+            return PKG + ".SvcV4B";
+        }
+        if (SVC_013.equals(sid)) {
+            return PKG + ".SvcReenterStart," + PKG + ".SvcReenterBind,"
+                    + PKG + ".SvcReenterUnbind";
+        }
+        if (SVC_016.equals(sid)) {
+            return PKG + ".SvcStopSelfV4";
         }
         return "";
     }

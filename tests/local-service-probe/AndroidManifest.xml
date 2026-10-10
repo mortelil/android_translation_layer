@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <!--
-  LOCAL-SERVICES probe v3 (task LOCAL-SERVICES-PROBE-V3), cases SVC-002..SVC-009.
+  LOCAL-SERVICES probe v4 (task LOCAL-SERVICES-PROBE-V4), cases SVC-002..SVC-016.
+  = v3 (SVC-002..009) + appended SVC-010/011/013/016.
 
   Declared components:
     .ControlActivity      MAIN/LAUNCHER, exported; stays alive for the whole run
@@ -12,16 +13,21 @@
     .SvcUnbindFalse       SVC-008a component Bf (onUnbind returns false).
     .SvcUnbindTrue        SVC-008b component Bt (onUnbind returns true + onRebind).
     .SvcNullBind          SVC-009 component Bn (onBind returns null).
+    .SvcV4B               SVC-010/011 component B (logs onStartCommand too).
+    .SvcStopSelfV4        SVC-016 component A (stopSelfResult/stopSelf current id).
+    .SvcReenterStart      SVC-013a Ir (onStartCommand -> startService).
+    .SvcReenterBind       SVC-013b Ir2 (client unbinds from onServiceConnected).
+    .SvcReenterUnbind     SVC-013c Ir3 (onUnbind -> bindService).
 
   v2 scenarios use a distinct service class so each always gets a fresh instance;
-  the v3 binding scenarios reset the instance index on onDestroy so each fresh
+  the binding scenarios reset the instance index on onDestroy so each fresh
   instance is instance=1 per the specs' planned traces.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.atl.tests.svc">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <application
-        android:label="ATL LOCAL-SERVICES probe v3"
+        android:label="ATL LOCAL-SERVICES probe v4"
         android:debuggable="true">
         <activity
             android:name=".ControlActivity"
@@ -51,6 +57,21 @@
             android:exported="false" />
         <service
             android:name=".SvcNullBind"
+            android:exported="false" />
+        <service
+            android:name=".SvcV4B"
+            android:exported="false" />
+        <service
+            android:name=".SvcStopSelfV4"
+            android:exported="false" />
+        <service
+            android:name=".SvcReenterStart"
+            android:exported="false" />
+        <service
+            android:name=".SvcReenterBind"
+            android:exported="false" />
+        <service
+            android:name=".SvcReenterUnbind"
             android:exported="false" />
     </application>
 </manifest>

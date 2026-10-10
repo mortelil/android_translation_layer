@@ -69,12 +69,14 @@ public class ControlActivity extends Activity {
     private int cursor = 0;
     private final List<V3Step> v3steps = new ArrayList<V3Step>();
     private int v3cursor = 0;
+    private final List<V3Step> v4steps = new ArrayList<V3Step>();
+    private int v4cursor = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         TextView tv = new TextView(this);
-        tv.setText("ATL LOCAL-SERVICES probe v3 (SVC-002..009) running");
+        tv.setText("ATL LOCAL-SERVICES probe v4 (SVC-002..016) running");
         tv.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(tv);
@@ -82,9 +84,11 @@ public class ControlActivity extends Activity {
         log = EventLog.init(this, new String[]{
                 EventLog.SVC_002, EventLog.SVC_003, EventLog.SVC_004,
                 EventLog.SVC_005, EventLog.SVC_006, EventLog.SVC_007,
-                EventLog.SVC_008, EventLog.SVC_009});
+                EventLog.SVC_008, EventLog.SVC_009,
+                EventLog.SVC_010, EventLog.SVC_011, EventLog.SVC_013, EventLog.SVC_016});
         buildSteps();
         buildV3Steps();
+        buildV4Steps();
         handler.postDelayed(watchdog, WATCHDOG_MS);
         pump();
     }
@@ -211,7 +215,7 @@ public class ControlActivity extends Activity {
      */
     private void pumpV3() {
         if (v3cursor >= v3steps.size()) {
-            log.finalizeRun();
+            startV4();
             return;
         }
         final V3Step s = v3steps.get(v3cursor++);
@@ -533,9 +537,16 @@ public class ControlActivity extends Activity {
      */
     private final class Connection implements ServiceConnection {
         final String name;
+        /** SVC-013b: unbind from inside onServiceConnected (once). */
+        boolean unbindOnConnected;
 
         Connection(String name) {
             this.name = name;
+        }
+
+        Connection(String name, boolean unbindOnConnected) {
+            this.name = name;
+            this.unbindOnConnected = unbindOnConnected;
         }
 
         private void ev(String event, ComponentName cn, IBinder service,
@@ -550,6 +561,24 @@ public class ControlActivity extends Activity {
         @Override
         public void onServiceConnected(ComponentName cn, IBinder service) {
             ev("onServiceConnected", cn, service, "connected", "IBinder");
+            if (unbindOnConnected) {
+                unbindOnConnected = false;
+                String ret = "void";
+                String retType = "void";
+                String exc = null;
+                try {
+                    // SVC-013b: re-enter the API from inside the callback.
+                    unbindService(this);
+                } catch (Throwable t) {
+                    ret = "exception:" + t.getClass().getName();
+                    retType = "exception";
+                    exc = t.getClass().getName();
+                    log.noteException("SVC-013b reentrant unbindService: " + t);
+                }
+                log.clientEventEx(EventLog.SVC_013, "unbindService",
+                        cn == null ? "null" : cn.flattenToShortString(),
+                        "none", "", name, null, -1, ret, retType, exc);
+            }
         }
 
         @Override
@@ -565,6 +594,343 @@ public class ControlActivity extends Activity {
         @Override
         public void onBindingDied(ComponentName cn) {
             ev("onBindingDied", cn, null, "died", "void");
+        }
+    }
+
+    // ---------------------------------------------------------------- v4 chain
+
+    private void startV4() {
+        v4cursor = 0;
+        pumpV4();
+    }
+
+    /** Same barrier discipline as the v3 chain: one barrier after each call/burst. */
+    private void pumpV4() {
+        if (v4cursor >= v4steps.size()) {
+            log.finalizeRun();
+            return;
+        }
+        final V3Step s = v4steps.get(v4cursor++);
+        EventLog.setCurrentScenario(s.scenario);
+        try {
+            s.call.run();
+        } catch (Throwable t) {
+            log.noteException("v4 step " + v4cursor + ": " + t);
+        }
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                EventLog.setCurrentScenario(s.scenario);
+                try {
+                    log.barrierEvent(s.scenario, s.component, s.barrierClient);
+                } catch (Throwable t) {
+                    log.noteException("v4 barrier: " + t);
+                }
+                pumpV4();
+            }
+        }, BARRIER_MS);
+    }
+
+    private void addV4(String scenario, String component, String client, Runnable call) {
+        v4steps.add(new V3Step(scenario, component, client, call));
+    }
+
+    /** bind intent with an explicit action and optional extras (SVC-010 identity). */
+    private Intent bindIntent2(String component, String action, int x) {
+        Intent i = new Intent();
+        i.setComponent(ComponentName.unflattenFromString(component));
+        i.setAction(action);
+        if (x >= 0) {
+            i.putExtra("x", x);
+        }
+        return i;
+    }
+
+    /** start intent with cmd and optional oldId extras (SVC-011/013/016). */
+    private Intent startIntentV4(String component, String cmd, int oldId) {
+        Intent i = new Intent();
+        i.setComponent(ComponentName.unflattenFromString(component));
+        i.setAction("org.atl.tests.svc.START");
+        if (cmd != null) {
+            i.putExtra("cmd", cmd);
+        }
+        if (oldId >= 0) {
+            i.putExtra("oldId", oldId);
+        }
+        return i;
+    }
+
+    private void buildV4Steps() {
+        // ---- SVC-010: duplicate bindings, extras vs action identity, invalid unbind
+        {
+            final String comp = EventLog.COMP_V4B;
+            Connection c1 = new Connection("c1");
+            Connection c2 = new Connection("c2");
+            addV4(EventLog.SVC_010, comp, "c1", new BindIntentCall(EventLog.SVC_010, comp,
+                    c1, "c1", bindIntent2(comp, "org.atl.tests.svc.BIND", -1),
+                    Context.BIND_AUTO_CREATE, "Ia"));
+            addV4(EventLog.SVC_010, comp, "c1", new BindIntentCall(EventLog.SVC_010, comp,
+                    c1, "c1", bindIntent2(comp, "org.atl.tests.svc.BIND", -1),
+                    Context.BIND_AUTO_CREATE, "Ia"));
+            addV4(EventLog.SVC_010, comp, "c1", new BindIntentCall(EventLog.SVC_010, comp,
+                    c1, "c1", bindIntent2(comp, "org.atl.tests.svc.BIND", 1),
+                    Context.BIND_AUTO_CREATE, "Ib"));
+            addV4(EventLog.SVC_010, comp, "c1", new BindIntentCall(EventLog.SVC_010, comp,
+                    c1, "c1", bindIntent2(comp, "org.atl.tests.svc.BIND2", -1),
+                    Context.BIND_AUTO_CREATE, "Ic"));
+            addV4(EventLog.SVC_010, comp, "c2", new UnbindCallV4(EventLog.SVC_010, comp, c2, "c2"));
+            addV4(EventLog.SVC_010, comp, "c1", new UnbindCallV4(EventLog.SVC_010, comp, c1, "c1"));
+            addV4(EventLog.SVC_010, comp, "c1", new UnbindCallV4(EventLog.SVC_010, comp, c1, "c1"));
+        }
+        // ---- SVC-011: rapid bursts, one barrier per burst
+        {
+            final String comp = EventLog.COMP_V4B;
+            Connection c1 = new Connection("c1");
+            addV4(EventLog.SVC_011, comp, null, new BurstCall(
+                    new StartCallV4(EventLog.SVC_011, comp, "none", -1),
+                    new StopCallV4(EventLog.SVC_011, comp),
+                    new StartCallV4(EventLog.SVC_011, comp, "none", -1),
+                    new StopCallV4(EventLog.SVC_011, comp)));
+            addV4(EventLog.SVC_011, comp, "c1", new BurstCall(
+                    new BindCall(EventLog.SVC_011, comp, c1, Context.BIND_AUTO_CREATE),
+                    new UnbindCallV4(EventLog.SVC_011, comp, c1, "c1"),
+                    new BindCall(EventLog.SVC_011, comp, c1, Context.BIND_AUTO_CREATE),
+                    new UnbindCallV4(EventLog.SVC_011, comp, c1, "c1")));
+            addV4(EventLog.SVC_011, comp, "c1", new BurstCall(
+                    new StartCallV4(EventLog.SVC_011, comp, "none", -1),
+                    new BindCall(EventLog.SVC_011, comp, c1, Context.BIND_AUTO_CREATE),
+                    new StopCallV4(EventLog.SVC_011, comp),
+                    new UnbindCallV4(EventLog.SVC_011, comp, c1, "c1")));
+        }
+        // ---- SVC-013: reentrant calls from callbacks
+        {
+            // 13a — service re-enters startService from onStartCommand.
+            addV4(EventLog.SVC_013, EventLog.COMP_RE_START, null,
+                    new StartCallV4(EventLog.SVC_013, EventLog.COMP_RE_START, "reenter", -1));
+            addV4(EventLog.SVC_013, EventLog.COMP_RE_START, null,
+                    new StopCallV4(EventLog.SVC_013, EventLog.COMP_RE_START));
+
+            // 13b — client unbinds itself from onServiceConnected.
+            Connection cx = new Connection("c1", true);
+            addV4(EventLog.SVC_013, EventLog.COMP_RE_BIND, "c1", new BindCall(
+                    EventLog.SVC_013, EventLog.COMP_RE_BIND, cx, Context.BIND_AUTO_CREATE));
+
+            // 13c — service re-enters bindService from onUnbind; driver tears c2 down.
+            Connection c1 = new Connection("c1");
+            addV4(EventLog.SVC_013, EventLog.COMP_RE_UNBIND, "c1", new BindCall(
+                    EventLog.SVC_013, EventLog.COMP_RE_UNBIND, c1, Context.BIND_AUTO_CREATE));
+            addV4(EventLog.SVC_013, EventLog.COMP_RE_UNBIND, "c1", new UnbindCallV4(
+                    EventLog.SVC_013, EventLog.COMP_RE_UNBIND, c1, "c1"));
+            addV4(EventLog.SVC_013, EventLog.COMP_RE_UNBIND, "c2",
+                    new UnbindC2Call(EventLog.SVC_013, EventLog.COMP_RE_UNBIND));
+        }
+        // ---- SVC-016: stopSelfResult/stopSelf with the CURRENT start id
+        {
+            final String comp = EventLog.COMP_STOP_SELF;
+            addV4(EventLog.SVC_016, comp, null,
+                    new StartCallV4(EventLog.SVC_016, comp, "stopSelfResultCurrent", -1));
+            addV4(EventLog.SVC_016, comp, null, new StopCallV4(EventLog.SVC_016, comp));
+            addV4(EventLog.SVC_016, comp, null,
+                    new StartCallV4(EventLog.SVC_016, comp, "none", -1));
+            addV4(EventLog.SVC_016, comp, null,
+                    new StartCallV4(EventLog.SVC_016, comp, "stopSelfIntOld", 1));
+            addV4(EventLog.SVC_016, comp, null,
+                    new StartCallV4(EventLog.SVC_016, comp, "none", -1));
+            addV4(EventLog.SVC_016, comp, null,
+                    new StartCallV4(EventLog.SVC_016, comp, "stopSelfIntCurrent", -1));
+            addV4(EventLog.SVC_016, comp, null, new StopCallV4(EventLog.SVC_016, comp));
+        }
+    }
+
+    // ---------------------------------------------------------- v4 call actions
+
+    /** bindService with an explicit intent; logs the return and identity label. */
+    private final class BindIntentCall implements Runnable {
+        private final String scenario;
+        private final String component;
+        private final ServiceConnection conn;
+        private final String client;
+        private final Intent intent;
+        private final int flags;
+        private final String label;
+
+        BindIntentCall(String scenario, String component, ServiceConnection conn,
+                       String client, Intent intent, int flags, String label) {
+            this.scenario = scenario;
+            this.component = component;
+            this.conn = conn;
+            this.client = client;
+            this.intent = intent;
+            this.flags = flags;
+            this.label = label;
+        }
+
+        @Override
+        public void run() {
+            String ret;
+            String retType = "boolean";
+            String exc = null;
+            try {
+                ret = Boolean.toString(bindService(intent, conn, flags));
+            } catch (Throwable t) {
+                ret = "exception:" + t.getClass().getName();
+                retType = "exception";
+                exc = t.getClass().getName();
+                log.noteException(scenario + " bindService(" + label + "): " + t);
+            }
+            log.clientEventEx(scenario, "bindService", component, label, "",
+                    client, null, flags, ret, retType, exc);
+        }
+    }
+
+    /** unbindService(ServiceConnection) with an explicit client id. */
+    private final class UnbindCallV4 implements Runnable {
+        private final String scenario;
+        private final String component;
+        private final ServiceConnection conn;
+        private final String client;
+
+        UnbindCallV4(String scenario, String component, ServiceConnection conn, String client) {
+            this.scenario = scenario;
+            this.component = component;
+            this.conn = conn;
+            this.client = client;
+        }
+
+        @Override
+        public void run() {
+            String ret = "void";
+            String retType = "void";
+            String exc = null;
+            try {
+                unbindService(conn);
+            } catch (Throwable t) {
+                ret = "exception:" + t.getClass().getName();
+                retType = "exception";
+                exc = t.getClass().getName();
+                log.noteException(scenario + " unbindService(" + client + "): " + t);
+            }
+            log.clientEventEx(scenario, "unbindService", component, "none", "",
+                    client, null, -1, ret, retType, exc);
+        }
+    }
+
+    /** Tears down the service-owned SVC-013c connection (resolved at run time). */
+    private final class UnbindC2Call implements Runnable {
+        private final String scenario;
+        private final String component;
+
+        UnbindC2Call(String scenario, String component) {
+            this.scenario = scenario;
+            this.component = component;
+        }
+
+        @Override
+        public void run() {
+            ServiceConnection conn = SvcReenterUnbind.c2();
+            String ret;
+            String retType;
+            String exc = null;
+            if (conn == null) {
+                ret = "null-connection";
+                retType = "null";
+            } else {
+                ret = "void";
+                retType = "void";
+                try {
+                    unbindService(conn);
+                } catch (Throwable t) {
+                    ret = "exception:" + t.getClass().getName();
+                    retType = "exception";
+                    exc = t.getClass().getName();
+                    log.noteException(scenario + " unbindService(c2): " + t);
+                }
+            }
+            log.clientEventEx(scenario, "unbindService", component, "none", "",
+                    "c2", null, -1, ret, retType, exc);
+        }
+    }
+
+    /** startService with cmd/oldId extras; logs the return and extras. */
+    private final class StartCallV4 implements Runnable {
+        private final String scenario;
+        private final String component;
+        private final String cmd;
+        private final int oldId;
+
+        StartCallV4(String scenario, String component, String cmd, int oldId) {
+            this.scenario = scenario;
+            this.component = component;
+            this.cmd = cmd;
+            this.oldId = oldId;
+        }
+
+        @Override
+        public void run() {
+            String ret;
+            String retType;
+            String exc = null;
+            try {
+                ComponentName cn = startService(startIntentV4(component, cmd, oldId));
+                ret = (cn == null) ? "null" : cn.flattenToShortString();
+                retType = (cn == null) ? "null" : "ComponentName";
+            } catch (Throwable t) {
+                ret = "exception:" + t.getClass().getName();
+                retType = "exception";
+                exc = t.getClass().getName();
+                log.noteException(scenario + " startService: " + t);
+            }
+            log.clientEventEx(scenario, "startService", component,
+                    (cmd == null) ? "none" : "cmd=" + cmd,
+                    (cmd == null) ? "" : cmd, null, null, -1, ret, retType, exc);
+        }
+    }
+
+    /** stopService(component) logging the returned boolean. */
+    private final class StopCallV4 implements Runnable {
+        private final String scenario;
+        private final String component;
+
+        StopCallV4(String scenario, String component) {
+            this.scenario = scenario;
+            this.component = component;
+        }
+
+        @Override
+        public void run() {
+            String ret;
+            String retType = "boolean";
+            String exc = null;
+            try {
+                ret = Boolean.toString(stopService(intentA(component, null, 0)));
+            } catch (Throwable t) {
+                ret = "exception:" + t.getClass().getName();
+                retType = "exception";
+                exc = t.getClass().getName();
+                log.noteException(scenario + " stopService: " + t);
+            }
+            log.clientEventEx(scenario, "stopService", component, "none", "",
+                    null, null, -1, ret, retType, exc);
+        }
+    }
+
+    /** Runs several API calls with NO barrier inside the burst. */
+    private final class BurstCall implements Runnable {
+        private final Runnable[] calls;
+
+        BurstCall(Runnable... calls) {
+            this.calls = calls;
+        }
+
+        @Override
+        public void run() {
+            for (int i = 0; i < calls.length; i++) {
+                try {
+                    calls[i].run();
+                } catch (Throwable t) {
+                    log.noteException("burst call " + i + ": " + t);
+                }
+            }
         }
     }
 }
