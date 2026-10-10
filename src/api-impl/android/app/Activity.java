@@ -592,6 +592,12 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	public void registerForContextMenu(View view) {}
 	public native boolean isInMultiWindowMode();
 
+	public boolean isInPictureInPictureMode() {
+		// ATL cannot enter picture-in-picture mode.
+		return false;
+	}
+
+
 	public void registerActivityLifecycleCallbacks(Application.ActivityLifecycleCallbacks callback) {}
 
 	public void setDisablePreviewScreenshots(boolean disable) {}
