@@ -515,7 +515,13 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 	int size26 = (int)(size * 64.f);
 	FT_Library library = size26 > 0 ? atl_ft_library_new() : NULL;
 	struct atl_face_cache face_cache = { .library = library };
-	bool measured = false;
+	/* The Pango fallback below is only for paints whose font file cannot be resolved. A layout
+	 * with no runs (empty text) has nothing to resolve per run, so it must still be "measured"
+	 * (as an empty box) exactly as the single-face path did before the per-run rework. */
+	int meas_index = 0;
+	char *meas_file = atl_paint_font_file(paint, &meas_index);
+	bool measured = meas_file != NULL;
+	g_free(meas_file);
 
 	if (library) {
 		FT_Int32 load_flags = atl_ft_load_flags(eff_hinting);
