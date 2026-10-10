@@ -208,10 +208,10 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1color_1filter
 /*
  * Class:     android_graphics_Paint
  * Method:    native_get_text_bounds
- * Signature: (JLjava/lang/String;Landroid/graphics/Rect;)V
+ * Signature: (JLjava/lang/String;Landroid/graphics/Rect;III)V
  */
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds
-  (JNIEnv *, jclass, jlong, jstring, jobject);
+  (JNIEnv *, jclass, jlong, jstring, jobject, jint, jint, jint);
 
 /*
  * Class:     android_graphics_Paint

@@ -98,10 +98,12 @@ public class Paint {
 	public void getTextBounds(String text, int start, int end, Rect bounds) {
 		if (end > text.length())
 			end = text.length();
-		native_get_text_bounds(paint, text.substring(start, end), bounds);
+		native_get_text_bounds(paint, text.substring(start, end), bounds, flags, hinting,
+				(typeface == null ? Typeface.DEFAULT : typeface).getWeight());
 	}
 	public void getTextBounds(char[] text, int index, int count, Rect bounds) {
-		native_get_text_bounds(paint, new String(text, index, count), bounds);
+		native_get_text_bounds(paint, new String(text, index, count), bounds, flags, hinting,
+				(typeface == null ? Typeface.DEFAULT : typeface).getWeight());
 	}
 	public int getTextWidths(String text, float[] widths) {
 		return getTextWidths(text, 0, text.length(), widths);
@@ -304,7 +306,13 @@ public class Paint {
 
 	public /*native*/ void setUnderlineText(boolean underlineText) {}
 	public /*native*/ void setStrikeThruText(boolean strikeThruText) {}
-	public /*native*/ void setFakeBoldText(boolean fakeBoldText) {}
+	public void setFakeBoldText(boolean fakeBoldText) {
+		// Android's FAKE_BOLD_TEXT_FLAG is what hwui turns into SkFont::setEmbolden().
+		if (fakeBoldText)
+			flags |= FAKE_BOLD_TEXT_FLAG;
+		else
+			flags &= ~FAKE_BOLD_TEXT_FLAG;
+	}
 
 	public float getStrokeWidth() {
 		return native_get_stroke_width(paint);
@@ -482,7 +490,7 @@ public class Paint {
 	public MaskFilter setMaskFilter(MaskFilter filter) { return filter; }
 
 	public boolean isFakeBoldText() {
-		return false;
+		return (flags & FAKE_BOLD_TEXT_FLAG) != 0;
 	}
 
 	public void setFontFeatureSettings(String settings) {}
@@ -524,7 +532,7 @@ public class Paint {
 	private static native void native_set_text_size(long paint, float size);
 	private static native float native_get_text_size(long paint);
 	private static native void native_set_color_filter(long paint, int mode, int color);
-	private static native void native_get_text_bounds(long paint, String text, Rect bounds);
+	private static native void native_get_text_bounds(long paint, String text, Rect bounds, int flags, int hinting, int typefaceWeight);
 	private static native void native_set_text_align(long paint, int align);
 	private static native float native_get_font_metrics(long paint, FontMetrics metrics);
 	private static native int native_get_font_metrics_int(long paint, FontMetricsInt metrics);

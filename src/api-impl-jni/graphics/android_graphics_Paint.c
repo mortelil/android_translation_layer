@@ -15,6 +15,7 @@
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
 #include FT_MODULE_H
+#include FT_TRUETYPE_TABLES_H
 #include <math.h>
 #include <stdint.h>
 
@@ -22,6 +23,8 @@
 
 /* android.graphics.Paint.LINEAR_TEXT_FLAG */
 #define ATL_LINEAR_TEXT_FLAG (1 << 6)
+/* android.graphics.Paint.FAKE_BOLD_TEXT_FLAG */
+#define ATL_FAKE_BOLD_TEXT_FLAG (1 << 5)
 
 JNIEXPORT jlong JNICALL Java_android_graphics_Paint_native_1create(JNIEnv *env, jclass clazz)
 {
@@ -249,16 +252,75 @@ static int atl_utf16_units(const char *s, int byte_len)
 	return units;
 }
 
+/* FT_LOAD_* flags SkScalerContext_FreeType passes for a given SkFontHinting: Paint.setHinting
+ * maps HINTING_OFF to kNone and every other value to kNormal (PaintGlue::setHinting), so kNone
+ * is the only mode that turns hinting off (and switches Skia to linear metrics). Android's
+ * framework build additionally always ORs in the flags below. Shared by the advance and the
+ * ink-box paths so both measure one hinting mode. */
+static FT_Int32 atl_ft_load_flags(int hinting)
+{
+	FT_Int32 flags = FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH | FT_LOAD_BITMAP_METRICS_ONLY;
+	return flags | (hinting == 0 ? FT_LOAD_NO_HINTING : FT_LOAD_TARGET_NORMAL);
+}
+
+/* The HarfBuzz advance of glyph GLYPH_INDEX of GLYPHS in 1/256 px, including the pair kern
+ * adjustment HarfBuzz adds to the *first* glyph of a pair. GLYPH_LOADED tells whether that glyph
+ * is currently in FACE's slot; see the comment on get_text_widths below for the derivation. */
+static int64_t atl_hb_glyph_advance(FT_Face face, PangoGlyphString *glyphs, int glyph_index, bool glyph_loaded, bool linear, double kern_scale)
+{
+	int64_t hb_advance = 0;
+	if (glyph_loaded) {
+		float advance;
+		if (linear)
+			advance = (float)(face->glyph->linearHoriAdvance * (1.0f / 65536.0f));
+		else
+			advance = (float)face->glyph->advance.x / 64.0f;
+		hb_advance = (int64_t)scalbnf(advance, 8); /* HBFloatToFixed */
+	}
+	if (glyph_index + 1 < glyphs->num_glyphs && face->units_per_EM > 0) {
+		FT_Vector kern;
+		if (!FT_Get_Kerning(face, glyphs->glyphs[glyph_index].glyph, glyphs->glyphs[glyph_index + 1].glyph, FT_KERNING_UNSCALED, &kern))
+			hb_advance += llround((double)kern.x * kern_scale / (double)face->units_per_EM);
+	}
+	return hb_advance;
+}
+
+/* The weight the resolved font file really has: minikin's analyzeStyle reads the OS/2 table's
+ * usWeightClass (the fallback mirrors FreeType's style flags when the table is missing). */
+static int atl_ft_face_weight(FT_Face face)
+{
+	TT_OS2 *os2 = FT_Get_Sfnt_Table(face, ft_sfnt_os2);
+	if (os2 && os2->usWeightClass)
+		return os2->usWeightClass;
+	return (face->style_flags & FT_STYLE_FLAG_BOLD) ? 700 : 400;
+}
+
 /* Android's getTextBounds returns the integer ink box of the laid out text: Skia unions, for
- * every laid out glyph, the glyph's hinted outline control box (SkGlyph::rect() == roundOut of
- * FT_Outline_Get_CBox in pixels; zero-area glyphs are dropped) placed at the pen position that
- * the HarfBuzz advances Minikin uses produce. The emulator's FreeType runs the classic TrueType
- * interpreter (interpreter-version 35) while the system FreeType defaults to 40, which changes
- * both the hinted advances and the ink boxes, so the measurement is done on a private interp-35
- * FreeType library/face rather than on the one Pango uses (setting the property on the shared
- * library would change the rendering of all other text and is not reachable there anyway).
- * Text alignment never participates in the result. */
-JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNIEnv *env, jclass clazz, jlong paint_ptr, jstring text_ptr, jobject bounds)
+ * every laid out glyph, the glyph's outlined control box placed at the pen position, and
+ * MinikinUtils/getTextBounds rounds that union out to integers once at the end. Concretely
+ * (skia 508606366, minikin 915f1232, hwui 94b4c163):
+ *   - SkScalerContext_FreeType::generateMetrics: FT_Load_Glyph with fLoadGlyphFlags, then
+ *     emboldenIfNeeded, then FT_Outline_Get_CBox; SkGlyph::rect() = r.roundOut(&r) of that box in
+ *     pixels (SkScalerContext::SaturateGlyphBounds), stored as int16 fields.
+ *   - MinikinFontSkia::GetBounds returns that integer rect; LayoutPiece::calculateBounds joins the
+ *     rects at the fractional HarfBuzz pen positions, and hwui's doTextBounds floors the joined
+ *     MinikinRect's min and ceils its max.
+ *   - the char size, the load flags and the pen advances are the ones get_text_widths derives
+ *     (minikin truncates the size unless LINEAR_TEXT_FLAG is set, positions are 1/256 px, and
+ *     hinting kNone additionally switches to the unhinted advances).
+ *   - fake bold reaches Skia as SkScalerContext::kEmbolden_Flag, from Paint's
+ *     FAKE_BOLD_TEXT_FLAG or from minikin FontFamily::computeFakery (requested typeface weight
+ *     minus the weight of the font file that was resolved: at least 200, and requested >= 600);
+ *     emboldenIfNeeded then calls FT_Outline_Embolden with FT_MulFix(upem, y_scale) divided by
+ *     SK_OUTLINE_EMBOLDEN_DIVISOR, which is 34 in Android's framework build.
+ *   - the SUBPIXEL_TEXT_FLAG does not shift glyph bounds (the glyph ids minikin hands to
+ *     SkFont::getBounds carry no subpixel component).
+ * The emulator's FreeType runs the classic TrueType interpreter (interpreter-version 35) while
+ * the system FreeType defaults to 40, which changes both the hinted advances and the ink boxes,
+ * so the measurement is done on a private interp-35 FreeType library/face rather than on the one
+ * Pango uses (setting the property on the shared library would change the rendering of all other
+ * text and is not reachable there anyway). Text alignment never participates in the result. */
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNIEnv *env, jclass clazz, jlong paint_ptr, jstring text_ptr, jobject bounds, jint flags, jint hinting, jint typeface_weight)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	PangoLayout *layout = atl_paint_layout(paint, gtk_widget_get_pango_context(window));
@@ -269,18 +331,27 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 
 	int left = 0, top = 0, right = 0, bottom = 0;
 	float text_size = (float)pango_font_description_get_size(paint->font) / PANGO_SCALE;
+	/* MinikinUtils::prepareMinikinPaint: size = isLinearMetrics() ? getSize() : (int)getSize()
+	 * (the flag, not the hinting-derived linearity), and SkScalerContext's FT_Set_Char_Size
+	 * truncates SkScalarToFDot6(size) = (int)(size * 64). */
+	bool flag_linear = (flags & ATL_LINEAR_TEXT_FLAG) != 0;
+	bool linear = flag_linear || hinting == 0;
+	float size = flag_linear ? text_size : (float)(int)text_size;
+	int size26 = (int)(size * 64.f);
 	FT_Library library = NULL;
-	FT_Face face = atl_paint_ft_face(paint, text_size, &library);
+	FT_Face face = size26 > 0 ? atl_paint_ft_face(paint, text_size, &library) : NULL;
 
 	if (face) {
-		/* SkScalerContext_FreeType sizes with SkScalarToFDot6(size) == round(size * 64) and
-		 * loads with the flags of the current SkFontHinting (kNormal -> FT_LOAD_TARGET_NORMAL);
-		 * Android's framework build always adds FT_LOAD_NO_AUTOHINT. */
-		int size26 = (int)roundf(text_size * 64.f);
 		FT_Set_Char_Size(face, size26, size26, 72, 72);
+		FT_Int32 load_flags = atl_ft_load_flags(hinting);
 		/* Minikin shapes with HarfBuzz and positions are 1/256 px, so the pair kerning is
 		 * scaled by 256 * x_ppem (the font's integer pixel size), not by the fractional size. */
 		double kern_scale = 256.0 * face->size->metrics.x_ppem;
+		/* Paint.isFakeBoldText(), or FontFamily::computeFakery(wanted, actual). */
+		bool embolden = (flags & ATL_FAKE_BOLD_TEXT_FLAG) != 0;
+		if (!embolden && typeface_weight >= 600)
+			embolden = (typeface_weight - atl_ft_face_weight(face)) >= 200;
+		FT_Pos embolden_strength = embolden ? FT_MulFix(face->units_per_EM, face->size->metrics.y_scale) / 34 : 0;
 		double pen = 0; /* pen position in 1/256 px */
 		double min_left = 0, min_top = 0, max_right = 0, max_bottom = 0;
 		bool have_ink = false;
@@ -289,11 +360,13 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
 			for (int i = 0; i < glyphs->num_glyphs; i++) {
 				FT_UInt glyph = glyphs->glyphs[i].glyph;
-				double advance = 0;
-				if (!FT_Load_Glyph(face, glyph, FT_LOAD_TARGET_NORMAL | FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH | FT_LOAD_BITMAP_METRICS_ONLY)) {
+				bool loaded = !FT_Load_Glyph(face, glyph, load_flags);
+				if (loaded) {
+					if (embolden && face->glyph->format == FT_GLYPH_FORMAT_OUTLINE)
+						FT_Outline_Embolden(&face->glyph->outline, embolden_strength);
 					FT_BBox cbox;
 					FT_Outline_Get_CBox(&face->glyph->outline, &cbox);
-					advance = face->glyph->advance.x * 4.0; /* 26.6 px -> 1/256 px */
+					/* roundOut() of the box in pixels, y down. */
 					int glyph_left = (int)floor(cbox.xMin / 64.0);
 					int glyph_top = (int)floor(-cbox.yMax / 64.0);
 					int glyph_right = (int)ceil(cbox.xMax / 64.0);
@@ -311,13 +384,7 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 						have_ink = true;
 					}
 				}
-				if (i + 1 < glyphs->num_glyphs && face->units_per_EM > 0) {
-					/* HarfBuzz adds the pair adjustment to the first glyph's advance. */
-					FT_Vector kern;
-					if (!FT_Get_Kerning(face, glyph, glyphs->glyphs[i + 1].glyph, FT_KERNING_UNSCALED, &kern))
-						advance += llround((double)kern.x * kern_scale / (double)face->units_per_EM);
-				}
-				pen += advance;
+				pen += atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale);
 			}
 		}
 		if (have_ink) {
@@ -393,26 +460,14 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 		/* Minikin shapes with HarfBuzz and positions are 1/256 px; the pair kerning is scaled
 		 * by 256 * x_ppem (the font's integer pixel size), matching get_text_bounds. */
 		double kern_scale = 256.0 * face->size->metrics.x_ppem;
+		FT_Int32 load_flags = atl_ft_load_flags(hinting);
 		PangoLayoutLine *line = pango_layout_get_line_readonly(layout, 0);
 		for (GSList *run = line ? line->runs : NULL; run; run = run->next) {
 			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
 			for (int i = 0; i < glyphs->num_glyphs; i++) {
 				FT_UInt glyph = glyphs->glyphs[i].glyph;
-				int64_t hb_advance = 0;
-				if (!FT_Load_Glyph(face, glyph, FT_LOAD_TARGET_NORMAL | FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH | FT_LOAD_BITMAP_METRICS_ONLY)) {
-					float advance;
-					if (linear)
-						advance = (float)(face->glyph->linearHoriAdvance * (1.0f / 65536.0f));
-					else
-						advance = (float)face->glyph->advance.x / 64.0f;
-					hb_advance = (int64_t)scalbnf(advance, 8); /* HBFloatToFixed */
-				}
-				if (i + 1 < glyphs->num_glyphs && face->units_per_EM > 0) {
-					/* HarfBuzz adds the pair adjustment to the first glyph's advance. */
-					FT_Vector kern;
-					if (!FT_Get_Kerning(face, glyph, glyphs->glyphs[i + 1].glyph, FT_KERNING_UNSCALED, &kern))
-						hb_advance += llround((double)kern.x * kern_scale / (double)face->units_per_EM);
-				}
+				bool loaded = !FT_Load_Glyph(face, glyph, load_flags);
+				int64_t hb_advance = atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale);
 				if (out) {
 					int unit = atl_utf16_units(str, glyphs->log_clusters[i]);
 					if (unit >= 0 && unit < width_count)
