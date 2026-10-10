@@ -24,15 +24,19 @@ echo "== regenerating fixtures =="
 echo
 
 # Parse cases.json without requiring jq.
-while IFS=$'\t' read -r name ref cand man want_exit want_code want_expect want_env; do
+while IFS=$'\t' read -r name ref cand man baseline want_exit want_code want_expect want_env; do
     [ -z "$name" ] && continue
     total=$((total + 1))
-    if [ -n "$want_env" ]; then
+    if [ -n "$want_env" ] && [ "$want_env" != "-" ]; then
         export "$want_env"
     else
         unset VERIFY_SELFTEST_CRASH 2>/dev/null || true
     fi
-    out="$("$PY" "$VERIFY" "$ref" "$cand" "$man" 2>&1)"
+    args=("$PY" "$VERIFY" "$ref" "$cand" "$man")
+    if [ -n "$baseline" ] && [ "$baseline" != "-" ]; then
+        args+=("$baseline")
+    fi
+    out="$("${args[@]}" 2>&1)"
     rc=$?
 
     status="PASS"
@@ -90,8 +94,9 @@ import json, sys
 cases = json.load(open(sys.argv[1]))
 for c in cases:
     print("\t".join([c["name"], c["reference"], c["candidate"], c["manifest"],
+                     c.get("baseline") or "-",
                      str(c["exit"]), c["code"] or "-", c.get("expect", "reject"),
-                     c.get("env", "")]))
+                     c.get("env") or "-"]))
 EOF
 )
 
