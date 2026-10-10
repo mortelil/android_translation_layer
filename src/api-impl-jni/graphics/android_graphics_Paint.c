@@ -271,30 +271,71 @@ static int atl_ft_face_apply_variations(FT_Library library, FT_Face face, const 
 	return matched;
 }
 
-/* Opens a private FreeType library/face for the font file Pango resolves for this paint, with
- * the classic TrueType interpreter (version 35) Android's emulator runs, so the hinted advances
- * and ink boxes match. The face is not given a size here; callers set it (Skia sizes with
- * FT_Set_Char_Size(round(size*64), 72, 72)). Returns NULL and *library_out=NULL on failure. */
-static FT_Face atl_paint_ft_face(struct AndroidPaint *paint, float text_size, FT_Library *library_out)
+/* Creates a private FreeType library with the classic TrueType interpreter (version 35) Android's
+ * emulator runs, so the hinted advances and ink boxes match. Returns NULL on failure. */
+static FT_Library atl_ft_library_new(void)
 {
-	int font_index = 0;
-	char *font_path = atl_paint_font_file(paint, &font_index);
 	FT_Library library = NULL;
-	FT_Face face = NULL;
-	if (font_path && text_size > 0 && !FT_Init_FreeType(&library)) {
-		FT_UInt interpreter_version = 35; /* classic TrueType interpreter, as on Android */
-		FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
-		if (FT_New_Face(library, font_path, font_index, &face)) {
-			FT_Done_FreeType(library);
-			library = NULL;
+	if (FT_Init_FreeType(&library)) return NULL;
+	FT_UInt interpreter_version = 35; /* classic TrueType interpreter, as on Android */
+	FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
+	return library;
+}
+
+/* The font file (and collection face index) the Pango font of one layout run resolved to, i.e. the
+ * file Android's minikin FontCollection would have picked for that run. Returns NULL when the run
+ * font is not fontconfig backed; the caller frees the returned path. */
+static char *atl_run_font_file(PangoFont *font, int *index_out)
+{
+	if (!font || !PANGO_IS_FC_FONT(font)) return NULL;
+	FcPattern *pattern = pango_fc_font_get_pattern(PANGO_FC_FONT(font));
+	FcChar8 *file = NULL;
+	if (!pattern || FcPatternGetString(pattern, FC_FILE, 0, &file) != FcResultMatch || !file)
+		return NULL;
+	int index = 0;
+	FcPatternGetInteger(pattern, FC_INDEX, 0, &index);
+	if (index_out) *index_out = index;
+	return g_strdup((const char *)file);
+}
+
+/* Per-call FT face cache for the multi-run measurement path. Every layout run is measured with the
+ * face of the file that actually serves it (DejaVu for Latin, the CJK face for 世); the face is
+ * reused while consecutive runs resolve to the same file, like minikin's per-run ScalerContext. */
+struct atl_face_cache {
+	FT_Library library;
+	FT_Face face;
+	char *path;
+	int index;
+};
+
+/* Resolves the run's own font file and (re)opens its face in CACHE, sized for SIZE26. Falls back to
+ * the paint's fontconfig match when the run font carries no file (the single-font path). Returns
+ * NULL when no face could be opened for the run. */
+static FT_Face atl_run_face(struct atl_face_cache *cache, struct AndroidPaint *paint, PangoFont *font, int size26)
+{
+	int index = -1;
+	char *path = atl_run_font_file(font, &index);
+	if (!path) {
+		path = atl_paint_font_file(paint, &index);
+		if (!path) return NULL;
+	}
+	if (cache->face && cache->path && cache->index == index && strcmp(cache->path, path) == 0) {
+		g_free(path);
+	} else {
+		if (cache->face) { FT_Done_Face(cache->face); cache->face = NULL; }
+		g_free(cache->path);
+		cache->path = path;
+		cache->index = index;
+		if (FT_New_Face(cache->library, path, index, &cache->face)) {
+			cache->face = NULL;
 		} else {
 			/* Skia applies the variation coordinates to the face before sizing it. */
-			atl_ft_face_apply_variations(library, face, pango_font_description_get_variations(paint->font));
+			atl_ft_face_apply_variations(cache->library, cache->face, pango_font_description_get_variations(paint->font));
 		}
 	}
-	g_free(font_path);
-	*library_out = library;
-	return face;
+	if (!cache->face) return NULL;
+	FT_Set_Char_Size(cache->face, size26, size26, 72, 72);
+	return cache->face;
 }
 
 /* Number of UTF-16 code units in the first byte_len bytes of a (modified) UTF-8 string, i.e. the
@@ -472,26 +513,14 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 	bool linear = flag_linear || eff_hinting == 0;
 	float size = flag_linear ? text_size : (float)(int)text_size;
 	int size26 = (int)(size * 64.f);
-	FT_Library library = NULL;
-	FT_Face face = size26 > 0 ? atl_paint_ft_face(paint, text_size, &library) : NULL;
+	FT_Library library = size26 > 0 ? atl_ft_library_new() : NULL;
+	struct atl_face_cache face_cache = { .library = library };
+	bool measured = false;
 
-	if (face) {
-		FT_Set_Char_Size(face, size26, size26, 72, 72);
+	if (library) {
 		FT_Int32 load_flags = atl_ft_load_flags(eff_hinting);
-		/* Minikin shapes with HarfBuzz and positions are 1/256 px, so the pair kerning is
-		 * scaled by 256 * x_ppem (the font's integer pixel size), not by the fractional size. */
-		double kern_scale = 256.0 * face->size->metrics.x_ppem;
 		/* Paint.isFakeBoldText(), or FontFamily::computeFakery(wanted, actual). */
-		bool embolden = (flags & ATL_FAKE_BOLD_TEXT_FLAG) != 0;
-		if (!embolden && typeface_weight >= 600) {
-			/* The weight the resolved font instance really has: the requested 'wght' axis when the
-			 * description carries variations (minikin's analyzeStyle uses it for the typeface
-			 * style, so computeFakery sees it as the actual weight), else the OS/2 table. */
-			int actual_weight = atl_variation_axis_value(pango_font_description_get_variations(paint->font), "wght");
-			if (actual_weight < 0) actual_weight = atl_ft_face_weight(face);
-			embolden = (typeface_weight - actual_weight) >= 200;
-		}
-		FT_Pos embolden_strength = embolden ? FT_MulFix(face->units_per_EM, face->size->metrics.y_scale) / 34 : 0;
+		bool fake_bold = (flags & ATL_FAKE_BOLD_TEXT_FLAG) != 0;
 		/* minikin's letter spacing in pixels; ATL exposes no text scaleX (SkFont's default 1). */
 		double letter_space = (double)letter_spacing * (double)size;
 		double letter_space_half = letter_space * 0.5;
@@ -500,17 +529,38 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 		bool have_ink = false;
 		PangoLayoutLine *line = pango_layout_get_line_readonly(layout, 0);
 		for (GSList *run = line ? line->runs : NULL; run; run = run->next) {
+			/* Every run is measured with the face that actually serves it, so a fallback run (the
+			 * CJK face for 世, say) contributes its own advances and ink box. */
+			FT_Face face = atl_run_face(&face_cache, paint, ((PangoGlyphItem *)run->data)->item->analysis.font, size26);
+			if (!face) continue;
+			measured = true;
+			/* Minikin shapes with HarfBuzz and positions are 1/256 px, so the pair kerning is
+			 * scaled by 256 * x_ppem (the font's integer pixel size), not by the fractional size. */
+			double kern_scale = 256.0 * face->size->metrics.x_ppem;
+			bool embolden = fake_bold;
+			if (!embolden && typeface_weight >= 600) {
+				/* The weight the resolved font instance really has: the requested 'wght' axis when the
+				 * description carries variations (minikin's analyzeStyle uses it for the typeface
+				 * style, so computeFakery sees it as the actual weight), else the OS/2 table. */
+				int actual_weight = atl_variation_axis_value(pango_font_description_get_variations(paint->font), "wght");
+				if (actual_weight < 0) actual_weight = atl_ft_face_weight(face);
+				embolden = (typeface_weight - actual_weight) >= 200;
+			}
+			FT_Pos embolden_strength = embolden ? FT_MulFix(face->units_per_EM, face->size->metrics.y_scale) / 34 : 0;
 			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
+			/* PangoGlyphString cluster offsets are relative to the run, so the run's item offset
+			 * gives the absolute byte position in the layout text. */
+			int run_offset = ((PangoGlyphItem *)run->data)->item->offset;
 			/* Letter spacing is applied per script run and only to letter spacing capable scripts
 			 * (a Pango run is one script, so its first code point selects it). */
 			double run_ls = 0, run_ls_half = 0;
 			if (letter_space != 0.0 && glyphs->num_glyphs > 0 &&
-			    atl_letter_spacing_capable_code_point(atl_utf8_code_point(str, glyphs->log_clusters[0]))) {
+			    atl_letter_spacing_capable_code_point(atl_utf8_code_point(str, run_offset + glyphs->log_clusters[0]))) {
 				run_ls = letter_space;
 				run_ls_half = letter_space_half;
 			}
 			for (int i = 0; i < glyphs->num_glyphs; i++) {
-				uint32_t cp = atl_utf8_code_point(str, glyphs->log_clusters[i]);
+				uint32_t cp = atl_utf8_code_point(str, run_offset + glyphs->log_clusters[i]);
 				bool ctrl = atl_is_control_code_point(cp);
 				/* LayoutCore's shaping loop moves the pen by half a letter space before the first
 				 * code unit and by a full one (half when exactly one of the two code points is a
@@ -520,7 +570,7 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 				if (run_ls != 0.0 && i == 0 && !ctrl) {
 					pen += run_ls_half;
 				} else if (run_ls != 0.0 && i > 0 && glyphs->log_clusters[i] != glyphs->log_clusters[i - 1]) {
-					bool prev_ctrl = atl_is_control_code_point(atl_utf8_code_point(str, glyphs->log_clusters[i - 1]));
+					bool prev_ctrl = atl_is_control_code_point(atl_utf8_code_point(str, run_offset + glyphs->log_clusters[i - 1]));
 					if (!ctrl && !prev_ctrl)
 						pen += run_ls;
 					else if (!ctrl || !prev_ctrl)
@@ -575,9 +625,11 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 			right = (int)ceil(max_right);
 			bottom = (int)ceil(max_bottom);
 		}
-		FT_Done_Face(face);
+		if (face_cache.face) FT_Done_Face(face_cache.face);
+		g_free(face_cache.path);
 		FT_Done_FreeType(library);
-	} else {
+	}
+	if (!measured) {
 		/* No resolvable font file: keep the previous Pango-based approximation. */
 		PangoRectangle rect;
 		pango_layout_get_pixel_extents(layout, NULL, &rect);
@@ -653,31 +705,36 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 	double *acc = spacing_on ? g_new0(double, unit_total) : NULL;
 	uint32_t *unit_cp = spacing_on ? g_new0(uint32_t, unit_total) : NULL;
 
-	FT_Library library = NULL;
-	FT_Face face = atl_paint_ft_face(paint, size, &library);
+	int size26 = (int)(size * 64.f);
+	FT_Library library = size26 > 0 ? atl_ft_library_new() : NULL;
+	struct atl_face_cache face_cache = { .library = library };
 	double total = 0;
-	if (face) {
-		/* FT_Set_Char_Size(SkScalarToFDot6(size)) truncates, unlike roundf(). */
-		int size26 = (int)(size * 64.f);
-		FT_Set_Char_Size(face, size26, size26, 72, 72);
-		/* Minikin shapes with HarfBuzz and positions are 1/256 px; the pair kerning is scaled
-		 * by 256 * x_ppem (the font's integer pixel size), matching get_text_bounds. */
-		double kern_scale = 256.0 * face->size->metrics.x_ppem;
+	if (library) {
 		FT_Int32 load_flags = atl_ft_load_flags(eff_hinting);
 		PangoLayoutLine *line = pango_layout_get_line_readonly(layout, 0);
 		for (GSList *run = line ? line->runs : NULL; run; run = run->next) {
+			/* Each run is measured with the face that actually serves it (DejaVu for A/B, the CJK
+			 * face for 世), so the advances come from the font that run resolved to. */
+			FT_Face face = atl_run_face(&face_cache, paint, ((PangoGlyphItem *)run->data)->item->analysis.font, size26);
+			if (!face) continue;
+			/* Minikin shapes with HarfBuzz and positions are 1/256 px; the pair kerning is scaled
+			 * by 256 * x_ppem (the font's integer pixel size), matching get_text_bounds. */
+			double kern_scale = 256.0 * face->size->metrics.x_ppem;
 			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
+			/* PangoGlyphString cluster offsets are relative to the run, so the run's item offset
+			 * gives the absolute byte position in the layout text (and thus the code unit). */
+			int run_offset = ((PangoGlyphItem *)run->data)->item->offset;
 			/* The shaping loop decides letter spacing per script run; a Pango run is one script,
 			 * so its first code point selects it. */
 			double run_ls = 0, run_ls_half = 0;
 			if (spacing_on && glyphs->num_glyphs > 0 &&
-			    atl_letter_spacing_capable_code_point(atl_utf8_code_point(str, glyphs->log_clusters[0]))) {
+			    atl_letter_spacing_capable_code_point(atl_utf8_code_point(str, run_offset + glyphs->log_clusters[0]))) {
 				run_ls = letter_space;
 				run_ls_half = letter_space * 0.5;
 			}
 			for (int i = 0; i < glyphs->num_glyphs; i++) {
-				int unit = atl_utf16_units(str, glyphs->log_clusters[i]);
-				uint32_t cp = atl_utf8_code_point(str, glyphs->log_clusters[i]);
+				int unit = atl_utf16_units(str, run_offset + glyphs->log_clusters[i]);
+				uint32_t cp = atl_utf8_code_point(str, run_offset + glyphs->log_clusters[i]);
 				bool ctrl = atl_is_control_code_point(cp);
 				if (unit_cp && unit >= 0 && unit < unit_total)
 					unit_cp[unit] = cp;
@@ -689,7 +746,7 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 					/* half on both sides of a distinct cluster boundary; the pen (and thus the ink
 					 * box) gets a full letter space when neither code point is a control, half when
 					 * exactly one is, which get_text_bounds reproduces */
-					int prev_unit = atl_utf16_units(str, glyphs->log_clusters[i - 1]);
+					int prev_unit = atl_utf16_units(str, run_offset + glyphs->log_clusters[i - 1]);
 					if (unit >= 0 && unit < unit_total)
 						acc[unit] += run_ls_half;
 					if (prev_unit >= 0 && prev_unit < unit_total)
@@ -711,14 +768,15 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 			if (run_ls != 0.0 && glyphs->num_glyphs > 0) {
 				/* half a letter space on the last code unit (its pen twin follows the ink) */
 				int last = glyphs->num_glyphs - 1;
-				if (!atl_is_control_code_point(atl_utf8_code_point(str, glyphs->log_clusters[last]))) {
-					int unit = atl_utf16_units(str, glyphs->log_clusters[last]);
+				if (!atl_is_control_code_point(atl_utf8_code_point(str, run_offset + glyphs->log_clusters[last]))) {
+					int unit = atl_utf16_units(str, run_offset + glyphs->log_clusters[last]);
 					if (unit >= 0 && unit < unit_total)
 						acc[unit] += run_ls_half;
 				}
 			}
 		}
-		FT_Done_Face(face);
+		if (face_cache.face) FT_Done_Face(face_cache.face);
+		g_free(face_cache.path);
 		FT_Done_FreeType(library);
 	}
 	if (acc) {

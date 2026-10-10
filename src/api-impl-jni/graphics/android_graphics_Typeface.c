@@ -70,6 +70,80 @@ done:
 	return _INTPTR(font);
 }
 
+/* Adds PATH (collection face INDEX) to CONFIG's application font set and renames only the patterns
+ * this call appended, so several chain files can share the same collection index without clobbering
+ * each other. Gives each chain file a private family so that no system font can win the match and
+ * silently serve a run (the controlled chain is the whole collection). */
+static bool atl_config_add_private_font(FcConfig *config, const char *path, int index, const char *family)
+{
+	FcFontSet *set = FcConfigGetFonts(config, FcSetApplication);
+	int before = set ? set->nfont : 0;
+	if (!FcConfigAppFontAddFile(config, (const FcChar8 *)path)) return false;
+	set = FcConfigGetFonts(config, FcSetApplication);
+	if (!set) return false;
+	bool renamed = false;
+	for (int i = before; i < set->nfont; ++i) {
+		int face = 0;
+		FcPatternGetInteger(set->fonts[i], FC_INDEX, 0, &face);
+		if (face != index) continue;
+		FcPatternDel(set->fonts[i], FC_FAMILY);
+		if (!FcPatternAddString(set->fonts[i], FC_FAMILY, (const FcChar8 *)family)) return false;
+		renamed = true;
+	}
+	return renamed;
+}
+
+/* Builds the Typeface of Typeface.CustomFallbackBuilder: a private font collection holding only the
+ * declared chain files, in order, under the families "ATL private file font <i>", with the first
+ * file's description as the default instance. Pango itemization then resolves each text run to the
+ * real FC_FILE/FC_INDEX of the chain file that serves it (Android minikin FontCollection semantics). */
+JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCreateFromFamilies(JNIEnv *env, jclass cls, jobjectArray paths, jintArray indices, jobjectArray variations, jstring fallback, jint weight, jboolean italic)
+{
+	jsize count = paths ? (*env)->GetArrayLength(env, paths) : 0;
+	if (count <= 0) return 0;
+	jint *face_indices = indices ? (*env)->GetIntArrayElements(env, indices, NULL) : NULL;
+	FcConfig *config = FcConfigCreate();
+	struct AndroidTypeface *font = NULL;
+	if (!config) goto done;
+	for (jsize i = 0; i < count; i++) {
+		jstring jpath = (*env)->GetObjectArrayElement(env, paths, i);
+		if (!jpath) continue;
+		const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
+		if (path) {
+			char family[64];
+			g_snprintf(family, sizeof(family), "ATL private file font %d", (int)i);
+			/* A chain entry that fails to register is simply absent; the remaining fonts still
+			 * form the chain rather than failing the whole build. */
+			atl_config_add_private_font(config, path, face_indices ? face_indices[i] : 0, family);
+			(*env)->ReleaseStringUTFChars(env, jpath, path);
+		}
+		(*env)->DeleteLocalRef(env, jpath);
+	}
+	font = g_new0(struct AndroidTypeface, 1);
+	font->map = pango_cairo_font_map_new_for_font_type(CAIRO_FONT_TYPE_FT);
+	if (!font->map) { g_free(font); font = NULL; goto done; }
+	pango_fc_font_map_set_config(PANGO_FC_FONT_MAP(font->map), config);
+	font->description = pango_font_description_new();
+	pango_font_description_set_family(font->description, "ATL private file font 0");
+	pango_font_description_set_weight(font->description, weight > 0 ? weight : 400);
+	pango_font_description_set_style(font->description, italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
+	/* The requested style, like each Font's axes, describes the chain's fonts, not a system
+	 * fallback (the fallback name is not resolved by ATL's controlled chain). */
+	if (variations && count > 0) {
+		jstring jvariations = (*env)->GetObjectArrayElement(env, variations, 0);
+		if (jvariations) {
+			const char *settings = (*env)->GetStringUTFChars(env, jvariations, NULL);
+			if (settings && *settings) pango_font_description_set_variations(font->description, settings);
+			if (settings) (*env)->ReleaseStringUTFChars(env, jvariations, settings);
+			(*env)->DeleteLocalRef(env, jvariations);
+		}
+	}
+done:
+	if (face_indices) (*env)->ReleaseIntArrayElements(env, indices, face_indices, JNI_ABORT);
+	if (config) FcConfigDestroy(config);
+	return font ? _INTPTR(font) : 0;
+}
+
 JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCopy(JNIEnv *env, jclass cls, jlong handle, jint weight, jint italic, jstring variations)
 {
 	struct AndroidTypeface *source = _PTR(handle);

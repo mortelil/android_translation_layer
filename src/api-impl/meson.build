@@ -312,6 +312,8 @@ srcs = [
 	'android/graphics/drawable/shapes/RectShape.java',
 	'android/graphics/drawable/shapes/RoundRectShape.java',
 	'android/graphics/drawable/shapes/Shape.java',
+	'android/graphics/fonts/Font.java',
+	'android/graphics/fonts/FontFamily.java',
 	'android/graphics/fonts/FontStyle.java',
 	'android/graphics/fonts/FontVariationAxis.java',
 	'android/hardware/Camera.java',
