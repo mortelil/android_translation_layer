@@ -1,0 +1,222 @@
+{
+  "manifest_version": 1,
+  "description": "Contract-derived expected structure for the frozen lifecycle-probe-v1 APK. The multiplicity/order rules come from the pinned AOSP Application.ActivityLifecycleCallbacks dispatch contract; the scenario script (activity instance tags, call sequence) comes from the frozen probe design (ProbeApp.java), which is identical on both sides. No expected value here was copied from observed ATL output.",
+  "contract": {
+    "aosp_ref": "refs/tags/android-17.0.0_r1",
+    "aosp_commit": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+    "rules": [
+      "Application.mActivityLifecycleCallbacks is an ArrayList; dispatch iterates it FORWARD (registration order) for all seven callbacks (contract.md section 1).",
+      "Duplicate registration is additive: the same instance registered N times is invoked N times, in its list positions (contract.md section 1).",
+      "Unregister removes exactly one occurrence, the first == match (contract.md section 1).",
+      "The callback for a lifecycle method is delivered inside the app's super.<method>() call, i.e. between the probe's .pre line and .post line (contract.md section 4).",
+      "On a fresh launch onActivityCreated receives a null savedInstanceState Bundle; all other basic callbacks receive no Bundle (contract.md section 7).",
+      "All seven callbacks run on the ActivityThread main thread (contract.md section 3).",
+      "Activity identity is the exact instance; the probe tags instances ActA#N / ActB#N (contract.md section 3, probe design)."
+    ]
+  },
+  "identity": {
+    "task_id": "ACTIVITY-LIFECYCLE",
+    "probe": "lifecycle-probe-v1",
+    "package": "org.atl.tests.lifecycle"
+  },
+  "completion_marker": "LIFE_ALL_DONE",
+  "required_event_fields": ["k", "seq", "scenario", "actor", "event", "activity", "bundle", "phase", "owner", "thread", "threadRole", "main"],
+  "event_field_types": {
+    "seq": "int",
+    "main": "bool"
+  },
+  "numerics_must_be_finite": ["seq"],
+  "owner": "ProbeApp",
+  "main_thread_role": "main",
+  "callback_map": {
+    "onCreate": "onActivityCreated",
+    "onStart": "onActivityStarted",
+    "onResume": "onActivityResumed",
+    "onPause": "onActivityPaused",
+    "onStop": "onActivityStopped",
+    "onSaveInstanceState": "onActivitySaveInstanceState",
+    "onDestroy": "onActivityDestroyed"
+  },
+  "bundle_map": {
+    "onCreate": "null",
+    "onSaveInstanceState": "non-null"
+  },
+  "default_bundle": "-",
+  "activity_tags": {
+    "ActA#1": "ActA",
+    "ActB#1": "ActB",
+    "ActB#2": "ActB",
+    "ActB#3": "ActB",
+    "ActB#4": "ActB",
+    "ActB#5": "ActB",
+    "ActB#6": "ActB",
+    "ActB#7": "ActB"
+  },
+  "observers": ["AppObs-A", "AppObs-B", "AppObs-C"],
+  "preamble": {
+    "id": "INIT",
+    "begin": 0,
+    "end": 0,
+    "observers": [],
+    "events": [
+      {"kind": "app", "actor": "ProbeApp", "event": "appOnCreate"},
+      {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+      {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"}
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "S1",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-B"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"}
+      ]
+    },
+    {
+      "id": "S2",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-B"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.1",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-B"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.2",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.3",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-C", "AppObs-C"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.4",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-C"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.5",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S3D1",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S3D2",
+      "mandatory": true,
+      "begin": 1,
+      "end": 0,
+      "externally_driven": true,
+      "observers": ["AppObs-A"],
+      "events": [],
+      "note": "Evidence that the scenario ran is its LIFE_SCEN_BEGIN plus LIFE_ALL_DONE; the activities appended on an external normal close are optional and are validated only for well-formedness/identity, not against a fixed count."
+    }
+  ]
+}

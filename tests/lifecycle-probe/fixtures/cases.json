@@ -1,0 +1,372 @@
+[
+  {
+    "name": "valid-matching",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 0,
+    "code": null,
+    "expect": "accept",
+    "env": ""
+  },
+  {
+    "name": "regression-both-empty",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/empty.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/empty.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-empty",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/empty.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-empty",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/empty.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-missing-file",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/does-not-exist.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MISSING_EVIDENCE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-malformed-line",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/malformed-line.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MALFORMED_LINE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-truncated",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/truncated.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "TRUNCATED",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-missing-scenario",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/missing-scenario.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MISSING_SCENARIO",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-scenario-order",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/scenario-order.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "SCENARIO_ORDER",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-scenario-identity",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/scenario-identity.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "SCENARIO_IDENTITY",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-no-completion",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/no-completion.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "NO_COMPLETION",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-interrupted",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/interrupted.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "INTERRUPTED",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-interrupted-exception",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/interrupted-exception.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "INTERRUPTED",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-missing-field",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/missing-field.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MISSING_FIELD",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-apk-identity",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/apk-identity.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "APK_IDENTITY",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-run-identity",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/run-identity.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "RUN_IDENTITY",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-bad-type",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/bad-type.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "BAD_TYPE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-wrong-numeric",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/wrong-numeric.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "SEQ",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-nonfinite",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/nonfinite.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "NONFINITE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-wrong-owner",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/wrong-owner.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "OWNER",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "reference-wrong-thread",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/wrong-thread.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "THREAD",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-missing-event",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-missing-event.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MISSING_EVENT",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-duplicate-event",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-duplicate-event.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "DUPLICATE_EVENT",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-ordering",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-ordering.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "ORDER",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-wrong-instance",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-wrong-instance.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MISASSOC",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-wrong-bundle",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-wrong-bundle.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "BUNDLE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-wrong-event",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-wrong-event.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "WRONG_EVENT",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-wrong-phase",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-wrong-phase.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "PHASE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-stale-config",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-stale-config.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "STALE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "stale-same-run",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/same-run.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "STALE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-event-scenario",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-event-scenario.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "EVENT_SCENARIO",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-misplaced-event",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-misplaced-event.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "MISPLACED_EVENT",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-duplicate-scen-end",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-duplicate-scen-end.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "SCENARIO_MULTIPLICITY",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-json-events-empty",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-json-events-empty.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 1,
+    "code": "JSON_MISMATCH",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "valid-with-external-close",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-external-close.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 0,
+    "code": null,
+    "expect": "accept",
+    "env": ""
+  },
+  {
+    "name": "bad-manifest",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/bad-manifest.json",
+    "exit": 1,
+    "code": "MANIFEST_INVALID",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "crash-guard-not-a-rejection",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-android.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/valid-candidate.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "exit": 2,
+    "code": null,
+    "expect": "internal",
+    "env": "VERIFY_SELFTEST_CRASH=1"
+  }
+]
