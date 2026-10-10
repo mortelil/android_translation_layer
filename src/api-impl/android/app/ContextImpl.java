@@ -307,7 +307,10 @@ public final class ContextImpl extends Context {
 		if (targetApp == null) {
 			return false;
 		}
-		return targetApp.bindService(intent, serviceConnection, flags) != null;
+		// The issuing context is this context: Android keys a client-side binding
+		// registration (LoadedApk.mServices) by getOuterContext(), so a bind a
+		// Service issues from its own context belongs to that instance.
+		return targetApp.bindService(this, intent, serviceConnection, flags) != null;
 	}
 
 	@Override

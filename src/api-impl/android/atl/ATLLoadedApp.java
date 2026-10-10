@@ -274,9 +274,14 @@ public final class ATLLoadedApp {
 			return service;
 		Class<? extends Service> cls = this.loadClass(record.className).asSubclass(Service.class);
 		service = cls.getConstructor().newInstance();
-		service.attachBaseContext(new ContextImpl(
-		    this.createDefaultResources(), this, pkg.applicationInfo.theme));
+		ContextImpl serviceContext = new ContextImpl(
+		    this.createDefaultResources(), this, pkg.applicationInfo.theme);
+		service.attachBaseContext(serviceContext);
 		// Publish the instance before onCreate() so a re-entrant call sees it.
+		// The context is remembered with it: bindings a Service issues from its own
+		// context belong to this instance and are unbound when it is destroyed
+		// (LoadedApk.removeContextRegistrations with what="Service").
+		record.instanceContext = serviceContext;
 		record.instance = service;
 		service.onCreate();
 		return service;
@@ -391,7 +396,8 @@ public final class ATLLoadedApp {
 	 * applied in post order, the op still runs onBind() for the identity it
 	 * captured even when a later-queued unbind already removed the connection.
 	 */
-	public ComponentName bindService(final Intent intent, final ServiceConnection serviceConnection, final int flags) {
+	public ComponentName bindService(final Context bindContext, final Intent intent,
+	                                 final ServiceConnection serviceConnection, final int flags) {
 		if (serviceConnection == null) {
 			return startService(intent);
 		}
@@ -402,7 +408,7 @@ public final class ATLLoadedApp {
 		}
 		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component);
 		final ATLServiceRegistry.BoundClient client =
-		    service_registry.registerBinding(record, serviceConnection, intent);
+		    service_registry.registerBinding(record, serviceConnection, intent, bindContext);
 		final boolean autoCreate = (flags & Context.BIND_AUTO_CREATE) != 0;
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
@@ -458,9 +464,17 @@ public final class ATLLoadedApp {
 	 */
 	public void unbindService(ServiceConnection serviceConnection) {
 		final ATLServiceRegistry.UnbindResult result = service_registry.unbind(serviceConnection);
-		final ATLServiceRegistry.ServiceRecord record = result.record;
-		final java.util.ArrayList<Intent> intents = result.intents;
-		final boolean destroy = result.destroy;
+		postUnbindWork(result.record, result.intents, result.destroy);
+	}
+
+	/**
+	 * Posts the main-looper work of a client removal: one {@code onUnbind()} per
+	 * removed binding identity (deduped), then {@code onDestroy()} when the unbind
+	 * left the service neither started nor bound, and finally, for a destroyed
+	 * instance, the cleanup of the bindings it had issued from its own context.
+	 */
+	private void postUnbindWork(final ATLServiceRegistry.ServiceRecord record,
+	                            final java.util.ArrayList<Intent> intents, final boolean destroy) {
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
@@ -474,10 +488,32 @@ public final class ATLLoadedApp {
 					if (service.onUnbind(intent))
 						service_registry.markRebindPending(record, intent);
 				}
-				if (destroy)
+				if (destroy) {
 					service.onDestroy();
+					unbindInstanceContextClients(record);
+				}
 			}
 		});
+	}
+
+	/**
+	 * LoadedApk.removeContextRegistrations(context, who, "Service"), the cleanup
+	 * ActivityThread.handleStopService() schedules once a Service is destroyed: a
+	 * dead instance can no longer hold bindings, so every registration issued from
+	 * that instance's context is unbound -- removed from the record that holds it,
+	 * which is torn down when nothing else keeps it alive -- and forgotten as a
+	 * client registration. This is why a bind a service issues re-entrantly from
+	 * its own {@code onUnbind()} disappears again once that instance's teardown
+	 * messages have run, and why a later {@code unbindService()} of that
+	 * connection from any other context throws "Service not registered".
+	 */
+	private void unbindInstanceContextClients(ATLServiceRegistry.ServiceRecord record) {
+		final Context context = record.instanceContext;
+		if (context == null)
+			return;
+		for (ATLServiceRegistry.UnbindResult result : service_registry.unbindContext(context)) {
+			postUnbindWork(result.record, result.intents, result.destroy);
+		}
 	}
 
 	/**
@@ -504,8 +540,10 @@ public final class ATLLoadedApp {
 			@Override
 			public void run() {
 				Service service = record.instance;
-				if (service != null)
-					service.onDestroy();
+				if (service == null)
+					return;
+				service.onDestroy();
+				unbindInstanceContextClients(record);
 			}
 		});
 		return true;
@@ -538,6 +576,7 @@ public final class ATLLoadedApp {
 			@Override
 			public void run() {
 				instance.onDestroy();
+				unbindInstanceContextClients(record);
 			}
 		});
 		return true;

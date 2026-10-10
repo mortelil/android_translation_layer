@@ -3,6 +3,7 @@ package android.atl;
 
 import android.app.Service;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
@@ -41,6 +42,13 @@ public final class ATLServiceRegistry {
 	public static final class BoundClient {
 		public final ServiceConnection connection;
 		public final Intent intent;
+		/**
+		 * The context the bind was issued from (AOSP {@code getOuterContext()},
+		 * which LoadedApk keys its dispatcher registry by). A Service instance
+		 * that bound from its own context therefore owns this registration: when
+		 * that instance is destroyed the registration is forgotten with it.
+		 */
+		public final Context context;
 		/** Set once onServiceConnected()/onNullBinding() was delivered. */
 		public boolean delivered;
 		/** Set once this bind request has been processed on the main looper. */
@@ -48,9 +56,10 @@ public final class ATLServiceRegistry {
 		/** Set when onServiceConnected() must be followed by onRebind(). */
 		public boolean rebind;
 
-		BoundClient(ServiceConnection connection, Intent intent) {
+		BoundClient(ServiceConnection connection, Intent intent, Context context) {
 			this.connection = connection;
 			this.intent = intent;
+			this.context = context;
 		}
 	}
 
@@ -60,6 +69,11 @@ public final class ATLServiceRegistry {
 		public final String className;
 		/** Live instance; set before onCreate() runs, null until then. */
 		public volatile Service instance;
+		/**
+		 * The context the live instance was attached with. Bindings issued from
+		 * it belong to that instance and are dropped when it is destroyed.
+		 */
+		public volatile Context instanceContext;
 		/** Last start ID delivered by startService; 0 before the first start. */
 		public int lastStartId;
 		/** Set once the record was detached by stopService/self-stop/last unbind. */
@@ -202,14 +216,15 @@ public final class ATLServiceRegistry {
 	 * {@link #addBindingIdentity} once {@code onBind()} has actually run, so a bind
 	 * never suppresses its own {@code onBind()}.
 	 */
-	public BoundClient registerBinding(ServiceRecord record, ServiceConnection connection, Intent intent) {
+	public BoundClient registerBinding(ServiceRecord record, ServiceConnection connection, Intent intent,
+	                                   Context context) {
 		synchronized (lock) {
 			for (BoundClient client : record.bindings) {
 				if (client.connection == connection && sameIdentity(client.intent, intent)) {
 					return client;
 				}
 			}
-			BoundClient client = new BoundClient(connection, intent);
+			BoundClient client = new BoundClient(connection, intent, context);
 			record.bindings.add(client);
 			return client;
 		}
@@ -398,6 +413,54 @@ public final class ATLServiceRegistry {
 			}
 			return new UnbindResult(found, intents, destroy);
 		}
+	}
+
+	/**
+	 * LoadedApk.removeContextRegistrations() analogue for a destroyed Service's
+	 * context: removes every client that bound from {@code context} from whichever
+	 * record holds it, and returns one {@link UnbindResult} per affected record in
+	 * the shape {@link #unbind} produces, so the caller posts the
+	 * {@code onUnbind()}/{@code onDestroy()} work. A record left with no clients
+	 * and no outstanding start request is detached and reported with
+	 * {@code destroy} set, exactly as an explicit unbind of its last client would.
+	 * Android does this when a destroyed Service's context is finalized: the
+	 * leaked registration is unbound on the system side and the client-side
+	 * dispatcher is forgotten, so the connection is gone from the client's point
+	 * of view too.
+	 */
+	public ArrayList<UnbindResult> unbindContext(Context context) {
+		ArrayList<UnbindResult> results = new ArrayList<>();
+		if (context == null) {
+			return results;
+		}
+		synchronized (lock) {
+			for (ServiceRecord record : new ArrayList<>(records.values())) {
+				ArrayList<Intent> intents = new ArrayList<>();
+				boolean removed = false;
+				for (Iterator<BoundClient> it = record.bindings.iterator(); it.hasNext();) {
+					BoundClient client = it.next();
+					if (client.context != context) {
+						continue;
+					}
+					it.remove();
+					removed = true;
+					if (!identityHasClientsLocked(record, client.intent)) {
+						removeIdentityLocked(record, client.intent);
+						addIdentityDistinct(intents, client.intent);
+					}
+				}
+				if (!removed) {
+					continue;
+				}
+				boolean destroy = !record.started && record.bindings.isEmpty();
+				if (destroy) {
+					records.remove(record.component);
+					record.destroyed = true;
+				}
+				results.add(new UnbindResult(record, intents, destroy));
+			}
+		}
+		return results;
 	}
 
 	private static void addIdentityDistinct(ArrayList<Intent> intents, Intent intent) {
