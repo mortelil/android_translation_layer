@@ -1,0 +1,17 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.fontbounds">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <application
+        android:label="ATL FONT-BOUNDS ink probe"
+        android:debuggable="true">
+        <activity
+            android:name=".ProbeActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
