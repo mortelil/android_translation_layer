@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.lifecycle">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <application
+        android:name=".ProbeApp"
+        android:label="ATL lifecycle/fragment probe v2.1"
+        android:debuggable="true">
+        <activity
+            android:name=".ActA"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".ActB"
+            android:exported="false" />
+    </application>
+</manifest>
