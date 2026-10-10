@@ -8,6 +8,7 @@
 #include "AndroidTypeface.h"
 #include "AndroidTextAttributes.h"
 #include "pango/pango-font.h"
+#include "pango/pangofc-font.h"
 
 #include "../generated_headers/android_graphics_Paint.h"
 
@@ -188,24 +189,69 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1text_1align(JNIE
 	paint->alignment = align;
 }
 
+/* Android (Skia) derives FontMetrics.top/bottom from the font's bounding box (the
+ * FreeType head table's yMax/yMin), scaled with the requested text size, whereas
+ * ascent/descent/leading come from the hhea/OS-2 tables. Pango's font metrics only
+ * expose the latter, so ask the resolved FreeType face of the PangoFcFont for the true
+ * glyph extents. Mirrors SkScalerContext_FreeType::generateFontMetrics (skia 5086063):
+ *   fTop = -head.yMax / unitsPerEm * size, fBottom = -head.yMin / unitsPerEm * size.
+ * Returns FALSE when the resolved font is not FreeType-backed or no absolute text size
+ * is set (nothing to scale the unscaled font units with). */
+static bool atl_paint_font_bbox(PangoContext *context, struct AndroidPaint *paint, float *top, float *bottom)
+{
+	int size = pango_font_description_get_size(paint->font);
+	if (size <= 0 || !pango_font_description_get_size_is_absolute(paint->font))
+		return false;
+	PangoFont *font = pango_context_load_font(context, paint->font);
+	if (!font)
+		return false;
+	bool have_extents = false;
+	if (PANGO_IS_FC_FONT(font)) {
+		FT_Face face = pango_fc_font_lock_face(PANGO_FC_FONT(font));
+		if (face && face->units_per_EM > 0) {
+			double scale = ((double)size / PANGO_SCALE) / (double)face->units_per_EM;
+			*top = (float)(-(double)face->bbox.yMax * scale);
+			*bottom = (float)(-(double)face->bbox.yMin * scale);
+			have_extents = true;
+		}
+		if (face)
+			pango_fc_font_unlock_face(PANGO_FC_FONT(font));
+	}
+	g_object_unref(font);
+	return have_extents;
+}
+
+/* The float FontMetrics exactly as Android exposes them (GraphicsJNI::set_metrics takes
+ * the SkFontMetrics fields unchanged). top/bottom come from the font bounding box and
+ * fall back to the ascent/descent extents when the face exposes no bbox. */
+static void atl_paint_get_font_metrics(PangoContext *context, struct AndroidPaint *paint, PangoFontMetrics *font_metrics, float *top, float *ascent, float *descent, float *bottom, float *leading)
+{
+	float height = (float)pango_font_metrics_get_height(font_metrics) / PANGO_SCALE;
+	*ascent = -(float)pango_font_metrics_get_ascent(font_metrics) / PANGO_SCALE;
+	*descent = (float)pango_font_metrics_get_descent(font_metrics) / PANGO_SCALE;
+	*top = *ascent;
+	*bottom = *descent;
+	atl_paint_font_bbox(context, paint, top, bottom);
+	*leading = height + *ascent - *descent; /* pango ascent is positive, ours is negative */
+}
+
 JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics(JNIEnv *env, jclass clazz, jlong paint_ptr, jobject metrics)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	PangoContext *context = atl_paint_context(paint, gtk_widget_get_pango_context(window));
 	PangoFontMetrics *font_metrics = pango_context_get_metrics(context, paint->font, NULL);
-	float height = (float)pango_font_metrics_get_height(font_metrics) / PANGO_SCALE;
+	float top, ascent, descent, bottom, leading;
+	atl_paint_get_font_metrics(context, paint, font_metrics, &top, &ascent, &descent, &bottom, &leading);
 	if (metrics) {
-		float ascent = (float)pango_font_metrics_get_ascent(font_metrics) / PANGO_SCALE;
-		float descent = (float)pango_font_metrics_get_descent(font_metrics) / PANGO_SCALE;
-		_SET_FLOAT_FIELD(metrics, "top", -ascent);
-		_SET_FLOAT_FIELD(metrics, "ascent", -ascent);
+		_SET_FLOAT_FIELD(metrics, "top", top);
+		_SET_FLOAT_FIELD(metrics, "ascent", ascent);
 		_SET_FLOAT_FIELD(metrics, "descent", descent);
-		_SET_FLOAT_FIELD(metrics, "bottom", descent);
-		_SET_FLOAT_FIELD(metrics, "leading", height - ascent - descent);
+		_SET_FLOAT_FIELD(metrics, "bottom", bottom);
+		_SET_FLOAT_FIELD(metrics, "leading", leading);
 	}
 	pango_font_metrics_unref(font_metrics);
 	g_object_unref(context);
-	return height;
+	return descent - ascent + leading;
 }
 
 JNIEXPORT jint JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics_1int(JNIEnv *env, jclass clazz, jlong paint_ptr, jobject metrics)
@@ -213,19 +259,25 @@ JNIEXPORT jint JNICALL Java_android_graphics_Paint_native_1get_1font_1metrics_1i
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	PangoContext *context = atl_paint_context(paint, gtk_widget_get_pango_context(window));
 	PangoFontMetrics *font_metrics = pango_context_get_metrics(context, paint->font, NULL);
-	int height = ceil((float)pango_font_metrics_get_height(font_metrics) / PANGO_SCALE);
+	float top, ascent, descent, bottom, leading;
+	atl_paint_get_font_metrics(context, paint, font_metrics, &top, &ascent, &descent, &bottom, &leading);
+	/* GraphicsJNI::set_metrics_int: top/bottom are rounded outward, the others to nearest,
+	 * where SkScalarRoundToInt(x) == floor(x + 0.5). */
+	int int_top = (int)floorf(top);
+	int int_ascent = (int)floorf(ascent + 0.5f);
+	int int_descent = (int)floorf(descent + 0.5f);
+	int int_bottom = (int)ceilf(bottom);
+	int int_leading = (int)floorf(leading + 0.5f);
 	if (metrics) {
-		int ascent = ceil((float)pango_font_metrics_get_ascent(font_metrics) / PANGO_SCALE);
-		int descent = ceil((float)pango_font_metrics_get_descent(font_metrics) / PANGO_SCALE);
-		_SET_INT_FIELD(metrics, "top", -ascent);
-		_SET_INT_FIELD(metrics, "ascent", -ascent);
-		_SET_INT_FIELD(metrics, "descent", descent);
-		_SET_INT_FIELD(metrics, "bottom", descent);
-		_SET_INT_FIELD(metrics, "leading", height - ascent - descent);
+		_SET_INT_FIELD(metrics, "top", int_top);
+		_SET_INT_FIELD(metrics, "ascent", int_ascent);
+		_SET_INT_FIELD(metrics, "descent", int_descent);
+		_SET_INT_FIELD(metrics, "bottom", int_bottom);
+		_SET_INT_FIELD(metrics, "leading", int_leading);
 	}
 	pango_font_metrics_unref(font_metrics);
 	g_object_unref(context);
-	return height;
+	return int_descent - int_ascent + int_leading;
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1typeface(JNIEnv *env, jclass cls, jlong ptr, jlong typeface)
