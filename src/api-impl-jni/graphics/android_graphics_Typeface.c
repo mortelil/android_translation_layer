@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include <fontconfig/fontconfig.h>
 #include <fontconfig/fcfreetype.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_TRUETYPE_TABLES_H
 #include <fcntl.h>
 #include <unistd.h>
 #include <pango/pangocairo.h>
@@ -24,6 +27,32 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCreate(JNIEnv *env,
 
 static void close_font_file(gpointer data) { close(GPOINTER_TO_INT(data) - 1); }
 
+/* minikin's FontFamily reads a font's coverage from the raw font bytes' "cmap" table
+ * (FontFamily.cpp, rev 915f1232: HbBlob(font->baseFont(), "cmap")); a missing table means the Font
+ * covers nothing and itemization moves on to the next family. A raw non-sfnt bitmap face (PCF/BDF)
+ * has no such table, but fontconfig's own charset - which FcFreeTypeQuery derives from the bitmap
+ * encoding - would otherwise let the strike claim the text. Mirror the coverage rule on the
+ * registered pattern so the per-run Pango/fontconfig resolution decides for every font, exactly as
+ * for the scalable faces. */
+static bool atl_pattern_apply_coverage(FcPattern *pattern, FT_Library library, const char *path, int index)
+{
+	FT_Face face = NULL;
+	if (FT_New_Face(library, path, index, &face))
+		return true; /* unopenable: keep fontconfig's charset rather than inventing one */
+	FT_ULong length = 0;
+	bool has_cmap = FT_IS_SFNT(face) &&
+	                FT_Load_Sfnt_Table(face, FT_MAKE_TAG('c', 'm', 'a', 'p'), 0, NULL, &length) == 0 &&
+	                length > 0;
+	FT_Done_Face(face);
+	if (has_cmap)
+		return true;
+	FcCharSet *empty = FcCharSetCreate();
+	FcPatternDel(pattern, FC_CHARSET);
+	FcPatternAddCharSet(pattern, FC_CHARSET, empty);
+	FcCharSetDestroy(empty);
+	return false;
+}
+
 JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeLoad(JNIEnv *env, jclass cls, jstring path, jint index)
 {
 	const char *filename = (*env)->GetStringUTFChars(env, path, NULL);
@@ -34,18 +63,21 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeLoad(JNIEnv *env, j
 	int count, weight = FC_WEIGHT_REGULAR, slant = FC_SLANT_ROMAN;
 	FcPattern *query = fd >= 0 ? FcFreeTypeQuery((const FcChar8 *)retained_path, index, NULL, &count) : NULL;
 	FcConfig *config = query ? FcInitLoadConfigAndFonts() : NULL;
+	FT_Library library = NULL;
 	struct AndroidTypeface *font = NULL;
 	if (!config || !FcConfigAppFontAddFile(config, (const FcChar8 *)retained_path)) goto done;
+	FT_Init_FreeType(&library);
 	// Give the chosen file/collection face a private family in this map only.
 	// This prevents a system font with the same family name winning the match.
 	FcFontSet *set = FcConfigGetFonts(config, FcSetApplication);
-	bool found = false;
+	bool found = false, covered = true;
 	for (int i = 0; set && i < set->nfont; ++i) {
 		int face = 0;
 		FcPatternGetInteger(set->fonts[i], FC_INDEX, 0, &face);
 		if (face != index) continue;
 		FcPatternDel(set->fonts[i], FC_FAMILY);
 		if (!FcPatternAddString(set->fonts[i], FC_FAMILY, (const FcChar8 *)"ATL private file font")) goto done;
+		if (library) covered = atl_pattern_apply_coverage(set->fonts[i], library, retained_path, index);
 		found = true;
 	}
 	if (!found) goto done;
@@ -58,12 +90,19 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeLoad(JNIEnv *env, j
 	g_object_set_data_full(G_OBJECT(font->map), "atl-font-fd", GINT_TO_POINTER(fd + 1), close_font_file);
 	fd = -1;
 	font->description = pango_font_description_new();
-	pango_font_description_set_family(font->description, "ATL private file font");
+	/* A face whose coverage cannot be read (a raw bitmap font: no sfnt "cmap") contributes no
+	 * glyph to the family, so the typeface resolves through the default family - the same chain
+	 * a null family name takes (Typeface.create(null, ...)) and the same fallback a custom
+	 * typeface without a declared fallback family gets from a minikin FontCollection. Only this
+	 * font's own empty coverage selects it; the file, the family name and the text do not. */
+	pango_font_description_set_family(font->description, covered ? "ATL private file font"
+	                                                            : "sans-serif");
 	int ot_weight = FcWeightToOpenType(weight);
 	pango_font_description_set_weight(font->description, ot_weight > 0 ? ot_weight : 400);
 	pango_font_description_set_style(font->description, slant == FC_SLANT_ROMAN ? PANGO_STYLE_NORMAL : PANGO_STYLE_ITALIC);
 done:
 	if (fd >= 0) close(fd);
+	if (library) FT_Done_FreeType(library);
 	if (config) FcConfigDestroy(config);
 	if (query) FcPatternDestroy(query);
 	(*env)->ReleaseStringUTFChars(env, path, filename);
@@ -81,15 +120,19 @@ static bool atl_config_add_private_font(FcConfig *config, const char *path, int 
 	if (!FcConfigAppFontAddFile(config, (const FcChar8 *)path)) return false;
 	set = FcConfigGetFonts(config, FcSetApplication);
 	if (!set) return false;
+	FT_Library library = NULL;
+	FT_Init_FreeType(&library);
 	bool renamed = false;
 	for (int i = before; i < set->nfont; ++i) {
 		int face = 0;
 		FcPatternGetInteger(set->fonts[i], FC_INDEX, 0, &face);
 		if (face != index) continue;
 		FcPatternDel(set->fonts[i], FC_FAMILY);
-		if (!FcPatternAddString(set->fonts[i], FC_FAMILY, (const FcChar8 *)family)) return false;
+		if (!FcPatternAddString(set->fonts[i], FC_FAMILY, (const FcChar8 *)family)) { if (library) FT_Done_FreeType(library); return false; }
+		if (library) atl_pattern_apply_coverage(set->fonts[i], library, path, index);
 		renamed = true;
 	}
+	if (library) FT_Done_FreeType(library);
 	return renamed;
 }
 
