@@ -1,6 +1,7 @@
 gate_version=1
 recorded_at=2026-10-10T22:16:51+02:00
-source_commit=ad7f6a7c30beb37e9d749e9e85e92252ee7d9f22
+# identity re-recorded 2026-10-10: HEAD advanced ad7f6a7c -> 883fa4d9 by tests-only + .gitignore commits; no implementation source changed and all artifacts/frozen inputs are unchanged (dirty digest identical).
+source_commit=883fa4d98f42b1011e498d1831f54157170e79e8
 source_dirty_sha256=7eaa05518224c7d521241bcc329a9357e01a1a2d706c23fd7d63ef815e5d589c
 libtranslation_layer_main_so=2c7f9f4ea80525296442c01b6799d74f6c8ff142b0801d04aaad2843db116874
 api_impl_jar=b4cf5f9e11e7bac8a414a80280c22e25744f4e1300948f3cc7c0f48abc40f67e
