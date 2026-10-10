@@ -375,6 +375,38 @@ public final class ATLLoadedApp {
 		return true;
 	}
 
+	/**
+	 * stopSelf()/stopSelf(int)/stopSelfResult(int) entry point for a live
+	 * instance. {@code startId < 0} (the stopSelf() form) stops unconditionally;
+	 * a non-negative id must equal the record's last start ID, otherwise an
+	 * older start ID must not stop newer work. The registry entry is removed
+	 * before returning, and onDestroy() is posted to the main looper so it runs
+	 * after the current onStartCommand() returns rather than re-entrantly inside
+	 * it. Returns true when the service was stopped.
+	 */
+	public boolean stopServiceFromSelf(Service service, int startId) {
+		final ATLServiceRegistry.ServiceRecord record = service_registry.findByInstance(service);
+		if (record == null) {
+			// Not started / never started, or already stopped.
+			return false;
+		}
+		if (startId >= 0 && service_registry.lastStartIdOf(record) != startId) {
+			// Old start ID: must not stop newer work.
+			return false;
+		}
+		if (!service_registry.detach(record)) {
+			return false;
+		}
+		final Service instance = record.instance;
+		new Handler(Looper.getMainLooper()).post(new Runnable() {
+			@Override
+			public void run() {
+				instance.onDestroy();
+			}
+		});
+		return true;
+	}
+
 	public void receiveBroadcast(Context context, Intent intent) {
 		for (PackageParser.Activity receiver : pkg.receivers) {
 			if (receiver.intents == null)

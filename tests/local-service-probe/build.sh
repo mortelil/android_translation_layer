@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# LOCAL-SERVICES probe (SVC-001) APK build. Run INSIDE the atl_dev Toolbox
-# container (same toolchain as the lifecycle/font probes):
+# LOCAL-SERVICES probe v2 (SVC-002/003/004) APK build. Run INSIDE the atl_dev
+# Toolbox container (same toolchain as the lifecycle/font probes):
 #   toolbox run --container atl_dev sh -lc \
 #     '/home/morten/ATL/local-services/tests/local-service-probe/build.sh \
 #        /home/morten/ATL/local-service-tests/build'
@@ -25,7 +25,7 @@ dx --min-sdk-version=24 --dex --output="$output/classes.dex" "$output/classes"
 aapt package -f \
 	-M "$source_dir/AndroidManifest.xml" \
 	-I "$FRAMEWORK_RES" \
-	-F "$output/svc-001-probe-unsigned.apk"
-(cd "$output" && aapt add svc-001-probe-unsigned.apk classes.dex)
-zipalign -f 4 "$output/svc-001-probe-unsigned.apk" "$output/svc-001-probe-aligned.apk"
-printf '%s\n' "$output/svc-001-probe-aligned.apk"
+	-F "$output/svc-probe-v2-unsigned.apk"
+(cd "$output" && aapt add svc-probe-v2-unsigned.apk classes.dex)
+zipalign -f 4 "$output/svc-probe-v2-unsigned.apk" "$output/svc-probe-v2-aligned.apk"
+printf '%s\n' "$output/svc-probe-v2-aligned.apk"

@@ -1,23 +1,22 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <!--
-  LOCAL-SERVICES probe app (task LOCAL-SERVICES-PROBE-001), case SVC-001.
+  LOCAL-SERVICES probe v2 (task LOCAL-SERVICES-PROBE-V2), cases SVC-002/003/004.
 
   Declared components:
-    .ControlActivity  MAIN/LAUNCHER, exported, kept alive while the scenario runs.
-    .SvcA             the service under test (startService/stopService target).
-    .SvcB             a second, DECLARED but unused service (the
-                      "declared-but-different component"); reserved for later
-                      scenarios, never started by SVC-001.
+    .ControlActivity      MAIN/LAUNCHER, exported; stays alive for the whole run
+                          and emits one aggregate SVC_JSON_BEGIN/END block.
+    .SvcStartIds          SVC-002 service under test ("component A").
+    .SvcReturnValues      SVC-003 service under test ("component A").
+    .SvcSelfStop          SVC-004 service under test ("component A").
 
-  The SVC-001 unknown-component start case deliberately targets
-  org.atl.tests.svc/.SvcUnknown, which is NOT declared here, so the system
-  cannot resolve it as a service (must not crash the probe).
+  Each scenario uses a distinct service class so it always gets a fresh
+  instance, independent of whether the previous scenario's onDestroy landed.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.atl.tests.svc">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <application
-        android:label="ATL LOCAL-SERVICES probe v1"
+        android:label="ATL LOCAL-SERVICES probe v2"
         android:debuggable="true">
         <activity
             android:name=".ControlActivity"
@@ -28,10 +27,13 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".SvcA"
+            android:name=".SvcStartIds"
             android:exported="false" />
         <service
-            android:name=".SvcB"
+            android:name=".SvcReturnValues"
+            android:exported="false" />
+        <service
+            android:name=".SvcSelfStop"
             android:exported="false" />
     </application>
 </manifest>

@@ -78,6 +78,46 @@ public final class ATLServiceRegistry {
 	}
 
 	/**
+	 * Returns the registered record owning {@code instance}, or null when the
+	 * instance is not registered (never brought up, or already stopped). Matches
+	 * by object identity so two instances of the same component are never
+	 * confused.
+	 */
+	public ServiceRecord findByInstance(Service instance) {
+		synchronized (lock) {
+			for (ServiceRecord record : records.values()) {
+				if (record.instance == instance) {
+					return record;
+				}
+			}
+			return null;
+		}
+	}
+
+	/** The last start ID allocated for {@code record}; 0 before the first start. */
+	public int lastStartIdOf(ServiceRecord record) {
+		synchronized (lock) {
+			return record.lastStartId;
+		}
+	}
+
+	/**
+	 * Removes {@code record} (the self-stop path) when it is still the registered
+	 * record for its component. Returns false when it was already detached (e.g.
+	 * a racing explicit stopService), so the caller does not destroy twice.
+	 */
+	public boolean detach(ServiceRecord record) {
+		synchronized (lock) {
+			if (records.get(record.component) != record) {
+				return false;
+			}
+			records.remove(record.component);
+			record.destroyed = true;
+			return true;
+		}
+	}
+
+	/**
 	 * Removes the record for {@code component} (the stop path). Returns null when
 	 * nothing was running, otherwise the detached record whose {@code instance}
 	 * (possibly null if the pending start never landed) the caller must destroy on

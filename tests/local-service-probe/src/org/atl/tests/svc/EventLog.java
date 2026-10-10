@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 package org.atl.tests.svc;
 
-import android.content.ComponentName;
 import android.content.Context;
 import android.os.Looper;
 
@@ -11,35 +10,49 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * Ordered JSON event log + result transport for the LOCAL-SERVICES probe.
+ * Ordered JSON event log + result transport for the LOCAL-SERVICES probe v2
+ * (cases SVC-002 / SVC-003 / SVC-004).
  *
- * Every event is one JSON row with the fields required by the case spec:
- *   seq, scenario, component, instance, event, startId, flags, intentExtra,
- *   thread, ret   (plus retType/main/exception as non-normative extras).
+ * Every event is one JSON row carrying the fields fixed by the case specs:
+ *   seq, scenario, component, instance, event, startId, flags,
+ *   intentExtra, cmd, returnValue, thread, ret
+ * (plus non-normative retType/main/exception extras).
  *
- * Transport (same as the lifecycle probe):
+ * Transport (same shape as the lifecycle + SVC-001 probes):
  *  - one durable line per event to getFilesDir()/events.log and stdout
- *    ({@code SVC001_EVT {json}}), flushed immediately;
- *  - the aggregate document written to getFilesDir()/results.json (a fresh
- *    snapshot after every event, so a crash still leaves partial evidence);
- *  - the aggregate also printed to stdout between SVC001_JSON_BEGIN /
- *    SVC001_JSON_END (completion marker = SVC001_JSON_END).
+ *    ({@code SVC_EVT {json}}), flushed immediately;
+ *  - the aggregate document written to getFilesDir()/results.json after every
+ *    event (so a crash still leaves partial evidence) and once more on finalize;
+ *  - the aggregate also printed to stdout between SVC_JSON_BEGIN / SVC_JSON_END
+ *    (completion marker = the single SVC_JSON_END line, printed once for the
+ *    whole run after all three scenarios).
  *
- * It is a singleton so Service callbacks (which run in the same process) can
- * attribute themselves to the same run. Instances are indexed by OBJECT
- * IDENTITY within this process (never by address), so the same Service object
- * keeps one logical instance index across all of its callbacks.
+ * It is a singleton so Service callbacks (same process) attribute themselves to
+ * the same run. Service *instances* are indexed by OBJECT IDENTITY (never by
+ * address) and the index is scoped PER SCENARIO, so each scenario's fresh
+ * instance is instance=1 exactly as the specs' planned traces require.
  */
 final class EventLog {
-    static final String TASK_ID = "LOCAL-SERVICES-PROBE-001";
-    static final String PROBE_ID = "SVC-001";
-    static final String MARKER_BEGIN = "SVC001_JSON_BEGIN";
-    static final String MARKER_END = "SVC001_JSON_END";
+    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V2";
+    static final String PROBE_ID = "SVC-PROBE-V2";
+    static final String MARKER_BEGIN = "SVC_JSON_BEGIN";
+    static final String MARKER_END = "SVC_JSON_END";
     static final String PKG = "org.atl.tests.svc";
+
+    static final String SVC_002 = "SVC-002";
+    static final String SVC_003 = "SVC-003";
+    static final String SVC_004 = "SVC-004";
+
+    /** Component name fields used by the v2 scenarios (labelled "component A" per spec). */
+    static final String COMP_002 = PKG + "/.SvcStartIds";
+    static final String COMP_003 = PKG + "/.SvcReturnValues";
+    static final String COMP_004 = PKG + "/.SvcSelfStop";
 
     private static EventLog INSTANCE;
 
@@ -47,20 +60,26 @@ final class EventLog {
     private final String runId;
     private final File filesDir;
     private final Writer eventWriter;
-    private final List<String> events = new ArrayList<String>();
+    private final List<String> scenarios = new ArrayList<String>();
+    private final Map<String, List<String>> events =
+            new LinkedHashMap<String, List<String>>();
+    private final Map<String, IdentityHashMap<Object, Integer>> instanceIndex =
+            new LinkedHashMap<String, IdentityHashMap<Object, Integer>>();
+    private final Map<String, Integer> nextInstance = new LinkedHashMap<String, Integer>();
     private final List<String> exceptions = new ArrayList<String>();
-    private final IdentityHashMap<Object, Integer> instanceIndex =
-            new IdentityHashMap<Object, Integer>();
-    private final String scenario;
     private int seq = 0;
-    private int nextInstance = 1;
     private boolean finalized = false;
 
-    private EventLog(Context ctx, String scenario) {
+    private EventLog(Context ctx, String[] scenarioIds) {
         this.appContext = ctx.getApplicationContext();
         this.filesDir = this.appContext.getFilesDir();
-        this.scenario = scenario;
         this.runId = UUID.randomUUID().toString();
+        for (int i = 0; i < scenarioIds.length; i++) {
+            scenarios.add(scenarioIds[i]);
+            events.put(scenarioIds[i], new ArrayList<String>());
+            instanceIndex.put(scenarioIds[i], new IdentityHashMap<Object, Integer>());
+            nextInstance.put(scenarioIds[i], Integer.valueOf(1));
+        }
         Writer w = null;
         try {
             w = new OutputStreamWriter(
@@ -71,9 +90,9 @@ final class EventLog {
         this.eventWriter = w;
     }
 
-    static synchronized EventLog init(Context ctx, String scenario) {
+    static synchronized EventLog init(Context ctx, String[] scenarioIds) {
         if (INSTANCE == null) {
-            INSTANCE = new EventLog(ctx, scenario);
+            INSTANCE = new EventLog(ctx, scenarioIds);
         }
         return INSTANCE;
     }
@@ -86,48 +105,59 @@ final class EventLog {
         return runId;
     }
 
-    /** Identity keyed logical instance index; first instance observed is 1. */
-    private synchronized int instanceOf(Object serviceIdentity) {
-        Integer idx = instanceIndex.get(serviceIdentity);
+    /** Identity keyed logical instance index within one scenario; first is 1. */
+    private synchronized int instanceOf(String scenario, Object serviceIdentity) {
+        IdentityHashMap<Object, Integer> map = instanceIndex.get(scenario);
+        if (map == null) {
+            map = new IdentityHashMap<Object, Integer>();
+            instanceIndex.put(scenario, map);
+        }
+        Integer idx = map.get(serviceIdentity);
         if (idx == null) {
-            idx = Integer.valueOf(nextInstance++);
-            instanceIndex.put(serviceIdentity, idx);
+            Integer next = nextInstance.get(scenario);
+            int n = (next == null) ? 1 : next.intValue();
+            idx = Integer.valueOf(n);
+            nextInstance.put(scenario, Integer.valueOf(n + 1));
+            map.put(serviceIdentity, idx);
         }
         return idx.intValue();
     }
 
     /** Client-side call event (no live Service object). */
-    synchronized void clientEvent(String event, String component, String ret,
+    synchronized void clientEvent(String scenario, String event, String component,
+                                  String intentExtra, String cmd, String ret,
                                   String retType, String exceptionClass) {
-        append(System.currentTimeMillis(), null, event, component, -1, -1, "none",
+        append(scenario, null, event, component, -1, -1, intentExtra, cmd, null,
                 ret, retType, exceptionClass);
     }
 
     /** Service callback event: instance/thread attributed to the Service object. */
-    synchronized void serviceEvent(Object serviceIdentity, String event, String component,
-                                   int startId, int flags, String intentExtra) {
-        append(System.currentTimeMillis(), serviceIdentity, event, component,
-                startId, flags, intentExtra, null, null, null);
+    synchronized void serviceEvent(Object serviceIdentity, String scenario, String event,
+                                   String component, int startId, int flags,
+                                   String intentExtra, String cmd, Integer returnValue,
+                                   String ret) {
+        append(scenario, serviceIdentity, event, component, startId, flags,
+                intentExtra, cmd, returnValue, ret, null, null);
     }
 
     synchronized void noteException(String text) {
         exceptions.add(text);
-        line("SVC001_EXCEPTION " + text);
+        line("SVC_EXCEPTION " + text);
     }
 
-    private synchronized void append(long ts, Object serviceIdentity, String event,
+    private synchronized void append(String scenario, Object serviceIdentity, String event,
                                      String component, int startId, int flags,
-                                     String intentExtra, String ret, String retType,
-                                     String exceptionClass) {
+                                     String intentExtra, String cmd, Integer returnValue,
+                                     String ret, String retType, String exceptionClass) {
         if (finalized) {
             return;
         }
         int n = ++seq;
         Integer instance = serviceIdentity == null
-                ? null : Integer.valueOf(instanceOf(serviceIdentity));
+                ? null : Integer.valueOf(instanceOf(scenario, serviceIdentity));
         boolean main = Looper.myLooper() == Looper.getMainLooper();
         String thread = Thread.currentThread().getName();
-        StringBuilder b = new StringBuilder(256);
+        StringBuilder b = new StringBuilder(288);
         b.append("{\"seq\":").append(n);
         b.append(",\"scenario\":\"").append(esc(scenario)).append('"');
         b.append(",\"component\":\"").append(esc(component)).append('"');
@@ -136,6 +166,9 @@ final class EventLog {
         b.append(",\"startId\":").append(startId < 0 ? "null" : Integer.toString(startId));
         b.append(",\"flags\":").append(flags < 0 ? "null" : Integer.toString(flags));
         b.append(",\"intentExtra\":\"").append(esc(intentExtra)).append('"');
+        b.append(",\"cmd\":\"").append(esc(cmd)).append('"');
+        b.append(",\"returnValue\":")
+                .append(returnValue == null ? "null" : returnValue.toString());
         b.append(",\"thread\":\"").append(esc(thread)).append('"');
         b.append(",\"ret\":").append(ret == null ? "null" : "\"" + esc(ret) + "\"");
         if (retType != null) {
@@ -147,8 +180,13 @@ final class EventLog {
         }
         b.append('}');
         String json = b.toString();
-        events.add(json);
-        line("SVC001_EVT " + json);
+        List<String> bucket = events.get(scenario);
+        if (bucket == null) {
+            bucket = new ArrayList<String>();
+            events.put(scenario, bucket);
+        }
+        bucket.add(json);
+        line("SVC_EVT " + json);
         flushResults();
     }
 
@@ -158,8 +196,8 @@ final class EventLog {
     }
 
     /**
-     * Final aggregate: write results.json and print the marker block to stdout.
-     * Completion signal for the runner is the SVC001_JSON_END line.
+     * Final aggregate: write results.json and print the single marker block to
+     * stdout. Completion signal for the runner is the SVC_JSON_END line.
      */
     synchronized void finalizeRun() {
         if (finalized) {
@@ -171,31 +209,69 @@ final class EventLog {
         line(MARKER_BEGIN);
         line(json);
         line(MARKER_END);
-        line("SVC001_ALL_DONE");
+        line("SVC_ALL_DONE");
     }
 
     private String buildResultsJson() {
-        StringBuilder b = new StringBuilder(4096);
+        StringBuilder b = new StringBuilder(8192);
         b.append("{\"task_id\":\"").append(TASK_ID).append('"');
         b.append(",\"probe\":\"").append(PROBE_ID).append('"');
-        b.append(",\"case\":\"").append(PROBE_ID).append('"');
         b.append(",\"run_id\":\"").append(esc(runId)).append('"');
         b.append(",\"config\":{");
         b.append("\"package\":\"").append(PKG).append('"');
         b.append(",\"main_activity\":\"").append(PKG).append(".ControlActivity\"");
-        b.append(",\"service\":\"").append(PKG).append(".SvcA\"");
-        b.append(",\"declared_extra_component\":\"").append(PKG).append(".SvcB\"");
-        b.append(",\"unknown_component\":\"").append(PKG).append(".SvcUnknown\"");
-        b.append(",\"scenario\":\"").append(PROBE_ID).append('"');
+        b.append(",\"scenarios\":[\"").append(SVC_002).append("\",\"")
+                .append(SVC_003).append("\",\"").append(SVC_004).append("\"]");
+        b.append(",\"services\":{\"").append(SVC_002).append("\":\"")
+                .append(PKG).append(".SvcStartIds\"");
+        b.append(",\"").append(SVC_003).append("\":\"").append(PKG).append(".SvcReturnValues\"");
+        b.append(",\"").append(SVC_004).append("\":\"").append(PKG).append(".SvcSelfStop\"}");
         b.append(",\"launch\":\"launcher\"");
-        b.append(",\"intent_extras\":false");
         b.append(",\"settle_ms\":").append(ControlActivity.SETTLE_MS);
+        b.append(",\"watchdog_ms\":").append(ControlActivity.WATCHDOG_MS);
         b.append('}');
+        int total = 0;
+        for (int i = 0; i < scenarios.size(); i++) {
+            List<String> bucket = events.get(scenarios.get(i));
+            total += (bucket == null) ? 0 : bucket.size();
+        }
         b.append(",\"observations\":{");
-        b.append("\"event_count\":").append(events.size());
-        b.append(",\"scenarios_completed\":[\"").append(PROBE_ID).append("\"]");
+        b.append("\"event_count\":").append(total);
+        b.append(",\"scenarios_completed\":[");
+        for (int i = 0; i < scenarios.size(); i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append('"').append(esc(scenarios.get(i))).append('"');
+        }
+        b.append(']');
+        b.append(",\"scenarios_observed\":[");
+        boolean first = true;
+        for (int i = 0; i < scenarios.size(); i++) {
+            String sid = scenarios.get(i);
+            List<String> bucket = events.get(sid);
+            if (bucket == null || bucket.isEmpty()) {
+                continue;
+            }
+            if (!first) {
+                b.append(',');
+            }
+            first = false;
+            b.append('"').append(esc(sid)).append('"');
+        }
+        b.append(']');
         b.append('}');
-        b.append(",\"events\":[").append(join(events)).append(']');
+        b.append(",\"scenarios\":[");
+        for (int i = 0; i < scenarios.size(); i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            String sid = scenarios.get(i);
+            List<String> bucket = events.get(sid);
+            b.append("{\"scenario\":\"").append(esc(sid)).append('"');
+            b.append(",\"events\":[").append(bucket == null ? "" : join(bucket)).append("]}");
+        }
+        b.append(']');
         b.append(",\"exceptions\":[").append(joinQuoted(exceptions)).append(']');
         b.append('}');
         return b.toString();
@@ -220,7 +296,7 @@ final class EventLog {
             }
         }
         if (alsoStdout) {
-            System.out.println("SVC001_RESULTS_FILE " + new File(filesDir, "results.json"));
+            System.out.println("SVC_RESULTS_FILE " + new File(filesDir, "results.json"));
         }
     }
 
