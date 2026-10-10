@@ -749,6 +749,21 @@ def main():
                    if not (t[1] == "AppObs-B" and t[2] == "onActivityCreated")]
         return out
 
+    def ft_wrong_transform(m, sid, tuples):
+        """Divergent Activity ordering (baseline-matching) but a WRONG FT value.
+
+        The pre-fix ATL bug returned null from findFragmentByTag; model that as
+        F-ADD-TAG reporting ``find:t1=null`` while every other scenario stays
+        Android-correct, so the ONLY difference from the reference is the FT
+        lookup value (the Activity ordering still matches the pinned baseline).
+        """
+        out = atl_transform(m, sid, list(tuples))
+        if sid == "F-ADD-TAG":
+            out = [t if t[2] != "find:t1=frag#1"
+                   else (t[0], t[1], "find:t1=null", t[3], t[4], t[5], t[6], t[7], t[8])
+                   for t in out]
+        return out
+
     atl_cand = build_reference(man, run="lv21-atl-0001", transform=atl_transform)
     atl_base = build_reference(man, run="lv21-atl-base-0001", transform=atl_transform)
     ref_base = build_reference(man, run="lv21-ref-base-0001")  # Android ordering
@@ -761,10 +776,17 @@ def main():
         REF, atl_path, 0, None, baseline=atl_base_path)
     # (b) same candidate, baseline uses the Android Activity ordering -> reject
     add("candidate-cross-activity-divergent-baseline-mismatch",
-        REF, atl_path, 1, "DUPLICATE_EVENT", baseline=ref_base_path)
+        REF, atl_path, 1, "BASELINE_MISMATCH", baseline=ref_base_path)
     # (e) divergent candidate with NO baseline -> fail closed
     add("candidate-cross-activity-divergent-no-baseline",
         REF, atl_path, 1, "MISSING_BASELINE")
+    # (f) FT lookup value wrong vs Android (ordering matches the baseline) ->
+    #     REJECT on the FT surface, proving FT is NOT pinned to the baseline.
+    add("candidate-ft-value-wrong",
+        REF, write_lines("candidate-ft-value-wrong.trace",
+                         build_reference(man, run="lv21-ftwrong-0001",
+                                         transform=ft_wrong_transform)),
+        1, "WRONG_EVENT", baseline=atl_base_path)
     # (c) within-event callback reorder (baseline unchanged, still pinned)
     add("candidate-within-event-reorder",
         REF, write_lines("candidate-within-event-reorder.trace",

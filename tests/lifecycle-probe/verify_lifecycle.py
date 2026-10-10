@@ -14,15 +14,18 @@ Two candidate-acceptance modes:
 * STRICT (no baseline). The candidate must reproduce the manifest's exact
   ordered per-scenario event stream, exactly as before.
 * PINNED (baseline supplied). The candidate is validated with the
-  PER-ACTIVITY-EVENT lifecycle-callback contract: mandatory event (group)
+  PER-ACTIVITY-EVENT lifecycle-callback contract (mandatory event (group)
   presence, and exact order/multiplicity/identity/Bundle/phase WITHIN each
-  ``(activity,event)`` callback list. The cross-Activity transition ordering
-  (and any other pre-existing ATL feature divergence) is not compared to
-  Android directly but PINNED to the baseline: the candidate's non-callback
-  event stream must equal the baseline's per scenario (so the patch introduces
-  no new change). An explicit ``DIVERGENCE`` line is emitted for every
-  scenario that differs from the Android reference. A missing baseline when a
-  comparison is required is a rejection (``MISSING_BASELINE``), never a pass.
+  ``(activity,event)`` callback list) AND its FragmentManager (FT) scenario
+  observations are validated per event against the Android reference, exactly
+  as in STRICT mode. The ONE baseline-pinned dimension is the cross-Activity
+  Activity-event ordering: the candidate's per-scenario Activity-only
+  pre/post framing sequence must equal the baseline's (nothing else is pinned
+  to the baseline). An explicit ``DIVERGENCE`` line is emitted for every
+  scenario whose Activity ordering differs from the Android reference; a
+  candidate whose Activity ordering does not match the baseline is rejected
+  (``BASELINE_MISMATCH``). A missing baseline when a comparison is required is
+  a rejection (``MISSING_BASELINE``), never a pass.
 
 Exit status:
     0  every selected mandatory check passed for BOTH sides and they match
@@ -89,7 +92,47 @@ def load_manifest(path):
             if ev.get("kind") not in ("app", "lifecycle"):
                 reject("MANIFEST_INVALID", "scenario %r has an event with kind %r"
                        % (s.get("id"), ev.get("kind")))
+    _check_acceptance_surface(man)
     return man
+
+
+def _check_acceptance_surface(man):
+    """Make the in-scope vs baseline-pinned split explicit and auditable.
+
+    ``acceptance_surface.in_scope.scenario_ids`` must list every scenario whose
+    observations are validated per event against the Android reference (i.e.
+    every non-externally-driven contract scenario), and ``pinned`` must name
+    exactly one pinned dimension whose ``baseline_required`` agrees with the
+    ``cross_activity_ordering`` block. This guards against a silent drift back
+    to pinning whole scenarios (e.g. the FT lookup values).
+    """
+    surface = man.get("acceptance_surface")
+    if surface is None:
+        reject("MANIFEST_INVALID", "manifest missing acceptance_surface")
+    in_scope = (surface.get("in_scope") or {})
+    ids = in_scope.get("scenario_ids")
+    pinned = surface.get("pinned")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        reject("MANIFEST_INVALID", "acceptance_surface.in_scope.scenario_ids must be a non-empty list of ids")
+    if len(set(ids)) != len(ids):
+        reject("MANIFEST_INVALID", "acceptance_surface.in_scope.scenario_ids has duplicates")
+    derived = [s["id"] for s in man["scenarios"] if not s.get("externally_driven")]
+    if sorted(ids) != sorted(derived):
+        reject("MANIFEST_INVALID",
+               "acceptance_surface.in_scope.scenario_ids %r must list every "
+               "contract-validated (non-external) scenario %r" % (ids, derived))
+    if not isinstance(pinned, dict):
+        reject("MANIFEST_INVALID", "acceptance_surface.pinned must be an object")
+    dims = pinned.get("dimensions")
+    if not isinstance(dims, list) or len(dims) != 1:
+        reject("MANIFEST_INVALID",
+               "acceptance_surface.pinned must name exactly one pinned dimension (got %r)" % (dims,))
+    ca = man.get("cross_activity_ordering", {})
+    if pinned.get("baseline_required") != ca.get("baseline_required"):
+        reject("MANIFEST_INVALID",
+               "acceptance_surface.pinned.baseline_required %r disagrees with "
+               "cross_activity_ordering.baseline_required %r"
+               % (pinned.get("baseline_required"), ca.get("baseline_required")))
 
 
 # ------------------------------------------------------------- line parsing ---
@@ -453,9 +496,11 @@ def validate(tr, man, role="full"):
                                   expected, actual)
                     continue
                 if not s.get("observers"):
-                    # Non-lifecycle (FragmentManager) scenario: not part of the
-                    # lifecycle callback contract; its divergence is pinned to
-                    # the baseline in compare_baseline().
+                    # Non-lifecycle (FragmentManager/FT) scenario: validated
+                    # per event against the Android reference exactly like the
+                    # lifecycle surface. NOT pinned to the baseline.
+                    sequence_diff(tr, "scenario %s (FT) events" % sid,
+                                  expected, actual)
                     continue
                 exp_loose, exp_groups = group_events(expected)
                 act_loose, act_groups = group_events(actual)
@@ -849,26 +894,21 @@ def activity_order_diff(ra, rc, man):
     return False
 
 
-def _is_observer(man, actor):
-    """Observer callbacks are probe-side; dynamic observers may not be listed."""
-    return actor in set(man.get("observers") or []) or str(actor).startswith("AppObs-")
-
-
-def _nonobserver(tr, sid, man):
-    return [event_tuple(e, FIELDS) for e in tr.events
-            if e.get("scenario") == sid and not _is_observer(man, e.get("actor"))]
-
-
 def compare_baseline(ra, rc, rb, man):
-    """PINNED mode: pin the candidate's non-callback stream to the ATL baseline.
+    """PINNED mode: pin ONLY the cross-Activity Activity-event ordering.
 
-    The candidate's Activity transition ordering (and any other pre-existing
-    ATL feature divergence) must be byte-for-byte identical to the baseline's
-    for every non-terminal scenario. A scenario whose pinned stream differs
-    from the Android reference is reported as an explicit DIVERGENCE.
+    The single baseline-pinned dimension is the per-scenario Activity-only
+    pre/post framing sequence (``activity_order``). For every non-terminal,
+    non-external scenario the candidate's Activity ordering must equal the
+    baseline's; a mismatch is rejected (BASELINE_MISMATCH), i.e. the candidate
+    shows some divergence other than the known, baseline-recorded one.
 
-    The candidate's callback-level lifecycle contract was already enforced by
-    validate(rc, man, "relaxed").
+    Nothing else is pinned: the candidate's lifecycle callback contract and its
+    FragmentManager (FT) scenario observations were already validated per event
+    against the Android reference by ``validate(rc, man, "relaxed")``.
+
+    A scenario whose Activity ordering differs from the Android reference is
+    reported with an explicit DIVERGENCE line.
     """
     ca = ra.json_block.get("config", {})
     cc = rc.json_block.get("config", {})
@@ -891,16 +931,18 @@ def compare_baseline(ra, rc, rb, man):
             # terminal: validated per-side by validate(); external close timing
             # is not comparable.
             continue
-        cn = _nonobserver(rc, sid, man)
-        bn = _nonobserver(rb, sid, man)
-        rn = _nonobserver(ra, sid, man)
-        sequence_diff(rc, "baseline-pinned scenario %s (candidate must equal baseline)" % sid,
-                      bn, cn)
-        if cn != rn:
+        ao_c = activity_order(rc, sid)
+        ao_b = activity_order(rb, sid)
+        if ao_c != ao_b:
+            reject("BASELINE_MISMATCH",
+                   "candidate cross-Activity Activity ordering in scenario %s does "
+                   "not match the pinned baseline (candidate diverges from the "
+                   "reference in a way the baseline does not)" % sid)
+        if ao_c != activity_order(ra, sid):
             divergent.append(sid)
     for sid in divergent:
-        print("DIVERGENCE %s: candidate ordering/feature stream differs from the "
-              "Android reference and is pinned byte-for-byte to the ATL baseline" % sid)
+        print("DIVERGENCE %s: candidate cross-Activity Activity ordering differs "
+              "from the Android reference and is pinned to the ATL baseline" % sid)
     return True
 
 

@@ -27,17 +27,26 @@
     "package": "org.atl.tests.lifecycle"
   },
   "acceptance_surface": {
-    "surface": "lifecycle-callbacks (LC)",
-    "candidate_contract": "per-(activity,event) lifecycle callback contract: every mandatory lifecycle event is present, and within each (activity,event) callback list the order, multiplicity, callback identity, Bundle null-ness and pre/post phase are all exact. Cross-Activity transition ordering and FragmentManager feature values are NOT part of this surface.",
-    "out_of_scope_pinned": [
-      "cross-Activity transition ordering (which Activity's onStop/onStart/onCreate framing comes first)",
-      "FragmentManager feature observations (the FT scenarios' lookup values)"
-    ]
+    "surface": "lifecycle-callbacks (LC) + FragmentManager tag lookup (FT)",
+    "candidate_contract": "per-(activity,event) lifecycle callback contract (mandatory event presence, and exact order/multiplicity/identity/Bundle/phase WITHIN each callback list) PLUS every FragmentManager tag scenario observation (add tag, find results, getTag, duplicate-tag newest, null/missing, pre-commit visibility, removal). Both are validated per event against the Android reference.",
+    "in_scope": {
+      "validated_against": "android-reference",
+      "dimensions": [
+        "LC per-(activity,event) callback contract",
+        "FT scenario observations (add tag, find results, getTag, duplicate-tag newest, null/missing, pre-commit visibility, removal)"
+      ],
+      "scenario_ids": ["S1", "S2", "S4.1", "S4.2", "S4.3", "S4.4", "S4.5", "S3D1", "L-SNAP", "L-REGD", "L-EQUALS", "F-ADD-TAG", "F-TAG-READ", "F-DUP-TAG", "F-NULL-MISS", "F-PRE-COMMIT", "F-REMOVE", "L-THROW"]
+    },
+    "pinned": {
+      "baseline_required": true,
+      "dimensions": ["cross-Activity Activity-event ordering (the Activity-only pre/post framing sequence)"],
+      "note": "ONLY this single dimension is compared against the baseline. Every in_scope scenario/event is otherwise compared against the Android reference. A candidate whose Activity ordering diverges from the reference must match the baseline's Activity ordering exactly per non-terminal scenario, or it is rejected (BASELINE_MISMATCH)."
+    }
   },
   "cross_activity_ordering": {
     "baseline_required": true,
     "divergence": "ATL runs the outgoing Activity's onPause/onStop before creating the incoming Activity, emitting ActA#1 onStop/onStart framing at a point where Android emits it elsewhere. This is pre-existing on the ATL side and byte-identical to the ATL baseline; it is not a regression the candidate can be blamed for.",
-    "pin": "In PINNED mode (baseline supplied) the candidate's non-observer event stream must equal the baseline's per scenario. Candidate scenarios whose stream differs from the Android reference are reported with an explicit DIVERGENCE line instead of being rejected. Without a baseline, a candidate whose cross-Activity ordering diverges is rejected (MISSING_BASELINE, fail closed)."
+    "pin": "In PINNED mode (baseline supplied) the candidate's per-scenario Activity-only pre/post framing sequence must equal the baseline's. Scenario observations other than that single dimension (all LC callback contract values and all FT lookup values) are still validated per event against the Android reference. Candidate scenarios whose Activity ordering differs from the Android reference are reported with an explicit DIVERGENCE line instead of being rejected. A candidate Activity ordering that does not match the baseline is rejected (BASELINE_MISMATCH). Without a baseline, a candidate whose cross-Activity ordering diverges is rejected (MISSING_BASELINE, fail closed)."
   },
   "completion_marker": "LIFE_ALL_DONE",
   "terminal_marker": "LIFE_PROBE_MARK TERMINAL_THROW_DONE",

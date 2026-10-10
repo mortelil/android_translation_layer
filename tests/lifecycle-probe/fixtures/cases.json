@@ -633,7 +633,7 @@
     "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
     "baseline": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/baseline-android-order.trace",
     "exit": 1,
-    "code": "DUPLICATE_EVENT",
+    "code": "BASELINE_MISMATCH",
     "expect": "reject",
     "env": ""
   },
@@ -645,6 +645,17 @@
     "baseline": "",
     "exit": 1,
     "code": "MISSING_BASELINE",
+    "expect": "reject",
+    "env": ""
+  },
+  {
+    "name": "candidate-ft-value-wrong",
+    "reference": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/reference-v2.1.trace",
+    "candidate": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/candidate-ft-value-wrong.trace",
+    "manifest": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/manifest.json",
+    "baseline": "/home/morten/ATL/review-repairs/tests/lifecycle-probe/fixtures/baseline-atl.trace",
+    "exit": 1,
+    "code": "WRONG_EVENT",
     "expect": "reject",
     "env": ""
   },
