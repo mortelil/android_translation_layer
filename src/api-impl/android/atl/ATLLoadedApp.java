@@ -321,15 +321,24 @@ public final class ATLLoadedApp {
 	 * requests by {@code Intent.FilterComparison}: extras are ignored, a different
 	 * action is a new identity and re-runs {@code onBind()} on the same
 	 * instance). The returned binder is cached on the record.
+	 *
+	 * <p>Returns true when the identity was left rebind-pending by a previous
+	 * {@code onUnbind()} that returned true: the caller then delivers
+	 * {@code onRebind()} (after {@code onServiceConnected()}) and {@code onBind()}
+	 * is not run again. The pending flag is consumed here, so a second bind of the
+	 * same identity runs neither callback.
 	 */
-	private void ensureBindingIdentity(ATLServiceRegistry.ServiceRecord record, Intent intent) {
+	private boolean ensureBindingIdentity(ATLServiceRegistry.ServiceRecord record, Intent intent) {
 		if (record.instance == null || intent == null)
-			return;
+			return false;
 		if (service_registry.hasBindingIdentity(record, intent))
-			return;
+			return false;
 		service_registry.addBindingIdentity(record, intent);
+		if (service_registry.consumeRebindPending(record, intent))
+			return true;
 		record.binder = record.instance.onBind(intent);
 		record.binderResolved = true;
+		return false;
 	}
 
 	/**
@@ -338,7 +347,9 @@ public final class ATLLoadedApp {
 	 * binding identity first. A connection is notified once per instance: a second
 	 * binding identity of the same connection re-runs {@code onBind()} but does not
 	 * produce another {@code onServiceConnected} (Android: the client already holds
-	 * the connection). Must be called on the main looper, never while the registry
+	 * the connection). An identity whose previous {@code onUnbind()} returned true
+	 * gets {@code onRebind()} after the connect callback instead of a fresh
+	 * {@code onBind()}. Must be called on the main looper, never while the registry
 	 * lock is held.
 	 */
 	private void deliverBoundClients(ATLServiceRegistry.ServiceRecord record) {
@@ -346,21 +357,26 @@ public final class ATLLoadedApp {
 			return;
 		java.util.ArrayList<ATLServiceRegistry.BoundClient> clients = service_registry.bindingsOf(record);
 		for (ATLServiceRegistry.BoundClient client : clients) {
-			if (client.requested && !client.delivered)
-				ensureBindingIdentity(record, client.intent);
+			if (client.requested && !client.delivered && ensureBindingIdentity(record, client.intent))
+				client.rebind = true;
 		}
 		for (ATLServiceRegistry.BoundClient client : clients) {
 			if (!client.requested || client.delivered)
 				continue;
 			client.delivered = true;
-			if (service_registry.connectionDelivered(record, client.connection))
-				continue;
-			service_registry.markConnectionDelivered(record, client.connection);
-			if (record.binder == null) {
-				client.connection.onNullBinding(record.component);
-			} else {
-				client.connection.onServiceConnected(record.component, record.binder);
+			boolean connected = !service_registry.connectionDelivered(record, client.connection);
+			if (connected) {
+				service_registry.markConnectionDelivered(record, client.connection);
+				if (record.binder == null) {
+					client.connection.onNullBinding(record.component);
+				} else {
+					client.connection.onServiceConnected(record.component, record.binder);
+				}
 			}
+			// Android delivers onRebind() right after the client is connected;
+			// an onUnbind() == true for this identity armed it.
+			if (client.rebind && record.instance != null)
+				record.instance.onRebind(client.intent);
 		}
 	}
 
@@ -411,7 +427,10 @@ public final class ATLLoadedApp {
 					// (but processed before its op) already removed the connection from
 					// the registry. The unbind op owns the removal/onUnbind()/onDestroy()
 					// for that connection, so only the identity resolution happens here.
-					ensureBindingIdentity(record, intent);
+					// An identity whose onUnbind() returned true is answered with
+					// onRebind() instead of onBind().
+					if (ensureBindingIdentity(record, intent) && record.instance != null)
+						record.instance.onRebind(intent);
 				} catch (ReflectiveOperationException e) {
 					Slog.e(TAG, "bindService: failed to bind service " + component.getClassName(), e);
 				}
@@ -422,19 +441,20 @@ public final class ATLLoadedApp {
 	}
 
 	/**
-	 * unbindService: removes the client from the registry and, when it was the
-	 * last client of a service that is not kept alive by a startService() request,
-	 * posts one onUnbind() per removed binding identity then onDestroy() to the
-	 * main looper. Unknown connections throw, matching Android.
-	 * onServiceDisconnected() is never called for an ordinary unbind and
-	 * onRebind() never fires for a purely bound service.
+	 * unbindService: removes the client from the registry and posts one
+	 * {@code onUnbind()} per binding identity whose last client it removed, even
+	 * when the instance survives for other clients or a startService() request;
+	 * {@code onDestroy()} is posted only when the unbind left the service neither
+	 * started nor bound (the destroy flag). A true {@code onUnbind()} return arms
+	 * {@code onRebind()} for the next bind of that identity. Unknown connections
+	 * throw, matching Android. onServiceDisconnected() is never called for an
+	 * ordinary unbind.
 	 */
 	public void unbindService(ServiceConnection serviceConnection) {
 		final ATLServiceRegistry.UnbindResult result = service_registry.unbind(serviceConnection);
 		final ATLServiceRegistry.ServiceRecord record = result.record;
-		if (record == null)
-			return;
 		final java.util.ArrayList<Intent> intents = result.intents;
+		final boolean destroy = result.destroy;
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
@@ -442,11 +462,14 @@ public final class ATLLoadedApp {
 				if (service == null)
 					return;
 				// Android delivers one onUnbind() per removed binding identity
-				// (extras-deduped), then destroys the instance.
+				// (extras-deduped) as soon as that identity's last client is gone,
+				// then destroys the instance only when nothing keeps it alive.
 				for (Intent intent : intents) {
-					service.onUnbind(intent);
+					if (service.onUnbind(intent))
+						service_registry.markRebindPending(record, intent);
 				}
-				service.onDestroy();
+				if (destroy)
+					service.onDestroy();
 			}
 		});
 	}

@@ -45,6 +45,8 @@ public final class ATLServiceRegistry {
 		public boolean delivered;
 		/** Set once this bind request has been processed on the main looper. */
 		public boolean requested;
+		/** Set when onServiceConnected() must be followed by onRebind(). */
+		public boolean rebind;
 
 		BoundClient(ServiceConnection connection, Intent intent) {
 			this.connection = connection;
@@ -72,6 +74,12 @@ public final class ATLServiceRegistry {
 		public final ArrayList<BoundClient> bindings = new ArrayList<>();
 		/** Binding identities (filterEquals) onBind() was already run for. */
 		public final ArrayList<Intent> boundIdentities = new ArrayList<>();
+		/**
+		 * Binding identities whose last client unbind ran onUnbind() returning
+		 * true: the next bind of such an identity delivers onRebind() instead of
+		 * onBind() while this instance survives.
+		 */
+		public final ArrayList<Intent> rebindPending = new ArrayList<>();
 		/** Connections already notified for the current instance. */
 		public final ArrayList<ServiceConnection> deliveredConnections = new ArrayList<>();
 
@@ -99,14 +107,24 @@ public final class ATLServiceRegistry {
 
 	/** Outcome of {@link #unbind}. */
 	public static final class UnbindResult {
-		/** The record to tear down (last client, not started); null when it stays. */
+		/** The record the connection was unbound from (never null). */
 		public final ServiceRecord record;
-		/** The distinct binding identities of the removed entries, for onUnbind(). */
+		/**
+		 * The distinct binding identities whose last client was removed, in
+		 * removal order, for onUnbind(); an identity that still has other clients
+		 * is not included.
+		 */
 		public final ArrayList<Intent> intents;
+		/**
+		 * True when the instance must now be destroyed: it was not kept alive by a
+		 * startService() request and no bound clients remain.
+		 */
+		public final boolean destroy;
 
-		UnbindResult(ServiceRecord record, ArrayList<Intent> intents) {
+		UnbindResult(ServiceRecord record, ArrayList<Intent> intents, boolean destroy) {
 			this.record = record;
 			this.intents = intents;
+			this.destroy = destroy;
 		}
 	}
 
@@ -239,6 +257,57 @@ public final class ATLServiceRegistry {
 		}
 	}
 
+	/** True when {@code intent}'s identity is pending an onRebind() delivery. */
+	public boolean consumeRebindPending(ServiceRecord record, Intent intent) {
+		synchronized (lock) {
+			for (Iterator<Intent> it = record.rebindPending.iterator(); it.hasNext();) {
+				if (sameIdentity(it.next(), intent)) {
+					it.remove();
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
+	/** Records that onUnbind() ran for {@code intent}'s identity and returned true. */
+	public void markRebindPending(ServiceRecord record, Intent intent) {
+		synchronized (lock) {
+			if (intent == null || record.destroyed) {
+				return;
+			}
+			for (Intent pending : record.rebindPending) {
+				if (sameIdentity(pending, intent)) {
+					return;
+				}
+			}
+			record.rebindPending.add(intent);
+		}
+	}
+
+	private static boolean identityHasClientsLocked(ServiceRecord record, Intent intent) {
+		for (BoundClient client : record.bindings) {
+			if (sameIdentity(client.intent, intent)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Drops every record of {@code intent}'s identity: it is no longer onBind()-bound. */
+	private static void removeIdentityLocked(ServiceRecord record, Intent intent) {
+		for (Iterator<Intent> it = record.boundIdentities.iterator(); it.hasNext();) {
+			if (sameIdentity(it.next(), intent)) {
+				it.remove();
+			}
+		}
+		for (Iterator<Intent> it = record.rebindPending.iterator(); it.hasNext();) {
+			if (sameIdentity(it.next(), intent)) {
+				it.remove();
+			}
+		}
+	}
+
 	private void addIdentityLocked(ServiceRecord record, Intent intent) {
 		if (intent == null) {
 			return;
@@ -285,12 +354,13 @@ public final class ATLServiceRegistry {
 
 	/**
 	 * Removes every binding entry of {@code connection} (Android unbinds the whole
-	 * connection, however many distinct identities it registered). Returns the
-	 * record to tear down when this was the last client of a not-started service
-	 * (the caller then posts {@code onUnbind} per removed identity +
-	 * {@code onDestroy}); returns a null record when other clients remain or the
-	 * service is kept alive by a startService() request. Throws when the
-	 * connection was never registered.
+	 * connection, however many distinct identities it registered). The removed
+	 * identities whose last client this was are returned for {@code onUnbind()}
+	 * even when the instance survives for other clients or a startService()
+	 * request; the {@code destroy} flag is set only when it was the last client of
+	 * a service that is not kept alive by a startService() request, in which case
+	 * the record is detached here and the caller then posts {@code onDestroy()}.
+	 * Throws when the connection was never registered.
 	 */
 	public UnbindResult unbind(ServiceConnection connection) {
 		synchronized (lock) {
@@ -301,8 +371,14 @@ public final class ATLServiceRegistry {
 					BoundClient client = it.next();
 					if (client.connection == connection) {
 						it.remove();
-						addIdentityDistinct(intents, client.intent);
 						found = record;
+						// Android runs one onUnbind() per binding identity once
+						// that identity's connections are all gone, independently
+						// of other identities or a leftover start request.
+						if (!identityHasClientsLocked(record, client.intent)) {
+							removeIdentityLocked(record, client.intent);
+							addIdentityDistinct(intents, client.intent);
+						}
 					}
 				}
 				if (found != null) {
@@ -312,12 +388,12 @@ public final class ATLServiceRegistry {
 			if (found == null) {
 				throw new IllegalArgumentException("Service not connected: " + connection);
 			}
-			if (!found.bindings.isEmpty() || found.started) {
-				return new UnbindResult(null, intents);
+			boolean destroy = !found.started && found.bindings.isEmpty();
+			if (destroy) {
+				records.remove(found.component);
+				found.destroyed = true;
 			}
-			records.remove(found.component);
-			found.destroyed = true;
-			return new UnbindResult(found, intents);
+			return new UnbindResult(found, intents, destroy);
 		}
 	}
 
