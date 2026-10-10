@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.atl.tests.pipquery">
+<uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28"/>
+<application android:label="PiP query contract" android:debuggable="true">
+<activity android:name=".ProbeActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+</application></manifest>
