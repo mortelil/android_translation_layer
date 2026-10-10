@@ -71,6 +71,8 @@ public class ControlActivity extends Activity {
     private int v3cursor = 0;
     private final List<V3Step> v4steps = new ArrayList<V3Step>();
     private int v4cursor = 0;
+    private final List<V3Step> v5steps = new ArrayList<V3Step>();
+    private int v5cursor = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,10 +87,12 @@ public class ControlActivity extends Activity {
                 EventLog.SVC_002, EventLog.SVC_003, EventLog.SVC_004,
                 EventLog.SVC_005, EventLog.SVC_006, EventLog.SVC_007,
                 EventLog.SVC_008, EventLog.SVC_009,
-                EventLog.SVC_010, EventLog.SVC_011, EventLog.SVC_013, EventLog.SVC_016});
+                EventLog.SVC_010, EventLog.SVC_011, EventLog.SVC_013, EventLog.SVC_016,
+                EventLog.SVC_012, EventLog.SVC_014, EventLog.SVC_015, EventLog.SVC_017});
         buildSteps();
         buildV3Steps();
         buildV4Steps();
+        buildV5Steps();
         handler.postDelayed(watchdog, WATCHDOG_MS);
         pump();
     }
@@ -601,13 +605,15 @@ public class ControlActivity extends Activity {
 
     private void startV4() {
         v4cursor = 0;
+        // Deterministic rerun: reset the SVC-013c persistent (static) guard.
+        SvcReenterUnbind.resetGuard();
         pumpV4();
     }
 
     /** Same barrier discipline as the v3 chain: one barrier after each call/burst. */
     private void pumpV4() {
         if (v4cursor >= v4steps.size()) {
-            log.finalizeRun();
+            startV5();
             return;
         }
         final V3Step s = v4steps.get(v4cursor++);
@@ -930,6 +936,170 @@ public class ControlActivity extends Activity {
                 } catch (Throwable t) {
                     log.noteException("burst call " + i + ": " + t);
                 }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- v5 chain
+
+    private void startV5() {
+        v5cursor = 0;
+        pumpV5();
+    }
+
+    /**
+     * v5 chain: same barrier discipline as v3/v4 (one barrier after each step).
+     * {@code pendingCallThread} is cleared before every step so non-SVC-012
+     * callbacks report the main thread as their issuing thread; a {@link BgCall}
+     * step re-annotates the issuing thread as "bg" while it runs.
+     */
+    private void pumpV5() {
+        if (v5cursor >= v5steps.size()) {
+            log.finalizeRun();
+            return;
+        }
+        final V3Step s = v5steps.get(v5cursor++);
+        EventLog.setCurrentScenario(s.scenario);
+        EventLog.setCallThread(null);
+        try {
+            s.call.run();
+        } catch (Throwable t) {
+            log.noteException("v5 step " + v5cursor + ": " + t);
+        }
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                EventLog.setCurrentScenario(s.scenario);
+                try {
+                    log.barrierEvent(s.scenario, s.component, s.barrierClient);
+                } catch (Throwable t) {
+                    log.noteException("v5 barrier: " + t);
+                }
+                pumpV5();
+            }
+        }, BARRIER_MS);
+    }
+
+    private void addV5(String scenario, String component, String client, Runnable call) {
+        v5steps.add(new V3Step(scenario, component, client, call));
+    }
+
+    private void buildV5Steps() {
+        // SVC-012: every API call issued from a background thread, joined before
+        // the next barrier. Component "A" here is the full-lifecycle SvcV4B class
+        // (logs onCreate/onStartCommand/onBind/onUnbind/onDestroy).
+        {
+            final String comp = EventLog.COMP_V4B;
+            Connection c1 = new Connection("c1");
+            addV5(EventLog.SVC_012, comp, "c1",
+                    new BgCall(new StartCallV4(EventLog.SVC_012, comp, "none", -1)));
+            addV5(EventLog.SVC_012, comp, "c1", new BgCall(new BindCall(
+                    EventLog.SVC_012, comp, c1, Context.BIND_AUTO_CREATE)));
+            addV5(EventLog.SVC_012, comp, "c1", new BgCall(new UnbindCallV4(
+                    EventLog.SVC_012, comp, c1, "c1")));
+            // step 4: bg thread startService then stopService, NO join between.
+            addV5(EventLog.SVC_012, comp, null, new BgCall(new BurstCall(
+                    new StartCallV4(EventLog.SVC_012, comp, "none", -1),
+                    new StopCallV4(EventLog.SVC_012, comp))));
+            // step 5: bg bind, then main-thread unbind (mixed-thread teardown).
+            addV5(EventLog.SVC_012, comp, "c1", new BgCall(new BindCall(
+                    EventLog.SVC_012, comp, c1, Context.BIND_AUTO_CREATE)));
+            addV5(EventLog.SVC_012, comp, "c1", new UnbindCallV4(
+                    EventLog.SVC_012, comp, c1, "c1"));
+        }
+        // SVC-014a: unknown/undeclared component (parity: null/false/false).
+        {
+            final String comp = EventLog.COMP_UNKNOWN;
+            Connection c1 = new Connection("c1");
+            addV5(EventLog.SVC_014, comp, null,
+                    new StartCallV4(EventLog.SVC_014, comp, "none", -1));
+            addV5(EventLog.SVC_014, comp, "c1", new BindCall(
+                    EventLog.SVC_014, comp, c1, Context.BIND_AUTO_CREATE));
+            addV5(EventLog.SVC_014, comp, null, new StopCallV4(EventLog.SVC_014, comp));
+        }
+        // SVC-014b: service declared android:process=":remote".
+        {
+            final String comp = EventLog.COMP_REMOTE;
+            Connection c2 = new Connection("c2");
+            addV5(EventLog.SVC_014, comp, null,
+                    new StartCallV4(EventLog.SVC_014, comp, "none", -1));
+            addV5(EventLog.SVC_014, comp, "c2", new BindCall(
+                    EventLog.SVC_014, comp, c2, Context.BIND_AUTO_CREATE));
+            addV5(EventLog.SVC_014, comp, null, new StopCallV4(EventLog.SVC_014, comp));
+        }
+        // SVC-015: N=5 started cycles, N=5 bound cycles, then the final state probe.
+        {
+            final String comp = EventLog.COMP_CYCLES;
+            for (int i = 0; i < 5; i++) {
+                addV5(EventLog.SVC_015, comp, null,
+                        new StartCallV4(EventLog.SVC_015, comp, "none", -1));
+                addV5(EventLog.SVC_015, comp, null, new StopCallV4(EventLog.SVC_015, comp));
+            }
+            Connection c1 = new Connection("c1");
+            for (int i = 0; i < 5; i++) {
+                addV5(EventLog.SVC_015, comp, "c1", new BindCall(
+                        EventLog.SVC_015, comp, c1, Context.BIND_AUTO_CREATE));
+                addV5(EventLog.SVC_015, comp, "c1", new UnbindCallV4(
+                        EventLog.SVC_015, comp, c1, "c1"));
+            }
+            addV5(EventLog.SVC_015, comp, null,
+                    new StartCallV4(EventLog.SVC_015, comp, "none", -1));
+            addV5(EventLog.SVC_015, comp, null, new StopCallV4(EventLog.SVC_015, comp));
+            // c1 already unbound: expect IllegalArgumentException (logged, continue).
+            addV5(EventLog.SVC_015, comp, "c1", new UnbindCallV4(
+                    EventLog.SVC_015, comp, c1, "c1"));
+        }
+        // SVC-017: started-then-bound instance with onUnbind()=true + onRebind().
+        {
+            final String comp = EventLog.COMP_BTS;
+            Connection c1 = new Connection("c1");
+            Connection c2 = new Connection("c2");
+            addV5(EventLog.SVC_017, comp, null,
+                    new StartCallV4(EventLog.SVC_017, comp, "none", -1));
+            addV5(EventLog.SVC_017, comp, "c1", new BindCall(
+                    EventLog.SVC_017, comp, c1, Context.BIND_AUTO_CREATE));
+            addV5(EventLog.SVC_017, comp, "c1", new UnbindCallV4(
+                    EventLog.SVC_017, comp, c1, "c1"));
+            addV5(EventLog.SVC_017, comp, "c2", new BindCall(
+                    EventLog.SVC_017, comp, c2, Context.BIND_AUTO_CREATE));
+            addV5(EventLog.SVC_017, comp, "c2", new UnbindCallV4(
+                    EventLog.SVC_017, comp, c2, "c2"));
+            addV5(EventLog.SVC_017, comp, null, new StopCallV4(EventLog.SVC_017, comp));
+            addV5(EventLog.SVC_017, comp, null, new StopCallV4(EventLog.SVC_017, comp));
+        }
+    }
+
+    /**
+     * Runs its body on a fresh background thread named "bg" and joins it before
+     * returning (the pump then posts the barrier). The issuing thread is
+     * annotated as "bg" so every callback caused by these calls reports
+     * {@code callThread="bg"} while {@code thread} stays the callback thread.
+     */
+    private final class BgCall implements Runnable {
+        private final Runnable body;
+
+        BgCall(Runnable body) {
+            this.body = body;
+        }
+
+        @Override
+        public void run() {
+            Thread t = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    EventLog.setCallThread("bg");
+                    try {
+                        body.run();
+                    } catch (Throwable x) {
+                        log.noteException("bg call: " + x);
+                    }
+                }
+            }, "bg");
+            t.start();
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
     }

@@ -19,13 +19,34 @@ import android.os.IBinder;
  *
  * The driver tears c2 down via {@link #c2()} (same process), logging it under
  * the client id "c2" to match the spec's planned trace.
+ *
+ * BOUNDED REDESIGN (probe v5, SVC-013c replacement): the guard is a
+ * <b>persistent (static) field</b>, not a per-instance field. V4's per-instance
+ * {@code rebound} flag was reset by every newly created instance because the
+ * platform destroyed the instance before the re-entrant {@code bindService} was
+ * delivered, so the guard never latched and the process cycled unboundedly
+ * (onCreate/onBind/onUnbind/bindService(c2)/onDestroy) until the 120s watchdog.
+ * With the static guard the re-entrant {@code bindService(c2)} is issued AT MOST
+ * ONCE for the whole scenario, so the run terminates and the ordering of that
+ * reentrant bind relative to {@code onDestroy} becomes observable.
  */
 public class SvcReenterUnbind extends Service {
     private final IBinder binder = new Binder();
 
     /** Service-owned second connection used by the re-entrant bind. */
     private static volatile ServiceConnection C2;
-    private boolean rebound = false;
+    /**
+     * Persistent (process-wide) guard: the re-entrant bind is issued at most
+     * once for the scenario, so a replacement instance created after the first
+     * onUnbind cannot re-trigger it (v4 cycled here). Static, not per-instance.
+     */
+    private static boolean REBOUND = false;
+
+    /** Reset the persistent guard before the scenario runs (deterministic rerun). */
+    static void resetGuard() {
+        REBOUND = false;
+        C2 = null;
+    }
 
     private String component() {
         return new ComponentName(this, SvcReenterUnbind.class).flattenToShortString();
@@ -61,8 +82,8 @@ public class SvcReenterUnbind extends Service {
         EventLog.get().serviceEventB(this, scen(), "onUnbind", component(),
                 -1, -1, "none", "", null, Boolean.toString(ret), null);
 
-        if (!rebound) {
-            rebound = true;
+        if (!REBOUND) {
+            REBOUND = true;
             // Log the re-entrant call, then issue it with a distinct identity.
             EventLog.get().serviceEventB(this, scen(), "bindService(c2)", component(),
                     -1, -1, "none", "", null, "called", null);

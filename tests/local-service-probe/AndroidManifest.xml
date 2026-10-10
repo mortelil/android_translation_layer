@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <!--
-  LOCAL-SERVICES probe v4 (task LOCAL-SERVICES-PROBE-V4), cases SVC-002..SVC-016.
-  = v3 (SVC-002..009) + appended SVC-010/011/013/016.
+  LOCAL-SERVICES probe v5 (task LOCAL-SERVICES-PROBE-V5), cases SVC-002..SVC-017.
+  = v4 (SVC-002..016) + appended SVC-012/013c-bounded/014/015/017.
 
   Declared components:
     .ControlActivity      MAIN/LAUNCHER, exported; stays alive for the whole run
@@ -27,7 +27,7 @@
     package="org.atl.tests.svc">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <application
-        android:label="ATL LOCAL-SERVICES probe v4"
+        android:label="ATL LOCAL-SERVICES probe v5"
         android:debuggable="true">
         <activity
             android:name=".ControlActivity"
@@ -73,5 +73,16 @@
         <service
             android:name=".SvcReenterUnbind"
             android:exported="false" />
+        <!-- v5 components -->
+        <service
+            android:name=".SvcUnbindTrueStarted"
+            android:exported="false" />
+        <service
+            android:name=".SvcCycles"
+            android:exported="false" />
+        <service
+            android:name=".SvcRemote"
+            android:exported="false"
+            android:process=":remote" />
     </application>
 </manifest>

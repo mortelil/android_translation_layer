@@ -42,8 +42,8 @@ import java.util.UUID;
  * instance is instance=1 exactly as the specs' planned traces require.
  */
 final class EventLog {
-    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V4";
-    static final String PROBE_ID = "SVC-PROBE-V4";
+    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V5";
+    static final String PROBE_ID = "SVC-PROBE-V5";
     static final String MARKER_BEGIN = "SVC_JSON_BEGIN";
     static final String MARKER_END = "SVC_JSON_END";
     static final String PKG = "org.atl.tests.svc";
@@ -60,6 +60,12 @@ final class EventLog {
     static final String SVC_011 = "SVC-011";
     static final String SVC_013 = "SVC-013";
     static final String SVC_016 = "SVC-016";
+
+    /* v5 scenarios (appended after the preserved v4 set). */
+    static final String SVC_012 = "SVC-012";
+    static final String SVC_014 = "SVC-014";
+    static final String SVC_015 = "SVC-015";
+    static final String SVC_017 = "SVC-017";
 
     /** Component name fields used by the v2 scenarios (labelled "component A" per spec). */
     static final String COMP_002 = PKG + "/.SvcStartIds";
@@ -88,6 +94,16 @@ final class EventLog {
     /** Ir3 — SVC-013c: re-enters bindService from onUnbind. */
     static final String COMP_RE_UNBIND = PKG + "/.SvcReenterUnbind";
 
+    /* v5 components. */
+    /** A — SVC-015: fresh instance per cycle, monotonically increasing index. */
+    static final String COMP_CYCLES = PKG + "/.SvcCycles";
+    /** Bts — SVC-017: started + bound; onUnbind returns true, onRebind implemented. */
+    static final String COMP_BTS = PKG + "/.SvcUnbindTrueStarted";
+    /** SVC-014a: component that is NOT declared in the manifest (must not resolve). */
+    static final String COMP_UNKNOWN = PKG + "/.SvcUnknown";
+    /** SVC-014b: declared with android:process=":remote" (separate process on Android). */
+    static final String COMP_REMOTE = PKG + "/.SvcRemote";
+
     /**
      * Scenario the currently executing service callbacks belong to. v3 reuses
      * one component class across SVC-005/006/007, so a service cannot hard-code
@@ -101,6 +117,25 @@ final class EventLog {
 
     static synchronized String currentScenario() {
         return currentScenario;
+    }
+
+    /**
+     * SVC-012: the thread that issued the API call currently being delivered to
+     * the main thread. Service callbacks (which always run on the main thread)
+     * report this as their {@code callThread}; the driver sets it right before
+     * issuing a call (e.g. "bg" for a background-thread call) and clears it
+     * between steps. When unset, the current thread is the issuing thread.
+     */
+    private static volatile String pendingCallThread = null;
+
+    static void setCallThread(String name) {
+        pendingCallThread = name;
+    }
+
+    /** The issuing thread for a callback event: explicit annotation, else current. */
+    private static String callThreadForCallback() {
+        String v = pendingCallThread;
+        return (v != null) ? v : Thread.currentThread().getName();
     }
 
     private static EventLog INSTANCE;
@@ -177,7 +212,8 @@ final class EventLog {
                                   String intentExtra, String cmd, String ret,
                                   String retType, String exceptionClass) {
         append(scenario, null, event, component, -1, -1, intentExtra, cmd, null,
-                ret, retType, exceptionClass, null, null);
+                ret, retType, exceptionClass, null, null,
+                Thread.currentThread().getName());
     }
 
     /**
@@ -189,7 +225,8 @@ final class EventLog {
                                     String binder, int flags, String ret,
                                     String retType, String exceptionClass) {
         append(scenario, null, event, component, -1, flags, intentExtra, cmd, null,
-                ret, retType, exceptionClass, client, binder);
+                ret, retType, exceptionClass, client, binder,
+                Thread.currentThread().getName());
     }
 
     /** Service callback event (v2 shape, no binding identity). */
@@ -198,7 +235,8 @@ final class EventLog {
                                    String intentExtra, String cmd, Integer returnValue,
                                    String ret) {
         append(scenario, serviceIdentity, event, component, startId, flags,
-                intentExtra, cmd, returnValue, ret, null, null, null, null);
+                intentExtra, cmd, returnValue, ret, null, null, null, null,
+                callThreadForCallback());
     }
 
     /**
@@ -211,13 +249,15 @@ final class EventLog {
                                     String intentExtra, String cmd, Integer returnValue,
                                     String ret, String binder) {
         append(scenario, serviceIdentity, event, component, startId, flags,
-                intentExtra, cmd, returnValue, ret, null, null, null, binder);
+                intentExtra, cmd, returnValue, ret, null, null, null, binder,
+                callThreadForCallback());
     }
 
     /** Barrier event: proves the main-Looper no-op runnable drained the queue. */
     synchronized void barrierEvent(String scenario, String component, String client) {
         append(scenario, null, "barrier", component, -1, -1, "none", "", null,
-                null, null, null, client, null);
+                null, null, null, client, null,
+                Thread.currentThread().getName());
     }
 
     /**
@@ -245,7 +285,7 @@ final class EventLog {
                                      String component, int startId, int flags,
                                      String intentExtra, String cmd, Integer returnValue,
                                      String ret, String retType, String exceptionClass,
-                                     String client, String binder) {
+                                     String client, String binder, String callThread) {
         if (finalized) {
             return;
         }
@@ -267,6 +307,7 @@ final class EventLog {
         b.append(",\"returnValue\":")
                 .append(returnValue == null ? "null" : returnValue.toString());
         b.append(",\"thread\":\"").append(esc(thread)).append('"');
+        b.append(",\"callThread\":\"").append(esc(callThread)).append('"');
         b.append(",\"ret\":").append(ret == null ? "null" : "\"" + esc(ret) + "\"");
         b.append(",\"client\":").append(client == null ? "null" : "\"" + esc(client) + "\"");
         b.append(",\"binder\":").append(binder == null ? "null" : "\"" + esc(binder) + "\"");
@@ -339,6 +380,18 @@ final class EventLog {
         }
         if (SVC_016.equals(sid)) {
             return PKG + ".SvcStopSelfV4";
+        }
+        if (SVC_012.equals(sid)) {
+            return PKG + ".SvcV4B";
+        }
+        if (SVC_014.equals(sid)) {
+            return PKG + ".SvcRemote";
+        }
+        if (SVC_015.equals(sid)) {
+            return PKG + ".SvcCycles";
+        }
+        if (SVC_017.equals(sid)) {
+            return PKG + ".SvcUnbindTrueStarted";
         }
         return "";
     }
