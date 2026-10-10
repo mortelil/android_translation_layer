@@ -114,9 +114,9 @@ public class Paint {
 		return -getTextSize();
 	}
 
-	public float measureText(char[] text, int index, int count) { return native_text_advance(paint, new String(text, index, count)); }
+	public float measureText(char[] text, int index, int count) { return (float)Math.ceil(native_text_advance(paint, new String(text, index, count))); }
 	public float measureText(String text, int start, int end) {
-		return native_text_advance(paint, text.substring(start, end));
+		return (float)Math.ceil(native_text_advance(paint, text.substring(start, end)));
 	}
 	public float measureText(String text) {
 		return measureText(text, 0, text.length());
