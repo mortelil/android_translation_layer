@@ -94,7 +94,16 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCopy(JNIEnv *env, j
 JNIEXPORT jint JNICALL Java_android_graphics_Typeface_nativeStyle(JNIEnv *env, jclass cls, jlong handle)
 {
 	struct AndroidTypeface *font = _PTR(handle);
-	return pango_font_description_get_weight(font->description) | (pango_font_description_get_style(font->description) != PANGO_STYLE_NORMAL ? 0x10000 : 0);
+	/* AOSP derives the resolved style weight from the 'wght' axis (clamped to 1..1000) when
+	 * variations carry it; otherwise it reads the font tables (here: the Pango weight). */
+	int weight = atl_variation_axis_value(pango_font_description_get_variations(font->description), "wght");
+	if (weight >= 0) {
+		if (weight < 1) weight = 1;
+		else if (weight > 1000) weight = 1000;
+	} else {
+		weight = pango_font_description_get_weight(font->description);
+	}
+	return weight | (pango_font_description_get_style(font->description) != PANGO_STYLE_NORMAL ? 0x10000 : 0);
 }
 JNIEXPORT void JNICALL Java_android_graphics_Typeface_nativeRelease(JNIEnv *env, jclass cls, jlong handle)
 {

@@ -2,6 +2,8 @@ package android.graphics;
 
 import java.util.Locale;
 
+import android.graphics.fonts.FontVariationAxis;
+
 public class Paint {
 	public static final int ANTI_ALIAS_FLAG = (1 << 0);
 	public static final int FILTER_BITMAP_FLAG = (1 << 1);
@@ -86,7 +88,14 @@ public class Paint {
 	}
 
 	public boolean setFontVariationSettings(String fvs) {
-		return true;
+		FontVariationAxis[] axes = FontVariationAxis.fromFontVariationSettings(fvs);
+		StringBuilder settings = new StringBuilder();
+		if (axes != null) for (FontVariationAxis axis : axes) {
+			if (axis == null) continue;
+			if (settings.length() > 0) settings.append(',');
+			settings.append(axis.getTag()).append('=').append(axis.getStyleValue());
+		}
+		return native_set_font_variation_settings(paint, settings.length() == 0 ? null : settings.toString());
 	}
 
 	public void setStrokeWidth(float width) {
@@ -522,6 +531,7 @@ public class Paint {
 	private static native float native_get_text_widths(long paint, String text, float[] widths, int flags, int hinting, float letterSpacing, float textSkewX);
 	private static native float native_text_advance(long paint, String text);
 	private static native void native_set_typeface(long paint, long typeface);
+	private static native boolean native_set_font_variation_settings(long paint, String settings);
 	private static native long native_create();
 	private static native long native_clone(long paint);
 	private static native void native_recycle(long paint);

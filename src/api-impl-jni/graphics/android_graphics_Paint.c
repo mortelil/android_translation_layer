@@ -16,6 +16,7 @@
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
 #include FT_MODULE_H
+#include FT_MULTIPLE_MASTERS_H
 #include FT_TRUETYPE_TABLES_H
 #include <math.h>
 #include <stdint.h>
@@ -214,6 +215,62 @@ static char *atl_paint_font_file(struct AndroidPaint *paint, int *index)
 	return path;
 }
 
+/* Applies the design coordinates a font variation settings string describes to a variable face,
+ * mirroring Skia's SkTypeface_FreeType::FaceRec::setupAxes / computeAxisValues
+ * (skia 508606366, src/ports/SkFontHost_FreeType.cpp:322,2317): every axis of the face gets a
+ * coordinate - its fvar default, overridden by a matching requested axis clamped to [min,max] -
+ * and FT_Set_Var_Design_Coordinates is called with the whole array. Returns the number of
+ * requested axes that matched a real axis (0 = no variable axis touched). */
+static int atl_ft_face_apply_variations(FT_Library library, FT_Face face, const char *variations)
+{
+	if (!face || !variations || !*variations)
+		return 0;
+	if (!(face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS))
+		return 0;
+	FT_MM_Var *mm = NULL;
+	if (FT_Get_MM_Var(face, &mm) || !mm)
+		return 0;
+	FT_Fixed *coords = g_new0(FT_Fixed, mm->num_axis);
+	for (FT_UInt a = 0; a < mm->num_axis; a++)
+		coords[a] = mm->axis[a].def;
+	int matched = 0;
+	const char *p = variations;
+	while (*p) {
+		while (*p == ' ' || *p == '\t' || *p == ',') p++;
+		if (!*p) break;
+		char tag[4];
+		int n = 0;
+		if (*p == '\'' || *p == '"') {
+			char quote = *p++;
+			while (*p && *p != quote && n < 4) tag[n++] = *p++;
+			if (*p == quote) p++;
+		} else {
+			while (*p && *p != '=' && *p != ',' && *p != ' ' && *p != '\t' && n < 4) tag[n++] = *p++;
+		}
+		while (*p == ' ' || *p == '\t' || *p == '=') p++;
+		char *end = NULL;
+		double value = strtod(p, &end);
+		if (end == p) break; /* malformed remainder */
+		p = end;
+		if (n != 4) continue;
+		FT_ULong want = FT_MAKE_TAG((FT_ULong)(unsigned char)tag[0], (FT_ULong)(unsigned char)tag[1], (FT_ULong)(unsigned char)tag[2], (FT_ULong)(unsigned char)tag[3]);
+		for (FT_UInt a = 0; a < mm->num_axis; a++) {
+			if (mm->axis[a].tag != want) continue;
+			double lo = mm->axis[a].minimum / 65536.0, hi = mm->axis[a].maximum / 65536.0;
+			if (value < lo) value = lo;
+			if (value > hi) value = hi;
+			coords[a] = (FT_Fixed)(value * 65536.0); /* SkScalarToFixed */
+			matched++;
+			break;
+		}
+	}
+	if (matched)
+		FT_Set_Var_Design_Coordinates(face, mm->num_axis, coords);
+	FT_Done_MM_Var(library, mm);
+	g_free(coords);
+	return matched;
+}
+
 /* Opens a private FreeType library/face for the font file Pango resolves for this paint, with
  * the classic TrueType interpreter (version 35) Android's emulator runs, so the hinted advances
  * and ink boxes match. The face is not given a size here; callers set it (Skia sizes with
@@ -230,6 +287,9 @@ static FT_Face atl_paint_ft_face(struct AndroidPaint *paint, float text_size, FT
 		if (FT_New_Face(library, font_path, font_index, &face)) {
 			FT_Done_FreeType(library);
 			library = NULL;
+		} else {
+			/* Skia applies the variation coordinates to the face before sizing it. */
+			atl_ft_face_apply_variations(library, face, pango_font_description_get_variations(paint->font));
 		}
 	}
 	g_free(font_path);
@@ -423,8 +483,14 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 		double kern_scale = 256.0 * face->size->metrics.x_ppem;
 		/* Paint.isFakeBoldText(), or FontFamily::computeFakery(wanted, actual). */
 		bool embolden = (flags & ATL_FAKE_BOLD_TEXT_FLAG) != 0;
-		if (!embolden && typeface_weight >= 600)
-			embolden = (typeface_weight - atl_ft_face_weight(face)) >= 200;
+		if (!embolden && typeface_weight >= 600) {
+			/* The weight the resolved font instance really has: the requested 'wght' axis when the
+			 * description carries variations (minikin's analyzeStyle uses it for the typeface
+			 * style, so computeFakery sees it as the actual weight), else the OS/2 table. */
+			int actual_weight = atl_variation_axis_value(pango_font_description_get_variations(paint->font), "wght");
+			if (actual_weight < 0) actual_weight = atl_ft_face_weight(face);
+			embolden = (typeface_weight - actual_weight) >= 200;
+		}
 		FT_Pos embolden_strength = embolden ? FT_MulFix(face->units_per_EM, face->size->metrics.y_scale) / 34 : 0;
 		/* minikin's letter spacing in pixels; ATL exposes no text scaleX (SkFont's default 1). */
 		double letter_space = (double)letter_spacing * (double)size;
@@ -791,6 +857,69 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1typeface(JNIEnv 
 	pango_font_description_merge(paint->font, font->description, TRUE);
 	pango_font_description_set_variations(paint->font, pango_font_description_get_variations(font->description));
 	g_set_object(&paint->font_map, font->map);
+}
+
+/* Paint.setFontVariationSettings(String). Stores the settings on the paint's font description
+ * (the measurement path applies them to the FreeType face) and mirrors AOSP's return value: the
+ * settings are filtered against the resolved typeface's axes, and false is returned when none of
+ * the requested axes exists on it (frameworks-base 94b4c163,
+ * graphics/java/android/graphics/Paint.java:2149). */
+JNIEXPORT jboolean JNICALL Java_android_graphics_Paint_native_1set_1font_1variation_1settings(JNIEnv *env, jclass clazz, jlong paint_ptr, jstring settings_ptr)
+{
+	struct AndroidPaint *paint = _PTR(paint_ptr);
+	if (!settings_ptr) {
+		pango_font_description_set_variations(paint->font, NULL);
+		return JNI_TRUE;
+	}
+	const char *settings = (*env)->GetStringUTFChars(env, settings_ptr, NULL);
+	if (!settings)
+		return JNI_FALSE;
+	pango_font_description_set_variations(paint->font, settings);
+	/* Resolve the file Pango would use and check the axes against the face. If the face cannot be
+	 * inspected (no file, not a variable font) the settings are left in place and accepted. */
+	jboolean supported = JNI_TRUE;
+	int font_index = 0;
+	char *font_path = atl_paint_font_file(paint, &font_index);
+	FT_Library library = NULL;
+	FT_Face face = NULL;
+	if (font_path && !FT_Init_FreeType(&library) && !FT_New_Face(library, font_path, font_index, &face)) {
+		FT_MM_Var *mm = NULL;
+		if ((face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS) && !FT_Get_MM_Var(face, &mm) && mm) {
+			int matched = 0;
+			const char *p = settings;
+			while (*p) {
+				while (*p == ' ' || *p == '\t' || *p == ',') p++;
+				if (!*p) break;
+				char tag[4];
+				int n = 0;
+				if (*p == '\'' || *p == '"') {
+					char quote = *p++;
+					while (*p && *p != quote && n < 4) tag[n++] = *p++;
+					if (*p == quote) p++;
+				} else {
+					while (*p && *p != '=' && *p != ',' && *p != ' ' && *p != '\t' && n < 4) tag[n++] = *p++;
+				}
+				while (*p == ' ' || *p == '\t' || *p == '=') p++;
+				char *end = NULL;
+				(void)strtod(p, &end);
+				if (end == p) break;
+				p = end;
+				if (n != 4) continue;
+				FT_ULong want = FT_MAKE_TAG((FT_ULong)(unsigned char)tag[0], (FT_ULong)(unsigned char)tag[1], (FT_ULong)(unsigned char)tag[2], (FT_ULong)(unsigned char)tag[3]);
+				for (FT_UInt a = 0; a < mm->num_axis; a++)
+					if (mm->axis[a].tag == want) { matched++; break; }
+			}
+			if (matched == 0)
+				supported = JNI_FALSE;
+			FT_Done_MM_Var(library, mm);
+		}
+		FT_Done_Face(face);
+	}
+	if (library)
+		FT_Done_FreeType(library);
+	g_free(font_path);
+	(*env)->ReleaseStringUTFChars(env, settings_ptr, settings);
+	return supported;
 }
 
 JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1text_1advance(JNIEnv *env, jclass cls, jlong ptr, jstring text)
