@@ -9,6 +9,13 @@
 #include "AndroidTextAttributes.h"
 #include "pango/pango-font.h"
 #include "pango/pangofc-font.h"
+#include "pango/pangofc-fontmap.h"
+#include <fontconfig/fontconfig.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_OUTLINE_H
+#include FT_MODULE_H
+#include <math.h>
 
 #include "../generated_headers/android_graphics_Paint.h"
 
@@ -161,6 +168,53 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1color_1filter(JN
 
 extern GtkWidget *window;
 
+/* Resolve the font file Pango will use for this paint so the ink box can be measured with
+ * FreeType directly. Typeface.createFromFile registers the bundled file in the private
+ * FcConfig owned by the typeface's PangoFcFontMap (see android_graphics_Typeface.c), which is
+ * why that config - and not the global one - is queried when a map is present. Returns a newly
+ * allocated path, or NULL when no font file could be resolved. */
+static char *atl_paint_font_file(struct AndroidPaint *paint, int *index)
+{
+	const char *family = pango_font_description_get_family(paint->font);
+	if (!family)
+		return NULL;
+	FcConfig *config = NULL;
+	if (paint->font_map && PANGO_IS_FC_FONT_MAP(paint->font_map))
+		config = pango_fc_font_map_get_config(PANGO_FC_FONT_MAP(paint->font_map));
+	FcPattern *pattern = FcPatternCreate();
+	char *path = NULL;
+	if (!pattern)
+		return NULL;
+	FcPatternAddString(pattern, FC_FAMILY, (const FcChar8 *)family);
+	int weight = pango_font_description_get_weight(paint->font);
+	if (weight >= 0)
+		FcPatternAddInteger(pattern, FC_WEIGHT, FcWeightFromOpenType(weight));
+	if (pango_font_description_get_style(paint->font) == PANGO_STYLE_ITALIC)
+		FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ITALIC);
+	FcConfigSubstitute(config, pattern, FcMatchPattern);
+	FcDefaultSubstitute(pattern);
+	FcResult result;
+	FcPattern *match = FcFontMatch(config, pattern, &result);
+	if (match) {
+		FcChar8 *file = NULL;
+		if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch)
+			path = g_strdup((const char *)file);
+		FcPatternGetInteger(match, FC_INDEX, 0, index);
+		FcPatternDestroy(match);
+	}
+	FcPatternDestroy(pattern);
+	return path;
+}
+
+/* Android's getTextBounds returns the integer ink box of the laid out text: Skia unions, for
+ * every laid out glyph, the glyph's hinted outline control box (SkGlyph::rect() == roundOut of
+ * FT_Outline_Get_CBox in pixels; zero-area glyphs are dropped) placed at the pen position that
+ * the HarfBuzz advances Minikin uses produce. The emulator's FreeType runs the classic TrueType
+ * interpreter (interpreter-version 35) while the system FreeType defaults to 40, which changes
+ * both the hinted advances and the ink boxes, so the measurement is done on a private interp-35
+ * FreeType library/face rather than on the one Pango uses (setting the property on the shared
+ * library would change the rendering of all other text and is not reachable there anyway).
+ * Text alignment never participates in the result. */
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNIEnv *env, jclass clazz, jlong paint_ptr, jstring text_ptr, jobject bounds)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
@@ -169,17 +223,93 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 	const char *str = (*env)->GetStringUTFChars(env, text_ptr, NULL);
 	pango_layout_set_text(layout, str, -1);
 	(*env)->ReleaseStringUTFChars(env, text_ptr, str);
-	PangoRectangle rect;
-	pango_layout_get_pixel_extents(layout, NULL, &rect);
-	rect.y -= (float)pango_layout_get_baseline(layout) / PANGO_SCALE;
-	if (paint->alignment == PANGO_ALIGN_CENTER)
-		rect.x -= rect.width / 2.f;
-	else if (paint->alignment == PANGO_ALIGN_RIGHT)
-		rect.x -= rect.width;
-	_SET_INT_FIELD(bounds, "left", rect.x);
-	_SET_INT_FIELD(bounds, "top", rect.y);
-	_SET_INT_FIELD(bounds, "right", rect.x + rect.width);
-	_SET_INT_FIELD(bounds, "bottom", rect.y + rect.height);
+
+	int left = 0, top = 0, right = 0, bottom = 0;
+	float text_size = (float)pango_font_description_get_size(paint->font) / PANGO_SCALE;
+	int font_index = 0;
+	char *font_path = atl_paint_font_file(paint, &font_index);
+	FT_Library library = NULL;
+	FT_Face face = NULL;
+	if (font_path && text_size > 0 && !FT_Init_FreeType(&library)) {
+		FT_UInt interpreter_version = 35; /* classic TrueType interpreter, as on Android */
+		FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
+		if (FT_New_Face(library, font_path, font_index, &face)) {
+			FT_Done_FreeType(library);
+			library = NULL;
+		}
+	}
+	g_free(font_path);
+
+	if (face) {
+		/* SkScalerContext_FreeType sizes with SkScalarToFDot6(size) == round(size * 64) and
+		 * loads with the flags of the current SkFontHinting (kNormal -> FT_LOAD_TARGET_NORMAL);
+		 * Android's framework build always adds FT_LOAD_NO_AUTOHINT. */
+		int size26 = (int)roundf(text_size * 64.f);
+		FT_Set_Char_Size(face, size26, size26, 72, 72);
+		/* Minikin shapes with HarfBuzz and positions are 1/256 px, so the pair kerning is
+		 * scaled by 256 * x_ppem (the font's integer pixel size), not by the fractional size. */
+		double kern_scale = 256.0 * face->size->metrics.x_ppem;
+		double pen = 0; /* pen position in 1/256 px */
+		double min_left = 0, min_top = 0, max_right = 0, max_bottom = 0;
+		bool have_ink = false;
+		PangoLayoutLine *line = pango_layout_get_line_readonly(layout, 0);
+		for (GSList *run = line ? line->runs : NULL; run; run = run->next) {
+			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
+			for (int i = 0; i < glyphs->num_glyphs; i++) {
+				FT_UInt glyph = glyphs->glyphs[i].glyph;
+				double advance = 0;
+				if (!FT_Load_Glyph(face, glyph, FT_LOAD_TARGET_NORMAL | FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH | FT_LOAD_BITMAP_METRICS_ONLY)) {
+					FT_BBox cbox;
+					FT_Outline_Get_CBox(&face->glyph->outline, &cbox);
+					advance = face->glyph->advance.x * 4.0; /* 26.6 px -> 1/256 px */
+					int glyph_left = (int)floor(cbox.xMin / 64.0);
+					int glyph_top = (int)floor(-cbox.yMax / 64.0);
+					int glyph_right = (int)ceil(cbox.xMax / 64.0);
+					int glyph_bottom = (int)ceil(-cbox.yMin / 64.0);
+					if (glyph_right > glyph_left && glyph_bottom > glyph_top) {
+						double glyph_pen = pen / 256.0;
+						if (!have_ink || glyph_pen + glyph_left < min_left)
+							min_left = glyph_pen + glyph_left;
+						if (!have_ink || glyph_pen + glyph_right > max_right)
+							max_right = glyph_pen + glyph_right;
+						if (!have_ink || glyph_top < min_top)
+							min_top = glyph_top;
+						if (!have_ink || glyph_bottom > max_bottom)
+							max_bottom = glyph_bottom;
+						have_ink = true;
+					}
+				}
+				if (i + 1 < glyphs->num_glyphs && face->units_per_EM > 0) {
+					/* HarfBuzz adds the pair adjustment to the first glyph's advance. */
+					FT_Vector kern;
+					if (!FT_Get_Kerning(face, glyph, glyphs->glyphs[i + 1].glyph, FT_KERNING_UNSCALED, &kern))
+						advance += llround((double)kern.x * kern_scale / (double)face->units_per_EM);
+				}
+				pen += advance;
+			}
+		}
+		if (have_ink) {
+			left = (int)floor(min_left);
+			top = (int)floor(min_top);
+			right = (int)ceil(max_right);
+			bottom = (int)ceil(max_bottom);
+		}
+		FT_Done_Face(face);
+		FT_Done_FreeType(library);
+	} else {
+		/* No resolvable font file: keep the previous Pango-based approximation. */
+		PangoRectangle rect;
+		pango_layout_get_pixel_extents(layout, NULL, &rect);
+		rect.y -= pango_layout_get_baseline(layout) / PANGO_SCALE;
+		left = rect.x;
+		top = rect.y;
+		right = rect.x + rect.width;
+		bottom = rect.y + rect.height;
+	}
+	_SET_INT_FIELD(bounds, "left", left);
+	_SET_INT_FIELD(bounds, "top", top);
+	_SET_INT_FIELD(bounds, "right", right);
+	_SET_INT_FIELD(bounds, "bottom", bottom);
 	g_object_unref(layout);
 }
 
