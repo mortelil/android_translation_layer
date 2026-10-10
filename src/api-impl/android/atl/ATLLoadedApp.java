@@ -429,7 +429,13 @@ public final class ATLLoadedApp {
 					// for that connection, so only the identity resolution happens here.
 					// An identity whose onUnbind() returned true is answered with
 					// onRebind() instead of onBind().
-					if (ensureBindingIdentity(record, intent) && record.instance != null)
+					//
+					// Skip it when this op's own client was already delivered above: a
+					// reentrant unbindService() issued from onServiceConnected() removes
+					// the identity during deliverBoundClients(), and re-resolving it here
+					// would re-run onBind() on an instance the queued unbind op is about
+					// to destroy (Android delivers no such onBind; SVC-013 13b).
+					if (!client.delivered && ensureBindingIdentity(record, intent) && record.instance != null)
 						record.instance.onRebind(intent);
 				} catch (ReflectiveOperationException e) {
 					Slog.e(TAG, "bindService: failed to bind service " + component.getClassName(), e);

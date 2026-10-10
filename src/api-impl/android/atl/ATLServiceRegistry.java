@@ -386,7 +386,10 @@ public final class ATLServiceRegistry {
 				}
 			}
 			if (found == null) {
-				throw new IllegalArgumentException("Service not connected: " + connection);
+				// AOSP LoadedApk.forgetServiceDispatcher: the client removes its
+				// dispatcher first and throws this exact message for an unknown
+				// connection (ContextImpl.unbindService).
+				throw new IllegalArgumentException("Service not registered: " + connection);
 			}
 			boolean destroy = !found.started && found.bindings.isEmpty();
 			if (destroy) {
