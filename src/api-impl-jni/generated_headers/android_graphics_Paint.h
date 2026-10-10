@@ -40,10 +40,10 @@ extern "C" {
 /*
  * Class:     android_graphics_Paint
  * Method:    native_get_text_widths
- * Signature: (JLjava/lang/String;[FII)F
+ * Signature: (JLjava/lang/String;[FIIFF)F
  */
 JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths
-  (JNIEnv *, jclass, jlong, jstring, jfloatArray, jint, jint);
+  (JNIEnv *, jclass, jlong, jstring, jfloatArray, jint, jint, jfloat, jfloat);
 
 /*
  * Class:     android_graphics_Paint
@@ -208,10 +208,10 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1color_1filter
 /*
  * Class:     android_graphics_Paint
  * Method:    native_get_text_bounds
- * Signature: (JLjava/lang/String;Landroid/graphics/Rect;III)V
+ * Signature: (JLjava/lang/String;Landroid/graphics/Rect;IIIFF)V
  */
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds
-  (JNIEnv *, jclass, jlong, jstring, jobject, jint, jint, jint);
+  (JNIEnv *, jclass, jlong, jstring, jobject, jint, jint, jint, jfloat, jfloat);
 
 /*
  * Class:     android_graphics_Paint

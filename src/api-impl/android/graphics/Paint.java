@@ -30,6 +30,10 @@ public class Paint {
 	// subpixel/linear bits added by setFlags() are what the text measurement consults.
 	private int flags = ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG | DEV_KERN_TEXT_FLAG | EMBEDDED_BITMAP_TEXT_FLAG;
 	private int hinting = HINTING_ON;
+	/* hwui Paint's mLetterSpacing/mTextSkewX default to 0 (Paint.h) and are only inputs to text
+	 * measurement; reset() puts them back to 0. */
+	private float letterSpacing = 0;
+	private float textSkewX = 0;
 
 	public Paint() {
 		paint = native_create();
@@ -45,6 +49,8 @@ public class Paint {
 		this.typeface = paint.typeface;
 		this.flags = paint.flags;
 		this.hinting = paint.hinting;
+		this.letterSpacing = paint.letterSpacing;
+		this.textSkewX = paint.textSkewX;
 	}
 
 	@Override protected void finalize() throws Throwable {
@@ -99,11 +105,11 @@ public class Paint {
 		if (end > text.length())
 			end = text.length();
 		native_get_text_bounds(paint, text.substring(start, end), bounds, flags, hinting,
-				(typeface == null ? Typeface.DEFAULT : typeface).getWeight());
+				(typeface == null ? Typeface.DEFAULT : typeface).getWeight(), letterSpacing, textSkewX);
 	}
 	public void getTextBounds(char[] text, int index, int count, Rect bounds) {
 		native_get_text_bounds(paint, new String(text, index, count), bounds, flags, hinting,
-				(typeface == null ? Typeface.DEFAULT : typeface).getWeight());
+				(typeface == null ? Typeface.DEFAULT : typeface).getWeight(), letterSpacing, textSkewX);
 	}
 	public int getTextWidths(String text, float[] widths) {
 		return getTextWidths(text, 0, text.length(), widths);
@@ -117,7 +123,7 @@ public class Paint {
 			throw new ArrayIndexOutOfBoundsException();
 		if (start == end)
 			return 0;
-		native_get_text_widths(paint, text.substring(start, end), widths, flags, hinting);
+		native_get_text_widths(paint, text.substring(start, end), widths, flags, hinting, letterSpacing, textSkewX);
 		return end - start;
 	}
 	public int getTextWidths(char[] text, int index, int count, float[] widths) {
@@ -127,7 +133,7 @@ public class Paint {
 			throw new ArrayIndexOutOfBoundsException();
 		if (count == 0)
 			return 0;
-		native_get_text_widths(paint, new String(text, index, count), widths, flags, hinting);
+		native_get_text_widths(paint, new String(text, index, count), widths, flags, hinting, letterSpacing, textSkewX);
 		return count;
 	}
 	public int getTextWidths(CharSequence text, int start, int end, float[] widths) {
@@ -139,7 +145,7 @@ public class Paint {
 			throw new ArrayIndexOutOfBoundsException();
 		if (start == end)
 			return 0;
-		native_get_text_widths(paint, text.subSequence(start, end).toString(), widths, flags, hinting);
+		native_get_text_widths(paint, text.subSequence(start, end).toString(), widths, flags, hinting, letterSpacing, textSkewX);
 		return end - start;
 	}
 	public void setFilterBitmap(boolean filter) {}
@@ -326,8 +332,8 @@ public class Paint {
 
 	public /*native*/ float getTextScaleX() { return 0; }
 	public /*native*/ void setTextScaleX(float scaleX) {}
-	public /*native*/ float getTextSkewX() { return 0; }
-	public /*native*/ void setTextSkewX(float skewX) {}
+	public float getTextSkewX() { return textSkewX; }
+	public void setTextSkewX(float skewX) { this.textSkewX = skewX; }
 
 	public /*native*/ float descent() { return 0; }
 	public float getFontMetrics(FontMetrics metrics) {
@@ -359,7 +365,7 @@ public class Paint {
 		return null;
 	}
 
-	public void setLetterSpacing(float spacing) {}
+	public void setLetterSpacing(float spacing) { this.letterSpacing = spacing; }
 
 	public enum Cap {
 		/**
@@ -475,7 +481,7 @@ public class Paint {
 
 	public Locale getTextLocale() { return Locale.getDefault(); }
 
-	public float getLetterSpacing() { return 1.0f; }
+	public float getLetterSpacing() { return letterSpacing; }
 
 	public Style getStyle() {
 		return Style.values[native_get_style(paint)];
@@ -509,9 +515,11 @@ public class Paint {
 		color_filter = null;
 		flags = ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG | DEV_KERN_TEXT_FLAG | EMBEDDED_BITMAP_TEXT_FLAG;
 		hinting = HINTING_ON;
+		letterSpacing = 0;
+		textSkewX = 0;
 	}
 
-	private static native float native_get_text_widths(long paint, String text, float[] widths, int flags, int hinting);
+	private static native float native_get_text_widths(long paint, String text, float[] widths, int flags, int hinting, float letterSpacing, float textSkewX);
 	private static native float native_text_advance(long paint, String text);
 	private static native void native_set_typeface(long paint, long typeface);
 	private static native long native_create();
@@ -532,7 +540,7 @@ public class Paint {
 	private static native void native_set_text_size(long paint, float size);
 	private static native float native_get_text_size(long paint);
 	private static native void native_set_color_filter(long paint, int mode, int color);
-	private static native void native_get_text_bounds(long paint, String text, Rect bounds, int flags, int hinting, int typefaceWeight);
+	private static native void native_get_text_bounds(long paint, String text, Rect bounds, int flags, int hinting, int typefaceWeight, float letterSpacing, float textSkewX);
 	private static native void native_set_text_align(long paint, int align);
 	private static native float native_get_font_metrics(long paint, FontMetrics metrics);
 	private static native int native_get_font_metrics_int(long paint, FontMetricsInt metrics);
