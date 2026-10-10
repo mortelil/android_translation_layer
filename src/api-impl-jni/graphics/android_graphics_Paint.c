@@ -12,6 +12,7 @@
 #include "pango/pangofc-fontmap.h"
 #include <fontconfig/fontconfig.h>
 #include <hb.h>
+#include <hb-ot.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
@@ -306,7 +307,16 @@ struct atl_face_cache {
 	FT_Face face;
 	char *path;
 	int index;
+	/* HarfBuzz view of the same file (same face index), used only to read the pair adjustment
+	 * the shaping result carries; see atl_run_hb_font. */
+	hb_blob_t *hb_blob;
+	hb_face_t *hb_face;
+	hb_font_t *hb_font;
 };
+
+/* Defined with the pair-term helpers below; declared here because the face cache clears it
+ * whenever the cached file changes. */
+static void atl_face_cache_clear_hb(struct atl_face_cache *cache);
 
 /* Resolves the run's own font file and (re)opens its face in CACHE, sized for SIZE26. Falls back to
  * the paint's fontconfig match when the run font carries no file (the single-font path). Returns
@@ -323,6 +333,7 @@ static FT_Face atl_run_face(struct atl_face_cache *cache, struct AndroidPaint *p
 		g_free(path);
 	} else {
 		if (cache->face) { FT_Done_Face(cache->face); cache->face = NULL; }
+		atl_face_cache_clear_hb(cache);
 		g_free(cache->path);
 		cache->path = path;
 		cache->index = index;
@@ -336,6 +347,93 @@ static FT_Face atl_run_face(struct atl_face_cache *cache, struct AndroidPaint *p
 	if (!cache->face) return NULL;
 	FT_Set_Char_Size(cache->face, size26, size26, 72, 72);
 	return cache->face;
+}
+
+/* Drops the HarfBuzz view of the cached file, if one was built. */
+static void atl_face_cache_clear_hb(struct atl_face_cache *cache)
+{
+	if (cache->hb_font) { hb_font_destroy(cache->hb_font); cache->hb_font = NULL; }
+	if (cache->hb_face) { hb_face_destroy(cache->hb_face); cache->hb_face = NULL; }
+	if (cache->hb_blob) { hb_blob_destroy(cache->hb_blob); cache->hb_blob = NULL; }
+}
+
+/* HarfBuzz view of the run's file, at the scale minikin shapes with: LayoutCore.cpp:397 does
+ * hb_font_set_scale(font, HBFloatToFixed(size * scaleX), HBFloatToFixed(size)) - i.e.
+ * size * 256, the unit LayoutCore.cpp:519 then divides the shaped positions by - and
+ * Font.cpp:255-260 applies the typeface's variation coordinates to it. Built lazily and reused
+ * while consecutive runs resolve to the same file. Returns NULL when no font can be built. */
+static hb_font_t *atl_run_hb_font(struct atl_face_cache *cache, float size)
+{
+	if (cache->hb_font) return cache->hb_font;
+	if (!cache->face || !cache->path) return NULL;
+	cache->hb_blob = hb_blob_create_from_file_or_fail(cache->path);
+	if (!cache->hb_blob || cache->hb_blob == hb_blob_get_empty()) {
+		atl_face_cache_clear_hb(cache);
+		return NULL;
+	}
+	cache->hb_face = hb_face_create(cache->hb_blob, cache->index);
+	cache->hb_font = hb_font_create(cache->hb_face);
+	hb_ot_font_set_funcs(cache->hb_font);
+	int hb_scale = (int)(size * 256.0f); /* HBFloatToFixed */
+	hb_font_set_scale(cache->hb_font, hb_scale, hb_scale);
+	/* The coordinates the FT face already carries, so both views describe the same instance. */
+	FT_MM_Var *mm = NULL;
+	if ((cache->face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS) &&
+	    !FT_Get_MM_Var(cache->face, &mm) && mm) {
+		FT_Fixed *coords = g_new0(FT_Fixed, mm->num_axis);
+		if (!FT_Get_Var_Design_Coordinates(cache->face, mm->num_axis, coords)) {
+			hb_variation_t *vars = g_new0(hb_variation_t, mm->num_axis);
+			for (FT_UInt a = 0; a < mm->num_axis; a++) {
+				vars[a].tag = (hb_tag_t)mm->axis[a].tag;
+				vars[a].value = (float)(coords[a] / 65536.0);
+			}
+			hb_font_set_variations(cache->hb_font, vars, mm->num_axis);
+			g_free(vars);
+		}
+		g_free(coords);
+		FT_Done_MM_Var(cache->library, mm);
+	}
+	return cache->hb_font;
+}
+
+/* Pair adjustment (1/256 px) the shaping result carries for each glyph of a run: minikin reads the
+ * shaped positions directly (LayoutCore.cpp:518-519), so the adjustment is the difference between
+ * the shaped x_advance with and without the "kern" feature at minikin's scale. Returns a newly
+ * allocated array of NUM_GLYPHS entries (0 where a glyph carries none), or NULL when the run
+ * cannot be shaped (single glyph, shape/reorder mismatch) and the caller must fall back. */
+static int *atl_run_pair_kerns(struct atl_face_cache *cache, float size, const char *text, int text_len, int num_glyphs)
+{
+	if (num_glyphs < 2 || !text || text_len <= 0) return NULL;
+	hb_font_t *hb = atl_run_hb_font(cache, size);
+	if (!hb) return NULL;
+	hb_feature_t no_kern;
+	bool have_no_kern = hb_feature_from_string("-kern", -1, &no_kern);
+	hb_buffer_t *buf = hb_buffer_create();
+	int *out = NULL;
+	for (int pass = 0; pass < 2; pass++) {
+		hb_buffer_clear_contents(buf);
+		hb_buffer_add_utf8(buf, text, text_len, 0, text_len);
+		hb_buffer_guess_segment_properties(buf);
+		if (pass == 1 && have_no_kern)
+			hb_shape(hb, buf, &no_kern, 1);
+		else
+			hb_shape(hb, buf, NULL, 0);
+		unsigned int n = 0;
+		hb_glyph_position_t *pos = hb_buffer_get_glyph_positions(buf, &n);
+		if (n != (unsigned int)num_glyphs) { /* not the same glyph sequence: no pair terms */
+			g_free(out);
+			out = NULL;
+			break;
+		}
+		if (pass == 0) {
+			out = g_new0(int, n);
+			for (unsigned int i = 0; i < n; i++) out[i] = pos[i].x_advance;
+		} else {
+			for (unsigned int i = 0; i < n; i++) out[i] -= pos[i].x_advance;
+		}
+	}
+	hb_buffer_destroy(buf);
+	return out;
 }
 
 /* Number of UTF-16 code units in the first byte_len bytes of a (modified) UTF-8 string, i.e. the
@@ -430,8 +528,9 @@ static uint32_t atl_utf8_code_point(const char *s, int byte_offset)
 
 /* The HarfBuzz advance of glyph GLYPH_INDEX of GLYPHS in 1/256 px, including the pair kern
  * adjustment HarfBuzz adds to the *first* glyph of a pair. GLYPH_LOADED tells whether that glyph
- * is currently in FACE's slot; see the comment on get_text_widths below for the derivation. */
-static int64_t atl_hb_glyph_advance(FT_Face face, PangoGlyphString *glyphs, int glyph_index, bool glyph_loaded, bool linear, double kern_scale)
+ * is currently in FACE's slot. PAIR_KERN is the adjustment the shaping result carries for this
+ * glyph (0 when there is none); see the comment on get_text_widths below for the derivation. */
+static int64_t atl_hb_glyph_advance(FT_Face face, PangoGlyphString *glyphs, int glyph_index, bool glyph_loaded, bool linear, double kern_scale, int pair_kern)
 {
 	int64_t hb_advance = 0;
 	if (glyph_loaded) {
@@ -442,10 +541,17 @@ static int64_t atl_hb_glyph_advance(FT_Face face, PangoGlyphString *glyphs, int 
 			advance = (float)face->glyph->advance.x / 64.0f;
 		hb_advance = (int64_t)scalbnf(advance, 8); /* HBFloatToFixed */
 	}
-	if (glyph_index + 1 < glyphs->num_glyphs && face->units_per_EM > 0) {
-		FT_Vector kern;
-		if (!FT_Get_Kerning(face, glyphs->glyphs[glyph_index].glyph, glyphs->glyphs[glyph_index + 1].glyph, FT_KERNING_UNSCALED, &kern))
-			hb_advance += llround((double)kern.x * kern_scale / (double)face->units_per_EM);
+	if (glyph_index + 1 < glyphs->num_glyphs) {
+		/* Minikin's advance is the shaped position, which already carries the pair adjustment
+		 * (LayoutCore.cpp:518-519); PAIR_KERN is that adjustment for this glyph in 1/256 px.
+		 * The legacy kern table is only a fallback for what the shaping result did not report. */
+		int64_t legacy = 0;
+		if (face->units_per_EM > 0) {
+			FT_Vector kern;
+			if (!FT_Get_Kerning(face, glyphs->glyphs[glyph_index].glyph, glyphs->glyphs[glyph_index + 1].glyph, FT_KERNING_UNSCALED, &kern))
+				legacy = llround((double)kern.x * kern_scale / (double)face->units_per_EM);
+		}
+		hb_advance += pair_kern != 0 ? pair_kern : legacy;
 	}
 	return hb_advance;
 }
@@ -557,6 +663,11 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 			/* PangoGlyphString cluster offsets are relative to the run, so the run's item offset
 			 * gives the absolute byte position in the layout text. */
 			int run_offset = ((PangoGlyphItem *)run->data)->item->offset;
+			/* The pair adjustment the shaping result carries for this run (1/256 px per glyph),
+			 * or NULL when there is none to apply. */
+			int *pair_kerns = atl_run_pair_kerns(&face_cache, size, str + run_offset,
+			                                     ((PangoGlyphItem *)run->data)->item->length,
+			                                     glyphs->num_glyphs);
 			/* Letter spacing is applied per script run and only to letter spacing capable scripts
 			 * (a Pango run is one script, so its first code point selects it). */
 			double run_ls = 0, run_ls_half = 0;
@@ -622,8 +733,9 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 						have_ink = true;
 					}
 				}
-				pen += (double)atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale) * (1.0 / 256.0);
+				pen += (double)atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale, pair_kerns ? pair_kerns[i] : 0) * (1.0 / 256.0);
 			}
+			g_free(pair_kerns);
 		}
 		if (have_ink) {
 			left = (int)floor(min_left);
@@ -632,6 +744,7 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 			bottom = (int)ceil(max_bottom);
 		}
 		if (face_cache.face) FT_Done_Face(face_cache.face);
+		atl_face_cache_clear_hb(&face_cache);
 		g_free(face_cache.path);
 		FT_Done_FreeType(library);
 	}
@@ -730,6 +843,11 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 			/* PangoGlyphString cluster offsets are relative to the run, so the run's item offset
 			 * gives the absolute byte position in the layout text (and thus the code unit). */
 			int run_offset = ((PangoGlyphItem *)run->data)->item->offset;
+			/* The pair adjustment the shaping result carries for this run (1/256 px per glyph),
+			 * or NULL when there is none to apply. */
+			int *pair_kerns = atl_run_pair_kerns(&face_cache, size, str + run_offset,
+			                                     ((PangoGlyphItem *)run->data)->item->length,
+			                                     glyphs->num_glyphs);
 			/* The shaping loop decides letter spacing per script run; a Pango run is one script,
 			 * so its first code point selects it. */
 			double run_ls = 0, run_ls_half = 0;
@@ -760,7 +878,7 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 				}
 				FT_UInt glyph = glyphs->glyphs[i].glyph;
 				bool loaded = !FT_Load_Glyph(face, glyph, load_flags);
-				int64_t hb_advance = atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale);
+				int64_t hb_advance = atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale, pair_kerns ? pair_kerns[i] : 0);
 				double advance = (double)hb_advance * (1.0 / 256.0);
 				if (acc) {
 					if (unit >= 0 && unit < unit_total)
@@ -780,8 +898,10 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 						acc[unit] += run_ls_half;
 				}
 			}
+			g_free(pair_kerns);
 		}
 		if (face_cache.face) FT_Done_Face(face_cache.face);
+		atl_face_cache_clear_hb(&face_cache);
 		g_free(face_cache.path);
 		FT_Done_FreeType(library);
 	}
