@@ -307,7 +307,12 @@ public final class ContextImpl extends Context {
 		if (targetApp == null) {
 			return false;
 		}
-		return targetApp.startOrBindService(intent, serviceConnection) != null;
+		return targetApp.bindService(intent, serviceConnection, flags) != null;
+	}
+
+	@Override
+	public void unbindService(ServiceConnection serviceConnection) {
+		atl_loaded_app.unbindService(serviceConnection);
 	}
 
 	@Override

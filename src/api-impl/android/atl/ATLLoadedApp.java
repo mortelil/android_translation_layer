@@ -306,6 +306,9 @@ public final class ATLLoadedApp {
 					Service service = bringUpService(record);
 					if (service == null)
 						return;
+					// A client that bound without AUTO_CREATE is delivered its binder
+					// as soon as the service comes up through startService().
+					deliverBoundClients(record, intent);
 					service.onStartCommand(intent, 0, startId);
 				} catch (ReflectiveOperationException e) {
 					Slog.e(TAG, "startService: failed to start service " + component.getClassName(), e);
@@ -317,10 +320,51 @@ public final class ATLLoadedApp {
 	}
 
 	/**
-	 * Bind path (no binding model yet): brings the shared instance up and
-	 * publishes its binder to the client on the main looper.
+	 * Delivers the cached binder to every bound client that has not been notified
+	 * yet, in registration order. {@code onBind()} runs at most once per instance:
+	 * the first delivery resolves and caches the binder (which may be null, in
+	 * which case clients get {@code onNullBinding}); later clients reuse it.
+	 * Must be called on the main looper, never while the registry lock is held.
 	 */
-	public ComponentName startOrBindService(final Intent intent, final ServiceConnection serviceConnection) {
+	private void deliverBoundClients(ATLServiceRegistry.ServiceRecord record, Intent bindIntent) {
+		if (record.instance == null)
+			return;
+		java.util.ArrayList<ATLServiceRegistry.BoundClient> clients = service_registry.bindingsOf(record);
+		boolean anyPending = false;
+		for (ATLServiceRegistry.BoundClient client : clients) {
+			if (!client.delivered) {
+				anyPending = true;
+				break;
+			}
+		}
+		if (!anyPending)
+			return;
+		if (!record.binderResolved) {
+			record.binder = record.instance.onBind(bindIntent);
+			record.binderResolved = true;
+		}
+		for (ATLServiceRegistry.BoundClient client : clients) {
+			if (client.delivered)
+				continue;
+			client.delivered = true;
+			if (record.binder == null) {
+				client.connection.onNullBinding(record.component);
+			} else {
+				client.connection.onServiceConnected(record.component, record.binder);
+			}
+		}
+	}
+
+	/**
+	 * bindService: resolves the component, registers the client and delivers the
+	 * service's binder on the main looper. A bind with
+	 * {@link Context#BIND_AUTO_CREATE} brings the instance up (onCreate) and runs
+	 * onBind() once; a bind without it is only delivered once some later
+	 * AUTO_CREATE bind (or startService) creates the instance. All clients of the
+	 * record are delivered in registration order, so a pending client is notified
+	 * before the client whose bind created the service.
+	 */
+	public ComponentName bindService(final Intent intent, final ServiceConnection serviceConnection, final int flags) {
 		if (serviceConnection == null) {
 			return startService(intent);
 		}
@@ -330,15 +374,20 @@ public final class ATLLoadedApp {
 			return null;
 		}
 		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component);
+		service_registry.registerBinding(record, serviceConnection, intent);
+		final boolean autoCreate = (flags & Context.BIND_AUTO_CREATE) != 0;
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
 				try {
-					Service service = bringUpService(record);
-					if (service == null)
-						return;
-					serviceConnection.onServiceConnected(intent.getComponent(), service.onBind(intent));
+					if (record.instance == null) {
+						if (!autoCreate)
+							return;
+						if (bringUpService(record) == null)
+							return;
+					}
+					deliverBoundClients(record, intent);
 				} catch (ReflectiveOperationException e) {
 					Slog.e(TAG, "bindService: failed to bind service " + component.getClassName(), e);
 				}
@@ -346,6 +395,31 @@ public final class ATLLoadedApp {
 		});
 
 		return component;
+	}
+
+	/**
+	 * unbindService: removes the client from the registry and, when it was the
+	 * last client of a service that is not kept alive by a startService() request,
+	 * posts onUnbind() then onDestroy() to the main looper. Unknown connections
+	 * throw, matching Android. onServiceDisconnected() is never called for an
+	 * ordinary unbind and onRebind() never fires for a purely bound service.
+	 */
+	public void unbindService(ServiceConnection serviceConnection) {
+		final ATLServiceRegistry.UnbindResult result = service_registry.unbind(serviceConnection);
+		final ATLServiceRegistry.ServiceRecord record = result.record;
+		if (record == null)
+			return;
+		final Service service = record.instance;
+		if (service == null)
+			return;
+		final Intent intent = result.intent;
+		new Handler(Looper.getMainLooper()).post(new Runnable() {
+			@Override
+			public void run() {
+				service.onUnbind(intent);
+				service.onDestroy();
+			}
+		});
 	}
 
 	/**
@@ -360,10 +434,12 @@ public final class ATLLoadedApp {
 			Slog.w(TAG, "stopService: no component in intent: " + intent);
 			return false;
 		}
-		final ATLServiceRegistry.ServiceRecord record = service_registry.detach(component);
-		if (record == null)
+		final ATLServiceRegistry.StopResult result = service_registry.stop(component);
+		if (!result.running)
 			return false;
-		final Service service = record.instance;
+		if (result.keptBound)
+			return true;
+		final Service service = result.record.instance;
 		if (service != null) {
 			new Handler(Looper.getMainLooper()).post(new Runnable() {
 				@Override

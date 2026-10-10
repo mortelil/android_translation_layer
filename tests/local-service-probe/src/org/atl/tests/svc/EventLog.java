@@ -16,13 +16,16 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Ordered JSON event log + result transport for the LOCAL-SERVICES probe v2
- * (cases SVC-002 / SVC-003 / SVC-004).
+ * Ordered JSON event log + result transport for the LOCAL-SERVICES probe v3
+ * (cases SVC-002 / SVC-003 / SVC-004 preserved, plus SVC-005 / SVC-006 /
+ * SVC-007 / SVC-008 / SVC-009 appended).
  *
- * Every event is one JSON row carrying the fields fixed by the case specs:
+ * Every event is one JSON row carrying the v2 fields fixed by the case specs:
  *   seq, scenario, component, instance, event, startId, flags,
  *   intentExtra, cmd, returnValue, thread, ret
- * (plus non-normative retType/main/exception extras).
+ * (plus non-normative retType/main/exception extras) and the v3 binding fields:
+ *   client (connection id, e.g. "c1"/"c2") and
+ *   binder (String identity hash of the involved IBinder, else null).
  *
  * Transport (same shape as the lifecycle + SVC-001 probes):
  *  - one durable line per event to getFilesDir()/events.log and stdout
@@ -39,8 +42,8 @@ import java.util.UUID;
  * instance is instance=1 exactly as the specs' planned traces require.
  */
 final class EventLog {
-    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V2";
-    static final String PROBE_ID = "SVC-PROBE-V2";
+    static final String TASK_ID = "LOCAL-SERVICES-PROBE-V3";
+    static final String PROBE_ID = "SVC-PROBE-V3";
     static final String MARKER_BEGIN = "SVC_JSON_BEGIN";
     static final String MARKER_END = "SVC_JSON_END";
     static final String PKG = "org.atl.tests.svc";
@@ -48,11 +51,41 @@ final class EventLog {
     static final String SVC_002 = "SVC-002";
     static final String SVC_003 = "SVC-003";
     static final String SVC_004 = "SVC-004";
+    static final String SVC_005 = "SVC-005";
+    static final String SVC_006 = "SVC-006";
+    static final String SVC_007 = "SVC-007";
+    static final String SVC_008 = "SVC-008";
+    static final String SVC_009 = "SVC-009";
 
     /** Component name fields used by the v2 scenarios (labelled "component A" per spec). */
     static final String COMP_002 = PKG + "/.SvcStartIds";
     static final String COMP_003 = PKG + "/.SvcReturnValues";
     static final String COMP_004 = PKG + "/.SvcSelfStop";
+
+    /* v3 binding components. */
+    /** B — onBind returns a private binder; default onUnbind (false). */
+    static final String COMP_B = PKG + "/.SvcBinder";
+    /** Bn — onBind returns null. */
+    static final String COMP_BN = PKG + "/.SvcNullBind";
+    /** Bf — onUnbind returns false. */
+    static final String COMP_BF = PKG + "/.SvcUnbindFalse";
+    /** Bt — onUnbind returns true, implements onRebind. */
+    static final String COMP_BT = PKG + "/.SvcUnbindTrue";
+
+    /**
+     * Scenario the currently executing service callbacks belong to. v3 reuses
+     * one component class across SVC-005/006/007, so a service cannot hard-code
+     * its scenario; the driver stamps it here before each step (main thread).
+     */
+    private static String currentScenario = SVC_002;
+
+    static synchronized void setCurrentScenario(String sid) {
+        currentScenario = sid;
+    }
+
+    static synchronized String currentScenario() {
+        return currentScenario;
+    }
 
     private static EventLog INSTANCE;
 
@@ -123,21 +156,68 @@ final class EventLog {
         return idx.intValue();
     }
 
-    /** Client-side call event (no live Service object). */
+    /** Client-side call event (v2 shape, no binding identity). */
     synchronized void clientEvent(String scenario, String event, String component,
                                   String intentExtra, String cmd, String ret,
                                   String retType, String exceptionClass) {
         append(scenario, null, event, component, -1, -1, intentExtra, cmd, null,
-                ret, retType, exceptionClass);
+                ret, retType, exceptionClass, null, null);
     }
 
-    /** Service callback event: instance/thread attributed to the Service object. */
+    /**
+     * Client-side call event with a connection id and (optionally) a binder
+     * identity hash and explicit {@code flags} (used by the v3 binding steps).
+     */
+    synchronized void clientEventEx(String scenario, String event, String component,
+                                    String intentExtra, String cmd, String client,
+                                    String binder, int flags, String ret,
+                                    String retType, String exceptionClass) {
+        append(scenario, null, event, component, -1, flags, intentExtra, cmd, null,
+                ret, retType, exceptionClass, client, binder);
+    }
+
+    /** Service callback event (v2 shape, no binding identity). */
     synchronized void serviceEvent(Object serviceIdentity, String scenario, String event,
                                    String component, int startId, int flags,
                                    String intentExtra, String cmd, Integer returnValue,
                                    String ret) {
         append(scenario, serviceIdentity, event, component, startId, flags,
-                intentExtra, cmd, returnValue, ret, null, null);
+                intentExtra, cmd, returnValue, ret, null, null, null, null);
+    }
+
+    /**
+     * Service callback event with the identity hash of the binder it returns
+     * (onBind) or created (onCreate), matching the client-side onServiceConnected
+     * hash so binder reuse is comparable within the process.
+     */
+    synchronized void serviceEventB(Object serviceIdentity, String scenario, String event,
+                                    String component, int startId, int flags,
+                                    String intentExtra, String cmd, Integer returnValue,
+                                    String ret, String binder) {
+        append(scenario, serviceIdentity, event, component, startId, flags,
+                intentExtra, cmd, returnValue, ret, null, null, null, binder);
+    }
+
+    /** Barrier event: proves the main-Looper no-op runnable drained the queue. */
+    synchronized void barrierEvent(String scenario, String component, String client) {
+        append(scenario, null, "barrier", component, -1, -1, "none", "", null,
+                null, null, null, client, null);
+    }
+
+    /**
+     * A Service instance has been destroyed: drop its identity mapping so the
+     * NEXT fresh instance of the same scenario is indexed 1 again (the specs'
+     * planned traces re-number after onDestroy, e.g. SVC-008a step 3).
+     */
+    synchronized void serviceDestroyed(String scenario, Object serviceIdentity) {
+        IdentityHashMap<Object, Integer> map = instanceIndex.get(scenario);
+        if (map == null) {
+            return;
+        }
+        map.remove(serviceIdentity);
+        if (map.isEmpty()) {
+            nextInstance.put(scenario, Integer.valueOf(1));
+        }
     }
 
     synchronized void noteException(String text) {
@@ -148,7 +228,8 @@ final class EventLog {
     private synchronized void append(String scenario, Object serviceIdentity, String event,
                                      String component, int startId, int flags,
                                      String intentExtra, String cmd, Integer returnValue,
-                                     String ret, String retType, String exceptionClass) {
+                                     String ret, String retType, String exceptionClass,
+                                     String client, String binder) {
         if (finalized) {
             return;
         }
@@ -171,6 +252,8 @@ final class EventLog {
                 .append(returnValue == null ? "null" : returnValue.toString());
         b.append(",\"thread\":\"").append(esc(thread)).append('"');
         b.append(",\"ret\":").append(ret == null ? "null" : "\"" + esc(ret) + "\"");
+        b.append(",\"client\":").append(client == null ? "null" : "\"" + esc(client) + "\"");
+        b.append(",\"binder\":").append(binder == null ? "null" : "\"" + esc(binder) + "\"");
         if (retType != null) {
             b.append(",\"retType\":\"").append(esc(retType)).append('"');
         }
@@ -212,6 +295,28 @@ final class EventLog {
         line("SVC_ALL_DONE");
     }
 
+    private static String servicesFor(String sid) {
+        if (SVC_002.equals(sid)) {
+            return PKG + ".SvcStartIds";
+        }
+        if (SVC_003.equals(sid)) {
+            return PKG + ".SvcReturnValues";
+        }
+        if (SVC_004.equals(sid)) {
+            return PKG + ".SvcSelfStop";
+        }
+        if (SVC_005.equals(sid) || SVC_006.equals(sid) || SVC_007.equals(sid)) {
+            return PKG + ".SvcBinder";
+        }
+        if (SVC_008.equals(sid)) {
+            return PKG + ".SvcUnbindFalse," + PKG + ".SvcUnbindTrue";
+        }
+        if (SVC_009.equals(sid)) {
+            return PKG + ".SvcNullBind";
+        }
+        return "";
+    }
+
     private String buildResultsJson() {
         StringBuilder b = new StringBuilder(8192);
         b.append("{\"task_id\":\"").append(TASK_ID).append('"');
@@ -220,14 +325,26 @@ final class EventLog {
         b.append(",\"config\":{");
         b.append("\"package\":\"").append(PKG).append('"');
         b.append(",\"main_activity\":\"").append(PKG).append(".ControlActivity\"");
-        b.append(",\"scenarios\":[\"").append(SVC_002).append("\",\"")
-                .append(SVC_003).append("\",\"").append(SVC_004).append("\"]");
-        b.append(",\"services\":{\"").append(SVC_002).append("\":\"")
-                .append(PKG).append(".SvcStartIds\"");
-        b.append(",\"").append(SVC_003).append("\":\"").append(PKG).append(".SvcReturnValues\"");
-        b.append(",\"").append(SVC_004).append("\":\"").append(PKG).append(".SvcSelfStop\"}");
+        b.append(",\"scenarios\":[");
+        for (int i = 0; i < scenarios.size(); i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append('"').append(esc(scenarios.get(i))).append('"');
+        }
+        b.append("],\"services\":{");
+        for (int i = 0; i < scenarios.size(); i++) {
+            String sid = scenarios.get(i);
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append('"').append(esc(sid)).append("\":\"")
+                    .append(esc(servicesFor(sid))).append('"');
+        }
+        b.append('}');
         b.append(",\"launch\":\"launcher\"");
         b.append(",\"settle_ms\":").append(ControlActivity.SETTLE_MS);
+        b.append(",\"barrier_ms\":").append(ControlActivity.BARRIER_MS);
         b.append(",\"watchdog_ms\":").append(ControlActivity.WATCHDOG_MS);
         b.append('}');
         int total = 0;

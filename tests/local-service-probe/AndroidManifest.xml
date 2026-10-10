@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <!--
-  LOCAL-SERVICES probe v2 (task LOCAL-SERVICES-PROBE-V2), cases SVC-002/003/004.
+  LOCAL-SERVICES probe v3 (task LOCAL-SERVICES-PROBE-V3), cases SVC-002..SVC-009.
 
   Declared components:
     .ControlActivity      MAIN/LAUNCHER, exported; stays alive for the whole run
@@ -8,15 +8,20 @@
     .SvcStartIds          SVC-002 service under test ("component A").
     .SvcReturnValues      SVC-003 service under test ("component A").
     .SvcSelfStop          SVC-004 service under test ("component A").
+    .SvcBinder            SVC-005/006/007 component B (onBind returns a binder).
+    .SvcUnbindFalse       SVC-008a component Bf (onUnbind returns false).
+    .SvcUnbindTrue        SVC-008b component Bt (onUnbind returns true + onRebind).
+    .SvcNullBind          SVC-009 component Bn (onBind returns null).
 
-  Each scenario uses a distinct service class so it always gets a fresh
-  instance, independent of whether the previous scenario's onDestroy landed.
+  v2 scenarios use a distinct service class so each always gets a fresh instance;
+  the v3 binding scenarios reset the instance index on onDestroy so each fresh
+  instance is instance=1 per the specs' planned traces.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.atl.tests.svc">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <application
-        android:label="ATL LOCAL-SERVICES probe v2"
+        android:label="ATL LOCAL-SERVICES probe v3"
         android:debuggable="true">
         <activity
             android:name=".ControlActivity"
@@ -34,6 +39,18 @@
             android:exported="false" />
         <service
             android:name=".SvcSelfStop"
+            android:exported="false" />
+        <service
+            android:name=".SvcBinder"
+            android:exported="false" />
+        <service
+            android:name=".SvcUnbindFalse"
+            android:exported="false" />
+        <service
+            android:name=".SvcUnbindTrue"
+            android:exported="false" />
+        <service
+            android:name=".SvcNullBind"
             android:exported="false" />
     </application>
 </manifest>

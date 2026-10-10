@@ -24,6 +24,18 @@ public abstract class Service extends ContextWrapper {
 
 	public abstract IBinder onBind(Intent intent);
 
+	/**
+	 * Called when the last bound client unbinds. Returning true would allow
+	 * onRebind() while the service stays alive; ATL destroys a purely bound
+	 * service on the last unbind regardless, matching the reference behaviour.
+	 */
+	public boolean onUnbind(Intent intent) {
+		return false;
+	}
+
+	public void onRebind(Intent intent) {
+	}
+
 	public int onStartCommand(Intent intent, int flags, int startId) {
 		System.out.println("Service.onStartCommand(" + intent + ", " + flags + ", " + startId + ") called");
 		return 0;
