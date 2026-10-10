@@ -22,7 +22,6 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -40,7 +39,7 @@ public final class ATLLoadedApp {
 	public final PackageParser.Package pkg;
 	public final int effective_sdk_compat;
 	private final Object init_lock;
-	private final HashMap<String, Service> running_services;
+	private final ATLServiceRegistry service_registry;
 	private Application application;
 	private Resources.Theme default_theme;
 
@@ -51,7 +50,7 @@ public final class ATLLoadedApp {
 		this.pkg = pkg;
 		this.effective_sdk_compat = Math.min(pkg.applicationInfo.targetSdkVersion, Build.VERSION.SDK_INT);
 		this.init_lock = new Object();
-		this.running_services = new HashMap<>();
+		this.service_registry = new ATLServiceRegistry();
 	}
 
 	@NonNull
@@ -234,50 +233,82 @@ public final class ATLLoadedApp {
 		return activity;
 	}
 
-	public ComponentName startOrBindService(final Intent intent, final ServiceConnection serviceConnection) {
+	/**
+	 * Resolves an intent to a service component DECLARED by this application.
+	 * An unknown component (not declared in the manifest) resolves to null:
+	 * startService must not report success for a service that cannot be found.
+	 */
+	public ComponentName resolveServiceComponent(Intent intent) {
 		ComponentName component = intent.getComponent();
-		if (component == null) {
-			int priority = Integer.MIN_VALUE;
+		if (component != null) {
 			for (PackageParser.Service service : pkg.services) {
-				if (service.intents == null)
-					continue;
-				for (PackageParser.IntentInfo intentInfo : service.intents) {
-					if (intentInfo.matchAction(intent.getAction()) && intentInfo.priority > priority) {
-						component = new ComponentName(pkg.packageName, service.className);
-						priority = intentInfo.priority;
-						break;
-					}
+				if (component.getClassName().equals(service.className)) {
+					return component;
+				}
+			}
+			return null;
+		}
+		int priority = Integer.MIN_VALUE;
+		for (PackageParser.Service service : pkg.services) {
+			if (service.intents == null)
+				continue;
+			for (PackageParser.IntentInfo intentInfo : service.intents) {
+				if (intentInfo.matchAction(intent.getAction()) && intentInfo.priority > priority) {
+					component = new ComponentName(pkg.packageName, service.className);
+					priority = intentInfo.priority;
+					break;
 				}
 			}
 		}
+		return component;
+	}
+
+	/**
+	 * Brings the service for {@code record} up on the calling thread (the main
+	 * looper): instantiates and attaches it on first use, then runs onCreate().
+	 * Returns null when the record was stopped before this delivered start landed.
+	 */
+	private Service bringUpService(ATLServiceRegistry.ServiceRecord record) throws ReflectiveOperationException {
+		Service service = record.instance;
+		if (service != null)
+			return service;
+		if (!service_registry.isLive(record))
+			return null;
+		Class<? extends Service> cls = this.loadClass(record.className).asSubclass(Service.class);
+		service = cls.getConstructor().newInstance();
+		service.attachBaseContext(new ContextImpl(
+		    this.createDefaultResources(), this, pkg.applicationInfo.theme));
+		// Publish the instance before onCreate() so a re-entrant call sees it.
+		record.instance = service;
+		service.onCreate();
+		return service;
+	}
+
+	/**
+	 * startService: allocates this call's start ID (1 for the first start of a
+	 * component, then monotonic per component like AOSP's ServiceRecord) and
+	 * delivers onCreate() (once) then onStartCommand() on the main looper.
+	 * Returns the resolved component, or null when the component is unresolvable.
+	 */
+	public ComponentName startService(final Intent intent) {
+		final ComponentName component = this.resolveServiceComponent(intent);
 		if (component == null) {
 			Slog.w(TAG, "startService: no matching service found for intent: " + intent);
 			return null;
 		}
-		final String className = component.getClassName();
+		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateStart(component);
+		final int startId = record.lastStartId;
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
 				try {
-					Service service = running_services.get(className);
-					if (service == null) {
-						Class<? extends Service> cls = ATLLoadedApp.this.loadClass(className).asSubclass(Service.class);
-						service = cls.getConstructor().newInstance();
-						service.attachBaseContext(new ContextImpl(
-						    ATLLoadedApp.this.createDefaultResources(), ATLLoadedApp.this,
-						    pkg.applicationInfo.theme));
-						service.onCreate();
-						running_services.put(className, service);
-					}
-
-					if (serviceConnection != null) {
-						serviceConnection.onServiceConnected(intent.getComponent(), service.onBind(intent));
-					} else {
-						service.onStartCommand(intent, 0, 0);
-					}
+					Service service = bringUpService(record);
+					if (service == null)
+						return;
+					service.onStartCommand(intent, 0, startId);
 				} catch (ReflectiveOperationException e) {
-					Slog.e(TAG, "startService: failed to start service " + className, e);
+					Slog.e(TAG, "startService: failed to start service " + component.getClassName(), e);
 				}
 			}
 		});
@@ -285,15 +316,62 @@ public final class ATLLoadedApp {
 		return component;
 	}
 
+	/**
+	 * Bind path (no binding model yet): brings the shared instance up and
+	 * publishes its binder to the client on the main looper.
+	 */
+	public ComponentName startOrBindService(final Intent intent, final ServiceConnection serviceConnection) {
+		if (serviceConnection == null) {
+			return startService(intent);
+		}
+		final ComponentName component = this.resolveServiceComponent(intent);
+		if (component == null) {
+			Slog.w(TAG, "bindService: no matching service found for intent: " + intent);
+			return null;
+		}
+		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component);
+
+		new Handler(Looper.getMainLooper()).post(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					Service service = bringUpService(record);
+					if (service == null)
+						return;
+					serviceConnection.onServiceConnected(intent.getComponent(), service.onBind(intent));
+				} catch (ReflectiveOperationException e) {
+					Slog.e(TAG, "bindService: failed to bind service " + component.getClassName(), e);
+				}
+			}
+		});
+
+		return component;
+	}
+
+	/**
+	 * stopService: detaches the record synchronously (so the returned boolean and
+	 * a second stopService observe the stopped state immediately) and posts
+	 * onDestroy() to the main looper, matching Android where onDestroy lands after
+	 * the call has returned.
+	 */
 	public boolean stopService(Intent intent) {
-		if (intent.getComponent() == null)
+		ComponentName component = intent.getComponent();
+		if (component == null) {
+			Slog.w(TAG, "stopService: no component in intent: " + intent);
 			return false;
-		String className = intent.getComponent().getClassName();
-		Service service = running_services.get(className);
-		if (service == null)
+		}
+		final ATLServiceRegistry.ServiceRecord record = service_registry.detach(component);
+		if (record == null)
 			return false;
-		service.onDestroy();
-		running_services.remove(className);
+		final Service service = record.instance;
+		if (service != null) {
+			new Handler(Looper.getMainLooper()).post(new Runnable() {
+				@Override
+				public void run() {
+					service.onDestroy();
+				}
+			});
+		}
 		return true;
 	}
 

@@ -1,0 +1,37 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!--
+  LOCAL-SERVICES probe app (task LOCAL-SERVICES-PROBE-001), case SVC-001.
+
+  Declared components:
+    .ControlActivity  MAIN/LAUNCHER, exported, kept alive while the scenario runs.
+    .SvcA             the service under test (startService/stopService target).
+    .SvcB             a second, DECLARED but unused service (the
+                      "declared-but-different component"); reserved for later
+                      scenarios, never started by SVC-001.
+
+  The SVC-001 unknown-component start case deliberately targets
+  org.atl.tests.svc/.SvcUnknown, which is NOT declared here, so the system
+  cannot resolve it as a service (must not crash the probe).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.svc">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <application
+        android:label="ATL LOCAL-SERVICES probe v1"
+        android:debuggable="true">
+        <activity
+            android:name=".ControlActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".SvcA"
+            android:exported="false" />
+        <service
+            android:name=".SvcB"
+            android:exported="false" />
+    </application>
+</manifest>

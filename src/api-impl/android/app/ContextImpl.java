@@ -265,7 +265,7 @@ public final class ContextImpl extends Context {
 				nativeStartExternalService(intent);
 			return null;
 		}
-		return targetApp.startOrBindService(intent, null);
+		return targetApp.startService(intent);
 	}
 
 	@Override
