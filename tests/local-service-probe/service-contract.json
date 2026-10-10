@@ -1,0 +1,33 @@
+{
+  "comment": "Self-contained manifest for the LOCAL-SERVICES probe (no run-specific paths). mandatory_scenarios are required in BOTH reference and candidate; the analyzer also unions in the reference's own config.scenarios and scenario names. normalized_fields is descriptive metadata (verify_services.py does not read it; the comparison fields are fixed in code via CMP_NONDET). 'seq' is the run-global event counter and is normalized across documents because it drifts when an earlier scenario's count differs; within-scenario order is enforced by list position, and 'seq' is retained inside the duplicate-detection key within a document.",
+  "probe": "SVC-PROBE-V5",
+  "task_id": "LOCAL-SERVICES-PROBE-V5",
+  "mandatory_scenarios": [
+    "SVC-002",
+    "SVC-003",
+    "SVC-004",
+    "SVC-005",
+    "SVC-006",
+    "SVC-007",
+    "SVC-008",
+    "SVC-009",
+    "SVC-010",
+    "SVC-011",
+    "SVC-012",
+    "SVC-013",
+    "SVC-014",
+    "SVC-015",
+    "SVC-016",
+    "SVC-017"
+  ],
+  "required_top_keys": [
+    "task_id",
+    "probe",
+    "run_id",
+    "config",
+    "observations",
+    "scenarios",
+    "exceptions"
+  ],
+  "normalized_fields": ["binder", "seq"]
+}
