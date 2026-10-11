@@ -91,7 +91,7 @@ public final class ATLLoadedApp {
 		try {
 			return primary_application = loadFromPath(
 				   pathsIndex == -1 ? classLoaderPath : classLoaderPath.substring(0, pathsIndex),
-				   nativePath, classLoaderPath);
+				   nativePath, classLoaderPath, true);
 		} catch (IOException e) {
 			// Failing to get the primary application should always be an error
 			throw new Error("Failed to parse primary application", e);
@@ -100,6 +100,21 @@ public final class ATLLoadedApp {
 
 	@NonNull
 	public static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath) throws IOException {
+		return loadFromPath(mainApk, nativePath, classLoaderPath, false);
+	}
+
+	/**
+	 * @param isPrimary true only for the app named by atl.app.class.path. The
+	 *                  ABI diagnostic may terminate this primary launch; loading a
+	 *                  secondary package must keep normal recoverable errors.
+	 */
+	@NonNull
+	private static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath, boolean isPrimary) throws IOException {
+		// Before anything of this application is loaded: refuse a package whose
+		// native code has no variant for the ABI this host runs, instead of
+		// letting it fail later with an UnsatisfiedLinkError cascade.
+		if (isPrimary)
+			ATLNativeAbi.checkOrExit(classLoaderPath);
 		if (ATLToggles.ATL_GHAX) {
 			// Always load ghax.jar as the first element to override application library classes
 			classLoaderPath = ATLPaths.ghax_jar.getPath() + File.pathSeparator + classLoaderPath;
@@ -125,7 +140,7 @@ public final class ATLLoadedApp {
 		if (play_services.contains(pkg.packageName)) {
 			ATLSigHelper.addGMSSignatures(pkg);
 		}
-		// Loaded applications share this host process; ATL does not assign Android sandbox UIDs.
+		// ATL uses one logical Android application UID, independent of the Linux UID.
 		pkg.applicationInfo.uid = android.os.Process.myUid();
 		pkg.applicationInfo.sourceDir = mainApk;
 		pkg.applicationInfo.publicSourceDir = mainApk;

@@ -35,6 +35,10 @@ extern "C" {
 #define android_os_Process_FIRST_APPLICATION_UID 10000L
 #undef android_os_Process_LAST_APPLICATION_UID
 #define android_os_Process_LAST_APPLICATION_UID 19999L
+#undef android_os_Process_FIRST_APP_ZYGOTE_ISOLATED_UID
+#define android_os_Process_FIRST_APP_ZYGOTE_ISOLATED_UID 90000L
+#undef android_os_Process_LAST_APP_ZYGOTE_ISOLATED_UID
+#define android_os_Process_LAST_APP_ZYGOTE_ISOLATED_UID 98999L
 #undef android_os_Process_FIRST_ISOLATED_UID
 #define android_os_Process_FIRST_ISOLATED_UID 99000L
 #undef android_os_Process_LAST_ISOLATED_UID
@@ -93,6 +97,8 @@ extern "C" {
 #define android_os_Process_SIGNAL_USR1 10L
 #undef android_os_Process_ZYGOTE_RETRY_MILLIS
 #define android_os_Process_ZYGOTE_RETRY_MILLIS 500L
+#undef android_os_Process_ATL_APPLICATION_APP_ID
+#define android_os_Process_ATL_APPLICATION_APP_ID 10000L
 #undef android_os_Process_PROC_TERM_MASK
 #define android_os_Process_PROC_TERM_MASK 255L
 #undef android_os_Process_PROC_ZERO_TERM

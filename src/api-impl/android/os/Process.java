@@ -126,6 +126,18 @@ public class Process {
 	public static final int LAST_APPLICATION_UID = 19999;
 
 	/**
+	 * First uid used for fully isolated sandboxed processes spawned from an app zygote
+	 * @hide
+	 */
+	public static final int FIRST_APP_ZYGOTE_ISOLATED_UID = 90000;
+
+	/**
+	 * Last uid used for fully isolated sandboxed processes spawned from an app zygote
+	 * @hide
+	 */
+	public static final int LAST_APP_ZYGOTE_ISOLATED_UID = 98999;
+
+	/**
 	 * First uid used for fully isolated sandboxed processes (with no permissions of their own)
 	 * @hide
 	 */
@@ -407,13 +419,24 @@ public class Process {
 	}
 
 	/**
+	 * App id reported for this process.  ATL loads every application into one
+	 * shared host process and does not allocate a per-package sandbox UID the
+	 * way Android's PackageManagerService does at install time (see
+	 * {@code ATLLoadedApp}).  The process therefore runs as the first logical
+	 * application sandbox of the owner user.  The host's Linux UID is unrelated
+	 * to Android identity and is never reported here.
+	 * @hide
+	 */
+	private static final int ATL_APPLICATION_APP_ID = FIRST_APPLICATION_UID;
+
+	/**
 	 * Returns the identifier of this process's uid.  This is the kernel uid
 	 * that the process is running under, which is the identity of its
 	 * app-specific sandbox.  It is different from {@link #myUserHandle} in that
 	 * a uid identifies a specific app sandbox in a specific user.
 	 */
 	public static final int myUid() {
-		return Libcore.os.getuid();
+		return UserHandle.getUid(UserHandle.USER_OWNER, ATL_APPLICATION_APP_ID);
 	}
 
 	/**
@@ -427,11 +450,39 @@ public class Process {
 	}
 
 	/**
+	 * Returns whether the given uid is a regular application uid.
+	 * @hide
+	 */
+	public static final boolean isApplicationUid(int uid) {
+		return UserHandle.isApp(uid);
+	}
+
+	/**
 	 * Returns whether the current process is in an isolated sandbox.
 	 * @hide
 	 */
 	public static final boolean isIsolated() {
-		return false;
+		return isIsolated(myUid());
+	}
+
+	/**
+	 * Returns whether the given uid is an isolated sandbox uid.
+	 * @hide
+	 * @deprecated Use {@link #isIsolatedUid(int)} instead.
+	 */
+	@Deprecated
+	public static final boolean isIsolated(int uid) {
+		return isIsolatedUid(uid);
+	}
+
+	/**
+	 * Returns whether the given uid is an isolated sandbox uid.
+	 * @hide
+	 */
+	public static final boolean isIsolatedUid(int uid) {
+		uid = UserHandle.getAppId(uid);
+		return (uid >= FIRST_ISOLATED_UID && uid <= LAST_ISOLATED_UID)
+				|| (uid >= FIRST_APP_ZYGOTE_ISOLATED_UID && uid <= LAST_APP_ZYGOTE_ISOLATED_UID);
 	}
 
 	/**

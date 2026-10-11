@@ -5,7 +5,8 @@
 #   sign-apks.sh <BUILD_DIR> <FREEZE_DIR>
 #
 # <BUILD_DIR> is the output of build.sh (inside atl_dev); <FREEZE_DIR> receives
-# the immutable signed APKs jniexc-001-{a,b,c}.apk plus apk-sha256.txt.
+# the immutable signed APKs jniexc-001-<variant>.apk plus apk-sha256.txt.
+# Set JNIEXC_VARIANTS="h i" to freeze only the new startup-boundary variants.
 #
 # Refuses to overwrite an existing frozen APK (each attempt keeps its own copy).
 set -eu
@@ -18,6 +19,9 @@ BUILD_DIR=$(cd "$1" && pwd)
 FREEZE_DIR=$2
 APKSIGNER=${APKSIGNER:-/home/morten/Android/Sdk/build-tools/37.0.0/apksigner}
 KS=${JNIEXC_KEYSTORE:-/home/morten/ATL/font-tests/debug.keystore}
+# Which built variants to sign/freeze. Override to sign only the new variants,
+# e.g. JNIEXC_VARIANTS="h i". Default = the full family.
+VARIANTS=${JNIEXC_VARIANTS:-a b c d e f g h i}
 
 command -v "$APKSIGNER" >/dev/null 2>&1 || [ -x "$APKSIGNER" ] || {
     echo "sign-apks.sh: apksigner not found: $APKSIGNER" >&2; exit 2; }
@@ -25,7 +29,7 @@ command -v "$APKSIGNER" >/dev/null 2>&1 || [ -x "$APKSIGNER" ] || {
 
 mkdir -p "$FREEZE_DIR"
 
-for v in a b c d e f g; do
+for v in $VARIANTS; do
     SRC="$BUILD_DIR/$v/jniexc-001-$v-aligned.apk"
     DST="$FREEZE_DIR/jniexc-001-$v.apk"
     [ -f "$SRC" ] || { echo "sign-apks.sh: missing $SRC" >&2; exit 2; }
@@ -44,6 +48,6 @@ done
     > "$FREEZE_DIR/apk-sha256.txt"
 cat "$FREEZE_DIR/apk-sha256.txt"
 
-for v in a b c d e f g; do
+for v in $VARIANTS; do
     "$APKSIGNER" verify --print-certs "$FREEZE_DIR/jniexc-001-$v.apk" | head -2
 done

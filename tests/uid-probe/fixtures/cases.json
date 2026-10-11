@@ -1,0 +1,177 @@
+[
+  {
+    "name": "valid_complete_pair",
+    "android": "valid_complete_pair.android.json",
+    "candidate": "valid_complete_pair.candidate.json",
+    "exit": 0,
+    "code": "OK"
+  },
+  {
+    "name": "android_empty",
+    "android": "android_empty.android.json",
+    "candidate": "android_empty.candidate.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE"
+  },
+  {
+    "name": "candidate_empty",
+    "android": "candidate_empty.android.json",
+    "candidate": "candidate_empty.candidate.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE"
+  },
+  {
+    "name": "candidate_missing_file",
+    "android": "candidate_missing_file.android.json",
+    "candidate": "candidate_missing_file.candidate.json",
+    "exit": 1,
+    "code": "MISSING_EVIDENCE"
+  },
+  {
+    "name": "candidate_malformed",
+    "android": "candidate_malformed.android.json",
+    "candidate": "candidate_malformed.candidate.json",
+    "exit": 1,
+    "code": "JSON_PARSE"
+  },
+  {
+    "name": "candidate_truncated",
+    "android": "candidate_truncated.android.json",
+    "candidate": "candidate_truncated.candidate.json",
+    "exit": 1,
+    "code": "JSON_PARSE"
+  },
+  {
+    "name": "candidate_no_sentinel",
+    "android": "candidate_no_sentinel.android.json",
+    "candidate": "candidate_no_sentinel.candidate.json",
+    "exit": 1,
+    "code": "MISSING_SENTINEL"
+  },
+  {
+    "name": "candidate_missing_field",
+    "android": "candidate_missing_field.android.json",
+    "candidate": "candidate_missing_field.candidate.json",
+    "exit": 1,
+    "code": "MISSING_FIELD"
+  },
+  {
+    "name": "candidate_missing_input",
+    "android": "candidate_missing_input.android.json",
+    "candidate": "candidate_missing_input.candidate.json",
+    "exit": 1,
+    "code": "MISSING_INPUT"
+  },
+  {
+    "name": "candidate_duplicate_input",
+    "android": "candidate_duplicate_input.android.json",
+    "candidate": "candidate_duplicate_input.candidate.json",
+    "exit": 1,
+    "code": "DUPLICATE_INPUT"
+  },
+  {
+    "name": "candidate_reordered",
+    "android": "candidate_reordered.android.json",
+    "candidate": "candidate_reordered.candidate.json",
+    "exit": 1,
+    "code": "REORDERED_INPUT"
+  },
+  {
+    "name": "candidate_invalid_number",
+    "android": "candidate_invalid_number.android.json",
+    "candidate": "candidate_invalid_number.candidate.json",
+    "exit": 1,
+    "code": "INVALID_NUMBER"
+  },
+  {
+    "name": "candidate_unreachable",
+    "android": "candidate_unreachable.android.json",
+    "candidate": "candidate_unreachable.candidate.json",
+    "exit": 1,
+    "code": "UNREACHABLE_SURFACE"
+  },
+  {
+    "name": "candidate_wrong_task",
+    "android": "candidate_wrong_task.android.json",
+    "candidate": "candidate_wrong_task.candidate.json",
+    "exit": 1,
+    "code": "WRONG_TASK"
+  },
+  {
+    "name": "candidate_status_error",
+    "android": "candidate_status_error.android.json",
+    "candidate": "candidate_status_error.candidate.json",
+    "exit": 1,
+    "code": "STATUS_NOT_OK"
+  },
+  {
+    "name": "candidate_exceptions",
+    "android": "candidate_exceptions.android.json",
+    "candidate": "candidate_exceptions.candidate.json",
+    "exit": 1,
+    "code": "EXCEPTIONS_PRESENT"
+  },
+  {
+    "name": "candidate_config_mismatch",
+    "android": "candidate_config_mismatch.android.json",
+    "candidate": "candidate_config_mismatch.candidate.json",
+    "exit": 1,
+    "code": "CONFIG_MISMATCH"
+  },
+  {
+    "name": "candidate_wrong_thread",
+    "android": "candidate_wrong_thread.android.json",
+    "candidate": "candidate_wrong_thread.candidate.json",
+    "exit": 1,
+    "code": "WRONG_THREAD"
+  },
+  {
+    "name": "candidate_wrong_owner",
+    "android": "candidate_wrong_owner.android.json",
+    "candidate": "candidate_wrong_owner.candidate.json",
+    "exit": 1,
+    "code": "WRONG_OWNER"
+  },
+  {
+    "name": "candidate_apk_mismatch",
+    "android": "candidate_apk_mismatch.android.json",
+    "candidate": "candidate_apk_mismatch.candidate.json",
+    "exit": 1,
+    "code": "APK_MISMATCH"
+  },
+  {
+    "name": "candidate_constant_mismatch",
+    "android": "candidate_constant_mismatch.android.json",
+    "candidate": "candidate_constant_mismatch.candidate.json",
+    "exit": 1,
+    "code": "CONSTANT_MISMATCH"
+  },
+  {
+    "name": "candidate_predicate_mismatch",
+    "android": "candidate_predicate_mismatch.android.json",
+    "candidate": "candidate_predicate_mismatch.candidate.json",
+    "exit": 1,
+    "code": "PREDICATE_MISMATCH"
+  },
+  {
+    "name": "candidate_identity_pin",
+    "android": "candidate_identity_pin.android.json",
+    "candidate": "candidate_identity_pin.candidate.json",
+    "exit": 1,
+    "code": "IDENTITY_CANDIDATE_PIN"
+  },
+  {
+    "name": "candidate_identity_structure",
+    "android": "candidate_identity_structure.android.json",
+    "candidate": "candidate_identity_structure.candidate.json",
+    "exit": 1,
+    "code": "IDENTITY_STRUCTURE"
+  },
+  {
+    "name": "both_spec_mismatch",
+    "android": "both_spec_mismatch.android.json",
+    "candidate": "both_spec_mismatch.candidate.json",
+    "exit": 1,
+    "code": "SPEC_MISMATCH"
+  }
+]

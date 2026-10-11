@@ -1,0 +1,3 @@
+JNIEXC001_JSON_BEGIN
+{"task_id":"JNI-EXC-001","case":"I","instance_id":"jniexc001-I-apk-fixture","config":{"scenario":"missing-native-library","library":"jniexc001-absent-library"}}
+JNIEXC001_JSON_END

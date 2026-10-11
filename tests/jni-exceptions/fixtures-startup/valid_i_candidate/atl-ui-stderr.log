@@ -1,0 +1,5 @@
+java.lang.UnsatisfiedLinkError: dalvik.system.PathClassLoader[DexPathList[[zip file
+ "/tmp/jniexc-001-i.apk"],nativeLibraryDirectories=[.]]] couldn't find "libjniexc001-absent-library.so"
+	at java.lang.Runtime.loadLibrary0(Runtime.java:1016)
+	at org.atl.tests.jniexc.i.ScenarioIApplication.onCreate(ScenarioIApplication.java:38)
+I/android-translation-layer(523809): System.exit called, status: 10

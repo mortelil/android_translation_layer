@@ -1,0 +1,27 @@
+{
+ "task_id": "D-SDK",
+ "family": "sdk-profile",
+ "expect_override_sdk": 28,
+ "runs": [
+  {
+   "name": "m28-t30",
+   "min_sdk": 28,
+   "target_sdk": 30,
+   "override_sdk": 30,
+   "scenarios": [
+    {
+     "scenario": "perm_none",
+     "android": "m28-t30/android/perm_none.json",
+     "atl_default": "m28-t30/atl-default/perm_none.json",
+     "atl_override": "m28-t30/atl-override/perm_none.json"
+    },
+    {
+     "scenario": "perm_phone_state",
+     "android": "m28-t30/android/perm_phone_state.json",
+     "atl_default": "m28-t30/atl-default/perm_phone_state.json",
+     "atl_override": "m28-t30/atl-override/perm_phone_state.json"
+    }
+   ]
+  }
+ ]
+}

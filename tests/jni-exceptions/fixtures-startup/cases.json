@@ -1,0 +1,114 @@
+[
+  {
+    "code": "PASS",
+    "dir": "valid_h_candidate",
+    "exit": 0,
+    "name": "valid_h_candidate",
+    "verdict": "PASS"
+  },
+  {
+    "code": "PASS",
+    "dir": "valid_i_candidate",
+    "exit": 0,
+    "name": "valid_i_candidate",
+    "verdict": "PASS"
+  },
+  {
+    "code": "EVIDENCE_EMPTY",
+    "dir": "empty_evidence",
+    "exit": 1,
+    "name": "empty_evidence",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_MISSING",
+    "dir": "missing_evidence",
+    "exit": 1,
+    "name": "missing_evidence",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_TRUNCATED",
+    "dir": "truncated_evidence",
+    "exit": 1,
+    "name": "truncated_evidence",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_DUPLICATE",
+    "dir": "duplicate_trailer",
+    "exit": 1,
+    "name": "duplicate_trailer",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_STALE",
+    "dir": "stale_run_id",
+    "exit": 1,
+    "name": "stale_run_id",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_META",
+    "dir": "meta_missing",
+    "exit": 1,
+    "name": "meta_missing",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_INCOMPLETE",
+    "dir": "no_completion_marker",
+    "exit": 1,
+    "name": "no_completion_marker",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_NO_SCENARIO",
+    "dir": "no_scenario_evidence",
+    "exit": 1,
+    "name": "no_scenario_evidence",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "WRONG_SCENARIO",
+    "dir": "wrong_scenario",
+    "exit": 1,
+    "name": "wrong_scenario",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "ORIGINAL_MISSING",
+    "dir": "original_missing",
+    "exit": 1,
+    "name": "original_missing",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "SENTINEL_EXECUTED",
+    "dir": "sentinel_present",
+    "exit": 1,
+    "name": "sentinel_present",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "SECONDARY_ABORT",
+    "dir": "abort_pending_exception",
+    "exit": 1,
+    "name": "abort_pending_exception",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "SECONDARY_ABORT",
+    "dir": "abort_runtime_aborting",
+    "exit": 1,
+    "name": "abort_runtime_aborting",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "SECONDARY_ABORT",
+    "dir": "abort_fatal_signal",
+    "exit": 1,
+    "name": "abort_fatal_signal",
+    "verdict": "REJECT"
+  }
+]

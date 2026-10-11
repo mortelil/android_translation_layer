@@ -1,0 +1,57 @@
+SDKPROBE_JSON_BEGIN
+{
+ "task_id": "D-SDK",
+ "probe": "sdk-profile",
+ "run_id": "fixture-atl-default-30-perm_none",
+ "run_kind": "atl-default",
+ "scenario": "perm_none",
+ "status": "OK",
+ "exceptions": [],
+ "apk": {
+  "sha256": null,
+  "package": "org.atl.tests.sdk",
+  "min_sdk": 28,
+  "target_sdk": 30
+ },
+ "build_version": {
+  "SDK_INT": 28,
+  "SDK": "28",
+  "RELEASE": "9",
+  "SDK_CODENAME": "REL",
+  "RESOURCES_SDK_INT": 28,
+  "PREVIEW_SDK_INT": 0
+ },
+ "system_properties": {
+  "ro.build.version.sdk": "28",
+  "ro.build.version.codename": "REL",
+  "ro.build.version.release": "9",
+  "read_errors": []
+ },
+ "resource_selection": {
+  "selected": "v28",
+  "value": "sentinel-v28",
+  "candidates": {
+   "base": "sentinel-base",
+   "v21": "sentinel-v21",
+   "v28": "sentinel-v28"
+  },
+  "expected_for_level": "v28",
+  "agrees": true
+ },
+ "configuration": {
+  "sdkVersion": 28
+ },
+ "permissions": {
+  "available": true,
+  "READ_PHONE_STATE": true,
+  "READ_PRIVILEGED_PHONE_STATE": false
+ },
+ "get_serial": {
+  "attempted": true,
+  "value": "unknown",
+  "exception": null,
+  "message": "fixture",
+  "classification": "UNKNOWN"
+ }
+}
+SDKPROBE_JSON_END

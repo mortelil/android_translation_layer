@@ -12,6 +12,34 @@
 
 #include "../generated_headers/android_view_View.h"
 #include "../generated_headers/android_webkit_WebView.h"
+#include "../generated_headers/android_webkit_WebSettings.h"
+
+/*
+ * android.webkit.WebSettings backend.
+ *
+ * Settings are delegated to the WebKitSettings object of the bound WebKitWebView. The
+ * WebView only creates a real WebKitWebView when ATL_UGLY_ENABLE_WEBVIEW is set; without
+ * it (the default) the handle is a plain View widget, so every call below is a no-op and
+ * the getters return the backend's absence (FALSE) or the engine default user agent.
+ */
+
+/* NULL unless the handle really is a WebKitWebView (i.e. the webview is enabled). */
+static WebKitSettings *webview_settings_from_ptr(jlong widget_ptr)
+{
+	GtkWidget *widget = _PTR(widget_ptr);
+	if (widget == NULL || !WEBKIT_IS_WEB_VIEW(widget))
+		return NULL;
+	return webkit_web_view_get_settings(WEBKIT_WEB_VIEW(widget));
+}
+
+static jstring default_user_agent_string(JNIEnv *env)
+{
+	WebKitSettings *settings = webkit_settings_new();
+	const gchar *user_agent = webkit_settings_get_user_agent(settings);
+	jstring result = _JSTRING(user_agent ? user_agent : "");
+	g_object_unref(settings);
+	return result;
+}
 
 static void asset_uri_scheme_request_cb(WebKitURISchemeRequest *request, gpointer user_data)
 {
@@ -34,6 +62,7 @@ static void web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_
 	WrapperWidget *wrapper = WRAPPER_WIDGET(gtk_widget_get_parent(GTK_WIDGET(web_view)));
 	JNIEnv *env = get_jni_env();
 	(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.webview.internalLoadChanged, load_event, _JSTRING(webkit_web_view_get_uri(web_view)));
+
 }
 
 static gboolean decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *decision, WebKitPolicyDecisionType type, WrapperWidget *wrapper)
@@ -73,6 +102,10 @@ JNIEXPORT jlong JNICALL Java_android_webkit_WebView_native_1constructor(JNIEnv *
 	webkit_web_context_register_uri_scheme(webkit_web_view_get_context(WEBKIT_WEB_VIEW(webview)), "android-asset", asset_uri_scheme_request_cb, NULL, NULL);
 	g_signal_connect(G_OBJECT(webview), "load-changed", G_CALLBACK(web_view_load_changed), NULL);
 	g_signal_connect(webview, "decide-policy", G_CALLBACK(decide_policy), wrapper);
+	/* Android WebSettings defaults differ from WebKitGTK's defaults. */
+	WebKitSettings *settings = webkit_web_view_get_settings(WEBKIT_WEB_VIEW(webview));
+	webkit_settings_set_enable_javascript(settings, FALSE);
+	webkit_settings_set_enable_html5_local_storage(settings, FALSE);
 	return _INTPTR(webview);
 }
 
@@ -96,4 +129,152 @@ JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1loadDataWithBaseURL(J
 	char *data = malloc(data_len + 1); // + 1 for NUL
 	(*env)->GetStringUTFRegion(env, data_jstr, 0, data_jlen, data);
 	webkit_web_view_load_bytes(webview, g_bytes_new(data, data_len), mime_type ? _CSTRING(mime_type) : "text/html", encoding ? _CSTRING(encoding) : NULL, base_url ? _CSTRING(base_url) : NULL);
+}
+
+/*
+ * android.webkit.WebSettings native backend.
+ * Implemented: user agent (the real WebKitGTK engine UA), JavaScript, DOM storage,
+ * HTML5 database setting (engine-dependent; WebSQL remains unproven), loads-images, media-playback-requires-user-gesture,
+ * JavaScript-opens-windows, file/universal access from file URLs.
+ * Settings with no WebKitGTK 6.0 equivalent stay no-ops in WebSettings.java.
+ */
+
+JNIEXPORT jstring JNICALL Java_android_webkit_WebSettings_nativeGetDefaultUserAgent(JNIEnv *env, jclass clazz)
+{
+	return default_user_agent_string(env);
+}
+
+JNIEXPORT jstring JNICALL Java_android_webkit_WebSettings_nativeGetUserAgent(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (!settings)
+		return default_user_agent_string(env);
+	const gchar *user_agent = webkit_settings_get_user_agent(settings);
+	return _JSTRING(user_agent ? user_agent : "");
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetUserAgent(JNIEnv *env, jclass clazz, jlong widget, jstring user_agent)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (!settings)
+		return;
+
+	if (user_agent == NULL) {
+		/* AOSP: null restores the default user agent. */
+		WebKitSettings *defaults = webkit_settings_new();
+		const gchar *default_user_agent = webkit_settings_get_user_agent(defaults);
+		webkit_settings_set_user_agent(settings, default_user_agent);
+		g_object_unref(defaults);
+		return;
+	}
+
+	const char *c_user_agent = _CSTRING(user_agent);
+	if (!c_user_agent)
+		return;
+	webkit_settings_set_user_agent(settings, c_user_agent);
+	(*env)->ReleaseStringUTFChars(env, user_agent, c_user_agent);
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetJavaScriptEnabled(JNIEnv *env, jclass clazz, jlong widget, jboolean enabled)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_enable_javascript(settings, enabled);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetJavaScriptEnabled(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_enable_javascript(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetDomStorageEnabled(JNIEnv *env, jclass clazz, jlong widget, jboolean enabled)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_enable_html5_local_storage(settings, enabled);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetDomStorageEnabled(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_enable_html5_local_storage(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetDatabaseEnabled(JNIEnv *env, jclass clazz, jlong widget, jboolean enabled)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_enable_html5_database(settings, enabled);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetDatabaseEnabled(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_enable_html5_database(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetLoadsImagesAutomatically(JNIEnv *env, jclass clazz, jlong widget, jboolean enabled)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_auto_load_images(settings, enabled);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetLoadsImagesAutomatically(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_auto_load_images(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetMediaPlaybackRequiresUserGesture(JNIEnv *env, jclass clazz, jlong widget, jboolean require)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_media_playback_requires_user_gesture(settings, require);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetMediaPlaybackRequiresUserGesture(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_media_playback_requires_user_gesture(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetJavaScriptCanOpenWindowsAutomatically(JNIEnv *env, jclass clazz, jlong widget, jboolean enabled)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_javascript_can_open_windows_automatically(settings, enabled);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetJavaScriptCanOpenWindowsAutomatically(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_javascript_can_open_windows_automatically(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetAllowFileAccessFromFileURLs(JNIEnv *env, jclass clazz, jlong widget, jboolean allow)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_allow_file_access_from_file_urls(settings, allow);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetAllowFileAccessFromFileURLs(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_allow_file_access_from_file_urls(settings) : FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetAllowUniversalAccessFromFileURLs(JNIEnv *env, jclass clazz, jlong widget, jboolean allow)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	if (settings)
+		webkit_settings_set_allow_universal_access_from_file_urls(settings, allow);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetAllowUniversalAccessFromFileURLs(JNIEnv *env, jclass clazz, jlong widget)
+{
+	WebKitSettings *settings = webview_settings_from_ptr(widget);
+	return settings ? webkit_settings_get_allow_universal_access_from_file_urls(settings) : FALSE;
 }

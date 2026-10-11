@@ -3,12 +3,18 @@
 # run-case.sh - single harness entry point for JNI-EXC-001 probe scenarios.
 #
 # Usage:
-#   tests/jni-exceptions/run-case.sh <A|B|C|D|E|F|G> <OUT_DIR>
+#   tests/jni-exceptions/run-case.sh <A|B|C|D|E|F|G|H|I> <OUT_DIR>
+#
+# Cases A-G run the frozen probe APK in probe mode (application-defined marker).
+# Cases H/I (A-JNI startup boundaries: Application construction failure and
+# missing native library) run in runner `ui` mode: the app fails during startup
+# and never emits its own marker, so completion is the runner's ATL_UI_SMOKE_DONE.
 #
 # It launches the frozen probe APK on ATL through the shared, bounded runner
 # (tools/run-atl-probe.sh: marker completion, never process exit; a
 # terminal-failure child exits/crashes), collects stdout/stderr, seals them with
-# a completion trailer, then runs the fail-closed analyzer verify_jni_exc.py.
+# a completion trailer, then runs the fail-closed analyzer (verify_jni_exc.py for
+# A-G, verify_startup_boundary.py for H/I).
 #
 # Exit codes:
 #   0  analyzer PASS
@@ -26,10 +32,11 @@ set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 VERIFY="$HERE/verify_jni_exc.py"
+VERIFY_STARTUP="$HERE/verify_startup_boundary.py"
 ANALYZER_PY=${PYTHON:-python3}
 
 if [ "$#" -ne 2 ]; then
-    echo "run-case.sh: usage: run-case.sh <A|B|C|D|E|F|G> <OUT_DIR>" >&2
+    echo "run-case.sh: usage: run-case.sh <A|B|C|D|E|F|G|H|I> <OUT_DIR>" >&2
     exit 2
 fi
 
@@ -37,8 +44,8 @@ CASE=$1
 OUT_DIR=$2
 
 case "$CASE" in
-    A|B|C|D|E|F|G) ;;
-    *) echo "run-case.sh: unknown case '$CASE' (want A through G)" >&2; exit 2 ;;
+    A|B|C|D|E|F|G|H|I) ;;
+    *) echo "run-case.sh: unknown case '$CASE' (want A through I)" >&2; exit 2 ;;
 esac
 [ -n "$OUT_DIR" ] || { echo "run-case.sh: OUT_DIR is empty" >&2; exit 2; }
 
@@ -56,11 +63,20 @@ TIMEOUT=${JNIEXC_TIMEOUT:-300}
 : "${ATL_PROBE_BUILD_DIR:=/home/morten/ATL/agent-work/JNI-EXCEPTIONS/baseline/build-mobile}"
 export ATL_PROBE_SOURCE_DIR ATL_PROBE_BUILD_DIR
 
+MODE=probe
 case "$CASE" in
     A|B|E|F|G) MARKER=JNIEXC001_JSON_END ;;
     C)   MARKER=JNIEXC001_POS_DONE ;;
     D) MARKER=JNIEXC_D_DONE ;;
+    H|I) MARKER=ATL_UI_SMOKE_DONE; MODE=ui ;;
 esac
+# ui-mode startup-boundary cases: ATL exits during startup, so completion is the
+# runner's own bounded-UI marker. A fixed script keeps inputs deterministic.
+if [ "$MODE" = ui ]; then
+    : "${JNIEXC_UI_SCRIPT:=wait:30;shot:startup;close:}"
+    ATL_UI_SCRIPT=$JNIEXC_UI_SCRIPT
+    export ATL_UI_SCRIPT
+fi
 
 [ ! -e "$OUT_DIR" ] || { echo "refusing stale output directory" >&2; exit 2; }
 mkdir -p "$OUT_DIR" || { echo "run-case.sh: cannot create $OUT_DIR" >&2; exit 2; }
@@ -77,8 +93,11 @@ echo "atl_source_dir=$ATL_PROBE_SOURCE_DIR"
 echo "atl_build_dir=$ATL_PROBE_BUILD_DIR"
 echo "marker=$MARKER timeout=${TIMEOUT}s"
 
-"$RUNNER" "$APK" "$ATL_DIR" "$MARKER" "$TIMEOUT"
+echo "mode=$MODE"
+"$RUNNER" "$APK" "$ATL_DIR" "$MARKER" "$TIMEOUT" "$MODE" \
+    > "$OUT_DIR/runner-host-stdout.txt" 2>&1
 RUNNER_EXIT=$?
+cat "$OUT_DIR/runner-host-stdout.txt"
 echo "runner_exit=$RUNNER_EXIT"
 
 # Hash the implementation, not just the launcher. Loaded origin must also be
@@ -93,16 +112,28 @@ sha256sum "$ATL_PROBE_BUILD_DIR/android-translation-layer" \
 [ -f "$ATL_DIR/stdout.log" ] && cp -f "$ATL_DIR/stdout.log" "$OUT_DIR/stdout.log"
 [ -f "$ATL_DIR/stderr.log" ] && cp -f "$ATL_DIR/stderr.log" "$OUT_DIR/stderr.log"
 
+# ui-mode runs write the ATL application streams separately (atl-ui-*.log).
+for f in atl-ui-stdout.log atl-ui-stderr.log; do
+    if [ -f "$ATL_DIR/$f" ]; then
+        cp -f "$ATL_DIR/$f" "$OUT_DIR/$f"
+    else
+        : > "$OUT_DIR/$f"
+    fi
+done
+
+# combined.log is the sealed capture the analyzer checks for a complete run.
 {
     cat "$OUT_DIR/stdout.log"
     printf '\n'
     cat "$OUT_DIR/stderr.log"
+    printf '\n'
+    cat "$OUT_DIR/atl-ui-stdout.log"
+    printf '\n'
+    cat "$OUT_DIR/atl-ui-stderr.log"
     printf '\nJNIEXC001_RUN_COMPLETE run_id=%s runner_exit=%d\n' "$RUN_ID" "$RUNNER_EXIT"
 } > "$OUT_DIR/combined.log"
 
-if [ -f "$ATL_DIR/stdout.log" ]; then
-    grep -E '^ATL-PROBE STATUS=' "$ATL_DIR/stdout.log" | tail -1 > "$OUT_DIR/runner.txt" || true
-fi
+grep -E '^ATL-PROBE STATUS=' "$OUT_DIR/runner-host-stdout.txt" | tail -1 > "$OUT_DIR/runner.txt" || true
 
 APK_SHA=$(sha256sum "$APK" | cut -d' ' -f1)
 ATL_BIN_SHA=$(grep -m1 -E '^[0-9a-f]{64}  ' "$ATL_DIR/atl-binary.txt" 2>/dev/null | cut -d' ' -f1)
@@ -129,7 +160,12 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write("\n")
 PYEOF
 
-"$ANALYZER_PY" "$VERIFY" "$OUT_DIR" > "$OUT_DIR/analysis.txt" 2>&1
+case "$CASE" in
+    H|I) ANALYZER="$VERIFY_STARTUP" ;;
+    *)   ANALYZER="$VERIFY" ;;
+esac
+
+"$ANALYZER_PY" "$ANALYZER" "$OUT_DIR" > "$OUT_DIR/analysis.txt" 2>&1
 ANALYZER_EXIT=$?
 cat "$OUT_DIR/analysis.txt"
 

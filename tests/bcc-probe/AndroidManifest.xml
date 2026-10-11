@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.bcc">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="24" />
+    <application
+        android:label="ATL B-CALLBACKS probe"
+        android:debuggable="true">
+        <!-- configChanges keeps the Activity instance alive so the platform
+             configuration change is delivered to Activity.onConfigurationChanged
+             instead of recreating it (the recreation would discard the trace). -->
+        <activity
+            android:name=".ProbeActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|locale|layoutDirection|density|fontScale|keyboardHidden|keyboard|navigation|touchscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

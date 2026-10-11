@@ -17,6 +17,10 @@
 package android.os;
 
 import android.atl.EarlyPackageParser;
+import android.Manifest;
+import android.app.ActivityThread;
+import android.app.Application;
+import android.content.pm.PackageManager;
 import android.content.pm.PackageParser;
 import android.util.DisplayMetrics;
 import java.io.File;
@@ -107,6 +111,50 @@ public class Build {
 	 */
 	public static final String SERIAL = getString("ro.serialno");
 
+	/**
+	 * Gets the hardware serial number, if available.
+	 *
+	 * <p>This is only useful for device/Profile Owner apps; other apps will
+	 * receive {@link #UNKNOWN} or a {@link SecurityException}, following the
+	 * Android Q-and-later access policy (independent of ATL's reported
+	 * compatibility API level; frameworks/base DeviceIdentifiersPolicyService
+	 * .getSerialForPackage() -> TelephonyPermissions
+	 * .checkCallingOrSelfReadDeviceIdentifiers()):
+	 * <ul>
+	 *   <li>if the app is privileged, a device/profile owner, holds carrier
+	 *       privileges or the USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER app-op, the
+	 *       serial is returned;
+	 *   <li>if the app targets pre-Q and holds READ_PHONE_STATE it receives
+	 *       {@link #UNKNOWN} instead of throwing;
+	 *   <li>otherwise a {@link SecurityException} is thrown.
+	 * </ul>
+	 *
+	 * <p>ATL has no Android hardware serial: even for an allowed caller this
+	 * returns ro.serialno (unset here, i.e. {@link #UNKNOWN}). The host
+	 * machine's serial is never exposed.
+	 */
+	public static String getSerial() {
+		Application application = ActivityThread.currentApplication();
+		// ATL exposes no radio/subscription backend, so carrier privileges and
+		// DevicePolicyManager device/profile owner checks are always false and
+		// READ_PRIVILEGED_PHONE_STATE is not grantable (PackageManager only
+		// grants a fixed set of permissions).
+		if (application != null && application.checkCallingOrSelfPermission(
+				Manifest.permission.READ_PRIVILEGED_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+			return SystemProperties.get("ro.serialno", UNKNOWN);
+		}
+		if (application != null
+				&& application.getApplicationInfo().targetSdkVersion < VERSION_CODES.Q
+				&& application.checkCallingOrSelfPermission(Manifest.permission.READ_PHONE_STATE)
+						== PackageManager.PERMISSION_GRANTED) {
+			// Pre-Q app that would previously have had access: AOSP returns
+			// placeholder data (false) instead of throwing.
+			return UNKNOWN;
+		}
+		throw new SecurityException("getSerial: The uid " + Process.myUid()
+				+ " does not meet the requirements to access device identifiers.");
+	}
+
 	public static final String[] SUPPORTED_ABIS = getString("ro.product.cpu.abilist").split(",");
 
 	public static final String[] SUPPORTED_32_BIT_ABIS = getStringList("ro.product.cpu.abilist32", ",");
@@ -120,7 +168,7 @@ public class Build {
 		static {
 			String SDK_INT_str = System.getProperty("Build.VERSION.SDK_INT");
 			String mainApkPath;
-			int SDK_INT_tmp = Build.VERSION_CODES.GINGERBREAD;
+			int SDK_INT_tmp = Build.VERSION_CODES.LOLLIPOP;
 			if (SDK_INT_str != null) {
 				// Always force SDK_INT to be at least 1 as 0 is used to detect early accesses.
 				SDK_INT_tmp = Integer.parseInt(SDK_INT_str);
@@ -136,8 +184,8 @@ public class Build {
 				File mainApk = new File(mainApkPath);
 				if (mainApk.isFile()) {
 					SDK_INT_tmp = EarlyPackageParser.parseMinSdkInt(mainApk, SDK_INT_tmp);
-					// Always ensure the SDK int is at least gingerbread for older applications.
-					SDK_INT_tmp = Math.max(SDK_INT_tmp, Build.VERSION_CODES.GINGERBREAD);
+					// Always ensure the SDK int is at least Lollipop for older applications.
+					SDK_INT_tmp = Math.max(SDK_INT_tmp, Build.VERSION_CODES.LOLLIPOP);
 				}
 			}
 

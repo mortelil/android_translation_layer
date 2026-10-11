@@ -9,6 +9,10 @@ public class SystemProperties {
 		properties.put("ro.product.brand", "google");
 		properties.put("ro.build.tags", "release-keys");
 		properties.put("ro.build.type", "user");
+		// AOSP release builds (frameworks/base Build.VERSION.CODENAME) report
+		// "REL" and have no active development codenames, so
+		// RESOURCES_SDK_INT == SDK_INT. ATL only ever presents release levels.
+		properties.put("ro.build.version.codename", "REL");
 		// TODO how to actually get the system's supported abis?
 		if (System.getProperty("os.arch").equals("x86_64")) {
 			properties.put("ro.product.cpu.abi", "x86_64");

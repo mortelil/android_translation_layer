@@ -1,0 +1,18 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.jniexc.i">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
+    <application
+        android:name=".ScenarioIApplication"
+        android:label="JNI-EXC-001 I (missing native library)"
+        android:debuggable="true">
+        <activity
+            android:name=".ScenarioIActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

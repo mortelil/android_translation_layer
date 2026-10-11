@@ -83,6 +83,13 @@ char *construct_classpath(char *prefix, char **cp_array, size_t len)
 
 #define JDWP_ARG    "-XjdwpOptions:transport=dt_socket,server=y,suspend=y,address="
 #define SDK_INT_ARG "-DBuild.VERSION.SDK_INT="
+// the ABI whose lib/<abi>/ directory extract_from_apk() unpacks; ATLNativeAbi
+// compares the application's declared ABIs against it. Keep in sync with the
+// NATIVE_ARCH definition above.
+#define NATIVE_ARCH_ARG "-Datl.native.arch=" NATIVE_ARCH
+
+// number of options always set at fixed indices 0..N_FIXED_OPTIONS-1 below
+#define N_FIXED_OPTIONS 6
 
 JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_apk, char *test_runner_jar, char *api_impl_natives_dir, char *app_lib_dir, char *sdk_int, char **extra_jvm_options)
 {
@@ -90,11 +97,12 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 	JNIEnv *env;
 	JavaVMInitArgs args = {
 		.version = JNI_VERSION_1_6,
-		.nOptions = 5,
+		.nOptions = N_FIXED_OPTIONS,
 	};
 	JavaVMOption *options;
 
-	int option_counter = args.nOptions;
+	// dynamic options (jdwp, sdk, caller supplied) start after the fixed ones
+	int option_counter = N_FIXED_OPTIONS;
 
 	char jdwp_option_string[sizeof(JDWP_ARG) + 5] = JDWP_ARG;          // 5 chars for port number, NULL byte is counted by sizeof
 	char sdk_int_option_string[sizeof(SDK_INT_ARG) + 2] = SDK_INT_ARG; // 2 chars for SDK_INT, NULL byte is counted by sizeof
@@ -121,6 +129,7 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 	options[2].optionString = construct_classpath("-Datl.app.class.path=", (char *[]){apk_classpath}, 1);
 	options[3].optionString = construct_classpath("-Datl.app.library.path=", (char *[]){api_impl_natives_dir, app_lib_dir}, 2);
 	options[4].optionString = "-Xcheck:jni";
+	options[5].optionString = NATIVE_ARCH_ARG;
 	if (jdwp_port) {
 		strncat(jdwp_option_string, jdwp_port, 5); // 5 chars is enough for a port number, and won't overflow our array
 		options[option_counter++].optionString = "-XjdwpProvider:internal";
@@ -339,6 +348,10 @@ static gboolean install_dbus_service_file(const char *package_name, const char *
 	return TRUE;
 }
 
+/* Defined below; called from open() before its definition. Hands the Java API
+ * level to the bionic runtime so Java, resource selection and native agree. */
+static int sync_android_api_level(JNIEnv *env);
+
 static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
 {
 	if (window) { // this is not the first launch, but a DBus request to open an URI in the running app
@@ -350,7 +363,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		                                                  _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;)Landroid/app/Activity;"),
 		                                                  _JSTRING(d->apk_main_activity_class), _INTPTR(window), _JSTRING(uri));
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity construction");
 		activity_start(env, activity);
 		atl_jni_handle_uncaught_exception(env, "Activity startup");
 		return;
@@ -480,18 +493,8 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	set_up_handle_cache(env);
 
 	// Use the same selected API level for Java and Android native libraries.
-	// Build.VERSION applies ATL's existing explicit/minSdk selection policy.
-	jclass version_class = (*env)->FindClass(env, "android/os/Build$VERSION");
-	if (!version_class) { (*env)->ExceptionDescribe(env); exit(1); }
-	jfieldID sdk_field = (*env)->GetStaticFieldID(env, version_class, "SDK_INT", "I");
-	if (!sdk_field) { (*env)->ExceptionDescribe(env); exit(1); }
-	jint sdk = (*env)->GetStaticIntField(env, version_class, sdk_field);
-	(*env)->DeleteLocalRef(env, version_class);
-	int (*set_sdk_version)(int) = dlsym(RTLD_DEFAULT, "bionic_set_android_sdk_version");
-	if ((*env)->ExceptionCheck(env) || !set_sdk_version || set_sdk_version(sdk)) {
-		fprintf(stderr, "Unable to synchronize Android API level; use the pinned bionic_translation runtime\n");
+	if (sync_android_api_level(env))
 		exit(1);
-	}
 
 	/* -- misc -- */
 
@@ -533,20 +536,27 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	// construct Application
 	application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,
 	                                                    _STATIC_METHOD(handle_cache.context.class, "createApplication", "(J)Landroid/app/Application;"), window);
+	/* ExceptionDescribe is non-terminal in the pinned ART (jni_internal.cc:885
+	 * re-installs the Throwable), so the FindClass below would abort with the
+	 * original still pending and replace it. Route the failing operation to the
+	 * uncaught-exception guard instead: it reports the original and terminates. */
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application construction");
+
 
 	jclass content_provider = (*env)->FindClass(env, "android/content/ContentProvider");
+	if ((*env)->ExceptionCheck(env))
+		atl_jni_handle_uncaught_exception(env, "ContentProvider class");
 	(*env)->CallStaticVoidMethod(env, content_provider, _STATIC_METHOD(content_provider, "createContentProviders", "()V"));
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "ContentProvider.createContentProviders");
 
 	jmethodID on_create_method = _METHOD(handle_cache.application.class, "onCreate", "()V");
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application.onCreate lookup");
 	(*env)->CallVoidMethod(env, application_object, on_create_method);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application.onCreate");
 
 	if (d->apk_instrumentation_class) {
 		if (d->apk_main_activity_class) {
@@ -566,7 +576,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		                               _JSTRING(d->apk_instrumentation_class), intent);
 
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Instrumentation.create");
 	}
 
 	// construct main Activity
@@ -575,7 +585,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		                                                 _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;)Landroid/app/Activity;"),
 		                                                 _JSTRING(d->apk_main_activity_class), _INTPTR(window), (uri_option && *uri_option) ? _JSTRING(uri_option) : NULL);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity construction");
 		if (uri_option)
 			g_free(uri_option);
 
@@ -591,13 +601,13 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		jstring package_name_jstr = (*env)->CallObjectMethod(env, application_object, handle_cache.context.get_package_name);
 		package_name = package_name_jstr ? _CSTRING(package_name_jstr) : NULL;
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Application.getPackageName");
 	}
 
 	jstring app_icon_path_jstr = (*env)->CallObjectMethod(env, application_object, handle_cache.application.get_app_icon_path);
 	const char *app_icon_path = app_icon_path_jstr ? _CSTRING(app_icon_path_jstr) : NULL;
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application.get_app_icon_path");
 
 	if (d->install || d->install_internal) {
 		if (d->apk_instrumentation_class) {
@@ -607,9 +617,13 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 		XdpPortal *portal = xdp_portal_new();
 
-		const char *app_label = _CSTRING((*env)->CallObjectMethod(env, application_object, _METHOD(handle_cache.application.class, "get_app_label", "()Ljava/lang/String;")));
+		jmethodID label_method = _METHOD(handle_cache.application.class, "get_app_label", "()Ljava/lang/String;");
+		atl_jni_handle_uncaught_exception(env, "Application label lookup");
+		jstring label_string = (*env)->CallObjectMethod(env, application_object, label_method);
+		atl_jni_handle_uncaught_exception(env, "Application label");
+		const char *app_label = label_string ? _CSTRING(label_string) : "";
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Application.get_app_label");
 
 		GVariant *icon_serialized = NULL;
 		if (!d->install_internal) {
@@ -665,7 +679,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		jstring supported_mime_types_jstr = (*env)->CallObjectMethod(env, application_object, get_supported_mime_types);
 		const char *supported_mime_types = supported_mime_types_jstr ? _CSTRING(supported_mime_types_jstr) : NULL;
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Application.get_supported_mime_types");
 
 		GString *exec_cmd = g_string_new("env ");
 		if (getenv("RUN_FROM_BUILDDIR")) {
@@ -766,7 +780,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 		(*env)->CallVoidMethod(env, input_queue_callback, handle_cache.input_queue_callback.onInputQueueCreated, input_queue);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "InputQueueCallback.onInputQueueCreated");
 	}
 
 	if (strcmp(app_id, "com.example.demo_application")) {
@@ -854,6 +868,26 @@ static void pregrow_stack()
 	/* noop, but should generate an access because volatile */
 	dummy[0] = dummy[0];
 #pragma GCC diagnostic pop
+}
+
+/* The early immutable Java profile is selected before app construction and
+ * synchronized to native before any app class can initialize. */
+static int sync_android_api_level(JNIEnv *env)
+{
+	// Use the same selected API level for Java and Android native libraries.
+	// Build.VERSION applies ATL's explicit-override/platform/minSdk policy.
+	jclass version_class = (*env)->FindClass(env, "android/os/Build$VERSION");
+	if (!version_class) { (*env)->ExceptionDescribe(env); return -1; }
+	jfieldID sdk_field = (*env)->GetStaticFieldID(env, version_class, "SDK_INT", "I");
+	if (!sdk_field) { (*env)->ExceptionDescribe(env); return -1; }
+	jint sdk = (*env)->GetStaticIntField(env, version_class, sdk_field);
+	(*env)->DeleteLocalRef(env, version_class);
+	int (*set_sdk_version)(int) = dlsym(RTLD_DEFAULT, "bionic_set_android_sdk_version");
+	if ((*env)->ExceptionCheck(env) || !set_sdk_version || set_sdk_version(sdk)) {
+		fprintf(stderr, "Unable to synchronize Android API level; use the pinned bionic_translation runtime\n");
+		return -1;
+	}
+	return 0;
 }
 
 int main(int argc, char **argv)
