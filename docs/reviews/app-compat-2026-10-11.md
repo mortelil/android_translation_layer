@@ -104,3 +104,22 @@ not an Android package loader. The Bionic PR contains its scheduler test command
 Keep probe APKs and Android references identical between comparisons; record
 actual library/JAR origin and interpret explicit GAP/NOT_TRIGGERED/REJECT states.
 Do not substitute helper exit 0 or a live process for functionality.
+
+### Desktop app spot checks
+
+- LocalSend: Receive → Send → Settings → Receive, visible content changes;
+  window close exits 0. No transfer attempted.
+- Messenger: login renders, dummy password text appears masked; close exits 0.
+  No authentication attempted.
+- Immich: server screen renders and accepts `http://example.invalid` without
+  submission; close exits 0. Settings click did not establish navigation, so
+  settings navigation is not counted as passed. No server or photo access.
+- ReVanced Manager: welcome/permission page visible; not installation tested.
+- microG: settings page visible; Google login not tested in this pass.
+- ARM-only Morphe: correctly blocked with exit 12.
+- x86 YouTube (explicit base/split paths): not ABI-blocked; fails on missing
+  `StrictMode.ThreadPolicy.Builder.penaltyListener(Executor, OnThreadViolationListener)`.
+  This method is unchanged by this integration. No working YouTube claim.
+
+The final rebuild after comment/documentation cleanup is additionally checked
+with mobile-smoke; no implementation changes occurred after the combined probes.
