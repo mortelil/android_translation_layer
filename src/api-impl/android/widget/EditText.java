@@ -115,8 +115,6 @@ public class EditText extends TextView {
 		editable.replace(0, editable.length(), value == null ? "" : value);
 	}
 
-	@Override
-	public void setTextSize(float size) {}
 
 	@Override
 	public void removeTextChangedListener(TextWatcher watcher) {

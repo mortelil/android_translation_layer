@@ -57,6 +57,7 @@ public class TestActivity extends android.app.Activity {
 			TestLayoutLines.run();
 			TestQwerty.run();
 			TestEditText.run(this);
+			TestTextSize.run(this);
 			android.app.job.JobInfo.TriggerContentUri trigger = new android.app.job.JobInfo.TriggerContentUri(android.net.Uri.parse("content://atl.test/items"), 1);
 			android.app.job.JobInfo job = new android.app.job.JobInfo.Builder(123456, new android.content.ComponentName("atl.test", "atl.test.Job"))
 			    .setTriggerContentUpdateDelay(123).setTriggerContentMaxDelay(456).addTriggerContentUri(trigger).build();
