@@ -232,10 +232,11 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Path_native_1op(JNIEnv *env, jclas
 	GskPath *result = atl_path_op(_PTR(p1), _PTR(p2), op, fill1, fill2, &out_fill_type);
 
 	if (out_fill) {
-		jint *elems = (*env)->GetIntArrayElements(env, out_fill, NULL);
-		if (elems) {
-			elems[0] = out_fill_type;
-			(*env)->ReleaseIntArrayElements(env, out_fill, elems, 0);
+		jint fill = out_fill_type;
+		(*env)->SetIntArrayRegion(env, out_fill, 0, 1, &fill);
+		if ((*env)->ExceptionCheck(env)) {
+			if (result) gsk_path_unref(result);
+			return 0;
 		}
 	}
 	return _INTPTR(result);
