@@ -98,7 +98,12 @@ public class EditText extends TextView {
 	public Editable getText() { ensureEditable(); return editable; }
 
 	@Override
-	public Editable getEditableText() { return getText(); }
+	public Editable getEditableText() {
+		// Subclasses such as AppCompatEditText delegate getText() here.
+		// Read the backing buffer without dispatching back to that override.
+		ensureEditable();
+		return editable;
+	}
 
 	@Override
 	public void setText(CharSequence text) { setText(text, BufferType.EDITABLE); }

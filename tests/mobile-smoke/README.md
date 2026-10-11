@@ -13,6 +13,12 @@ both process status and `ATL TEST APK PASSED`. No private library is needed.
 Editable writes, native GTK changes, UTF-16 change ranges (including emoji),
 before/on/after notification order, listener removal, cursor/selection, rejected
 InputFilters, internal watcher isolation and password type/transformation state.
+The same checks run on a subclass whose `getText()` delegates to
+`super.getEditableText()`, matching AppCompat's pre-28 compatibility path. A
+re-entry guard catches incorrect virtual redispatch without overflowing the test
+VM's stack, and both accessors must return the same live buffer. See
+[AOSP TextView (Android 8.1)](https://android.googlesource.com/platform/frameworks/base/+/android-8.1.0_r1/core/java/android/widget/TextView.java)
+and [AndroidX AppCompatEditText](https://github.com/androidx/androidx/blob/androidx-main/appcompat/appcompat/src/main/java/androidx/appcompat/widget/AppCompatEditText.java).
 It sends only synthetic values, never a real account or login request.
 
 `TestQwerty` covers full-keyboard insertion, selected replacement and code-point
