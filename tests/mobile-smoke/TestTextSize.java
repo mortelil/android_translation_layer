@@ -44,6 +44,28 @@ public class TestTextSize {
         float expected = label.getPaint().measureText("MMMMMMMMMM");
         if (Math.abs(label.getMeasuredWidth() - expected) > expected * 0.15f)
             throw new AssertionError("GTK width disagrees with Android paint: " + label.getMeasuredWidth() + " vs " + expected);
+        TextView measured = new TextView(context);
+        if (measured.getLayout() != null || measured.getLineCount() != 0)
+            throw new AssertionError("Unmeasured text must not expose a fabricated layout");
+        measured.setTextSize(TypedValue.COMPLEX_UNIT_PX, 20);
+        measured.setPadding(8, 0, 12, 0);
+        measured.setText("Short");
+        measured.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        if (measured.getWidth() != 0) throw new AssertionError("Test must precede layout");
+        if (measured.getLayout().getWidth() != 180 || measured.getLineCount() != 1)
+            throw new AssertionError("Text layout must use measured content width before layout");
+        measured.setText("Several words that require wrapping into multiple lines in a narrow field");
+        measured.measure(View.MeasureSpec.makeMeasureSpec(100, View.MeasureSpec.EXACTLY),
+                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        if (measured.getLayout().getWidth() != 80 || measured.getLineCount() < 2 ||
+            measured.getLineCount() != measured.getLayout().getLineCount())
+            throw new AssertionError("Line count must describe measured wrapped text");
+        measured.setText("Short");
+        measured.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        if (measured.getLineCount() != 1) throw new AssertionError("Remeasure must refresh line count");
+        System.out.println("PASS: TextView pre-layout content width, wrapping and remeasurement");
         System.out.println("PASS: TextView/EditText size units, paint synchronization and GTK pixel measurement");
     }
 }
