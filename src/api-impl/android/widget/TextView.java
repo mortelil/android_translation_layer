@@ -77,7 +77,7 @@ public class TextView extends View {
 					setTextColor(aa.getColorStateList(com.android.internal.R.styleable.TextAppearance_textColor));
 				}
 				if (aa.hasValue(com.android.internal.R.styleable.TextAppearance_textSize)) {
-					setTextSize(aa.getDimensionPixelSize(com.android.internal.R.styleable.TextAppearance_textSize, 10));
+					setTextSize(TypedValue.COMPLEX_UNIT_PX, aa.getDimension(com.android.internal.R.styleable.TextAppearance_textSize, 10));
 				}
 				aa.recycle();
 			}
@@ -85,7 +85,7 @@ public class TextView extends View {
 				setTextColor(a.getColorStateList(com.android.internal.R.styleable.TextView_textColor));
 			}
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textSize)) {
-				setTextSize(a.getDimensionPixelSize(com.android.internal.R.styleable.TextView_textSize, 10));
+				setTextSize(TypedValue.COMPLEX_UNIT_PX, a.getDimension(com.android.internal.R.styleable.TextView_textSize, 10));
 			}
 
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textStyle)) {
@@ -147,11 +147,14 @@ public class TextView extends View {
 	private native void native_setTextAttributes(int[] attributes);
 
 	public void setTextSize(int unit, float size) {
-		if (unit != TypedValue.COMPLEX_UNIT_SP)
-			System.out.println("setTextSize called with non-SP unit (" + unit + "), we don't currently handle that");
-		setTextSize(size);
+		float pixels = TypedValue.applyDimension(unit, size, getResources().getDisplayMetrics());
+		paint.setTextSize(pixels);
+		native_setTextSize(pixels);
+		requestLayout();
+		invalidate();
 	}
-	public native void setTextSize(float size);
+	public void setTextSize(float size) { setTextSize(TypedValue.COMPLEX_UNIT_SP, size); }
+	private native void native_setTextSize(float pixels);
 
 	public native final void native_setTextColor(int color);
 	public void setTextColor(int color) {
@@ -231,7 +234,7 @@ public class TextView extends View {
 
 	public Typeface getTypeface() { return paint.getTypeface(); }
 
-	public float getTextSize() { return 10; }
+	public float getTextSize() { return paint.getTextSize(); }
 
 	public int getGravity() {
 		return gravity;

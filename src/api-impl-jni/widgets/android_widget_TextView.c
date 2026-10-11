@@ -209,22 +209,15 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextColor(JNIEnv 
 }
 #pragma GCC diagnostic pop
 
-JNIEXPORT void JNICALL Java_android_widget_TextView_setTextSize(JNIEnv *env, jobject this, jfloat size)
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextSize(JNIEnv *env, jobject this, jfloat size)
 {
-	GtkLabel *label = box_get_label(env, _PTR(_GET_LONG_FIELD(this, "widget")));
-	PangoAttrList *attrs;
-
-	PangoAttrList *old_attrs = gtk_label_get_attributes(label);
-	if (old_attrs)
-		attrs = pango_attr_list_copy(old_attrs);
-	else
-		attrs = pango_attr_list_new();
-
-	PangoAttribute *size_attr = pango_attr_size_new(size * PANGO_SCALE);
-	pango_attr_list_change(attrs, size_attr);
-	gtk_label_set_attributes(label, attrs);
-
-	pango_attr_list_unref(attrs);
+	// Android sizes are pixels after unit conversion, not Pango points. A base
+	// CSS size also survives text/span replacement and applies to GtkText.
+	char number[G_ASCII_DTOSTR_BUF_SIZE];
+	g_ascii_dtostr(number, sizeof(number), size);
+	char *css = g_strdup_printf("* { font-size: %spx; }", number);
+	set_text_css(env, _GET_LONG_FIELD(this, "widget"), "font_size_style", css);
+	g_free(css);
 }
 
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1set_1markup(JNIEnv *env, jobject this, jint value)

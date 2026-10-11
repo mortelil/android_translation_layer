@@ -21,6 +21,13 @@ VM's stack, and both accessors must return the same live buffer. See
 and [AndroidX AppCompatEditText](https://github.com/androidx/androidx/blob/androidx-main/appcompat/appcompat/src/main/java/androidx/appcompat/widget/AppCompatEditText.java).
 It sends only synthetic values, never a real account or login request.
 
+`TestTextSize` checks SP/DP/PX conversion with distinct density and font scale,
+fractional sizes, synchronization with the measurement paint, and GTK label
+width against Android text measurement after replacing text. It covers labels
+and editable fields. XML dimensions are already pixels and must not be scaled
+again. This does not establish complete TextView layout, autosizing or native
+button styling support.
+
 `TestQwerty` covers full-keyboard insertion, selected replacement and code-point
 delete. `TestTextSpans` checks UTF-8 attribute offsets, Pango measurements, rendered
 foreground pixels and dynamic span addition/removal. `TestDynamicLayout` also
