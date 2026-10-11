@@ -2,6 +2,8 @@
 
 #include "../defines.h"
 
+#include "path_ops.h"
+
 #include "../generated_headers/android_graphics_Path.h"
 
 JNIEXPORT jlong JNICALL Java_android_graphics_Path_native_1create_1builder(JNIEnv *env, jclass this, jlong path_ptr, jlong builder_ptr)
@@ -22,7 +24,7 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Path_native_1create_1path(JNIEnv *
 	GskPathBuilder *builder = _PTR(builder_ptr);
 	if (!builder)
 		builder = gsk_path_builder_new();
-	return _INTPTR(gsk_path_builder_to_path(builder));
+	return _INTPTR(gsk_path_builder_free_to_path(builder));
 }
 
 JNIEXPORT jlong JNICALL Java_android_graphics_Path_native_1ref_1path(JNIEnv *env, jclass this, jlong path_ptr)
@@ -213,10 +215,33 @@ JNIEXPORT void JNICALL Java_android_graphics_Path_native_1add_1round_1rect(JNIEn
 
 JNIEXPORT void JNICALL Java_android_graphics_Path_native_1get_1bounds(JNIEnv *env, jclass this, jlong path_ptr, jobject bounds)
 {
-	graphene_rect_t rect;
-	gsk_path_get_bounds(_PTR(path_ptr), &rect);
+	/* Android reports 0,0,0,0 for a bound-less (empty) path; GSK returns FALSE
+	 * and leaves the rect untouched in that case, so initialise it. */
+	graphene_rect_t rect = GRAPHENE_RECT_INIT(0, 0, 0, 0);
+	if (path_ptr)
+		gsk_path_get_bounds(_PTR(path_ptr), &rect);
 	_SET_FLOAT_FIELD(bounds, "left", rect.origin.x);
 	_SET_FLOAT_FIELD(bounds, "top", rect.origin.y);
 	_SET_FLOAT_FIELD(bounds, "right", rect.origin.x + rect.size.width);
 	_SET_FLOAT_FIELD(bounds, "bottom", rect.origin.y + rect.size.height);
+}
+
+JNIEXPORT jlong JNICALL Java_android_graphics_Path_native_1op(JNIEnv *env, jclass this, jlong p1, jlong p2, jint op, jint fill1, jint fill2, jintArray out_fill)
+{
+	int out_fill_type = -1;
+	GskPath *result = atl_path_op(_PTR(p1), _PTR(p2), op, fill1, fill2, &out_fill_type);
+
+	if (out_fill) {
+		jint *elems = (*env)->GetIntArrayElements(env, out_fill, NULL);
+		if (elems) {
+			elems[0] = out_fill_type;
+			(*env)->ReleaseIntArrayElements(env, out_fill, elems, 0);
+		}
+	}
+	return _INTPTR(result);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_graphics_Path_native_1is_1empty(JNIEnv *env, jclass cls, jlong path)
+{
+	return !path || gsk_path_is_empty(_PTR(path));
 }
