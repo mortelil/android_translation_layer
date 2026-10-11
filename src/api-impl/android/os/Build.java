@@ -16,11 +16,10 @@
 
 package android.os;
 
-import android.atl.EarlyPackageParser;
-import android.content.pm.PackageParser;
-import android.util.DisplayMetrics;
-import java.io.File;
-import java.util.Objects;
+import android.Manifest;
+import android.app.ActivityThread;
+import android.app.Application;
+import android.content.pm.PackageManager;
 
 /**
  * Information about the current build, extracted from system properties.
@@ -107,6 +106,49 @@ public class Build {
 	 */
 	public static final String SERIAL = getString("ro.serialno");
 
+	/**
+	 * Gets the hardware serial number, if available.
+	 *
+	 * <p>This is only useful for device/Profile Owner apps; other apps will
+	 * receive {@link #UNKNOWN} or a {@link SecurityException}, following the
+	 * AOSP policy (frameworks/base DeviceIdentifiersPolicyService
+	 * .getSerialForPackage() -> TelephonyPermissions
+	 * .checkCallingOrSelfReadDeviceIdentifiers()):
+	 * <ul>
+	 *   <li>if the app is privileged, a device/profile owner, holds carrier
+	 *       privileges or the USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER app-op, the
+	 *       serial is returned;
+	 *   <li>if the app targets pre-Q and holds READ_PHONE_STATE it receives
+	 *       {@link #UNKNOWN} instead of throwing;
+	 *   <li>otherwise a {@link SecurityException} is thrown.
+	 * </ul>
+	 *
+	 * <p>ATL has no Android hardware serial: even for an allowed caller this
+	 * returns ro.serialno (unset here, i.e. {@link #UNKNOWN}). The host
+	 * machine's serial is never exposed.
+	 */
+	public static String getSerial() {
+		Application application = ActivityThread.currentApplication();
+		// ATL exposes no radio/subscription backend, so carrier privileges and
+		// DevicePolicyManager device/profile owner checks are always false and
+		// READ_PRIVILEGED_PHONE_STATE is not grantable (PackageManager only
+		// grants a fixed set of permissions).
+		if (application != null && application.checkCallingOrSelfPermission(
+				Manifest.permission.READ_PRIVILEGED_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+			return SystemProperties.get("ro.serialno", UNKNOWN);
+		}
+		if (application != null
+				&& application.getApplicationInfo().targetSdkVersion < VERSION_CODES.Q
+				&& application.checkCallingOrSelfPermission(Manifest.permission.READ_PHONE_STATE)
+						== PackageManager.PERMISSION_GRANTED) {
+			// Pre-Q app that would previously have had access: AOSP returns
+			// placeholder data (false) instead of throwing.
+			return UNKNOWN;
+		}
+		throw new SecurityException("getSerial: The uid " + Process.myUid()
+				+ " does not meet the requirements to access device identifiers.");
+	}
+
 	public static final String[] SUPPORTED_ABIS = getString("ro.product.cpu.abilist").split(",");
 
 	public static final String[] SUPPORTED_32_BIT_ABIS = getStringList("ro.product.cpu.abilist32", ",");
@@ -117,35 +159,80 @@ public class Build {
 	 * Various version strings.
 	 */
 	public static class VERSION {
+		/**
+		 * The Android API level this ATL runtime itself is built and verified
+		 * against: the level the shared bionic_translation runtime declares for
+		 * ro.build.version.sdk (bionic_translation libc/libc.c:66
+		 * "android_sdk_state = 21"). This is the floor of the reported profile
+		 * and is never lowered.
+		 *
+		 * On a real device the installer would reject an app whose declared
+		 * minSdkVersion is above the device level; ATL runs such an app anyway,
+		 * and its Java *and* native code legitimately treat the declared
+		 * minimum as a hard floor (Messenger's libfbbuild aborts with SIGILL
+		 * when the reported level is below its declared 28, microG's okhttp
+		 * requires >= 21). The profile ATL reports for a run is therefore
+		 * max(primary app's ApplicationInfo.minSdkVersion,
+		 * ATL_PLATFORM_SDK_INT), raised by
+		 * {@link #applyApplicationMinSdk(int)} as soon as the primary app's
+		 * ApplicationInfo has been parsed through the normal runtime
+		 * PackageParser path.
+		 *
+		 * This is not "minSdk as the OS version" and not global inflation: the
+		 * floor stays the real runtime level 21, the raise never exceeds the
+		 * primary app's own declared minimum, and it is a property of the run
+		 * (every app loaded into the same process sees the same profile), not
+		 * of whichever package happened to be parsed last.
+		 *
+		 * The launcher's --sdk-int N option sets the Build.VERSION.SDK_INT
+		 * system property, overrides this default and disables the per-app
+		 * raise; that override is honoured unchanged.
+		 */
+		public static final int ATL_PLATFORM_SDK_INT = Build.VERSION_CODES.LOLLIPOP;
+
 		static {
 			String SDK_INT_str = System.getProperty("Build.VERSION.SDK_INT");
-			String mainApkPath;
-			int SDK_INT_tmp = Build.VERSION_CODES.GINGERBREAD;
-			if (SDK_INT_str != null) {
-				// Always force SDK_INT to be at least 1 as 0 is used to detect early accesses.
-				SDK_INT_tmp = Integer.parseInt(SDK_INT_str);
-			} else if ((mainApkPath = System.getProperty("atl.app.class.path")) != null) {
-				// We need to set the SDK int to at least the minSdk as the
-				// Android Gradle plugin strips the SDK_INT check below anyway.
-				// And applications may also expect the SDK_INT to be at least
-				// their minSdk, especially for resources.
-				int index = mainApkPath.indexOf(':');
-				if (index != -1) {
-					mainApkPath = mainApkPath.substring(0, index);
-				}
-				File mainApk = new File(mainApkPath);
-				if (mainApk.isFile()) {
-					SDK_INT_tmp = EarlyPackageParser.parseMinSdkInt(mainApk, SDK_INT_tmp);
-					// Always ensure the SDK int is at least gingerbread for older applications.
-					SDK_INT_tmp = Math.max(SDK_INT_tmp, Build.VERSION_CODES.GINGERBREAD);
-				}
-			}
+			// Always force SDK_INT to be at least 1 as 0 is used to detect early accesses.
+			int SDK_INT_tmp = (SDK_INT_str != null) ? Integer.parseInt(SDK_INT_str) : ATL_PLATFORM_SDK_INT;
 
 			/* !!! forcing a RESOURCES_SDK_INT value different from SDK_INT can cause issues, including crashes */
 			String RESOURCES_SDK_INT_str = System.getProperty("Build.VERSION.RESOURCES_SDK_INT");
 
 			SDK_INT = SDK_INT_tmp;
 			RESOURCES_SDK_INT = (RESOURCES_SDK_INT_str != null) ? Math.max(Integer.parseInt(RESOURCES_SDK_INT_str), 1) : SDK_INT_tmp;
+		}
+
+		/**
+		 * Raise the reported API profile to the primary application's declared
+		 * minimum, if that is above {@link #ATL_PLATFORM_SDK_INT}.
+		 *
+		 * The value comes from the runtime package representation the platform
+		 * itself uses ({@code PackageParser} -&gt;
+		 * {@code ApplicationInfo.minSdkVersion}), not from a second, ad-hoc
+		 * manifest parser, and it is never lowered.
+		 *
+		 * @param applicationMinSdk the primary app's declared minSdkVersion
+		 * @return true if the profile changed; the caller must then re-apply
+		 *         {@link #RESOURCES_SDK_INT} to already created
+		 *         {@code AssetManager}/{@code Resources} instances and hand the
+		 *         new level to the native runtime, so Java, resource selection
+		 *         and bionic agree.
+		 */
+		public static boolean applyApplicationMinSdk(int applicationMinSdk) {
+			if (System.getProperty("Build.VERSION.SDK_INT") != null) {
+				// An explicit --sdk-int N is authoritative for the whole run.
+				return false;
+			}
+			int resolved = Math.max(applicationMinSdk, ATL_PLATFORM_SDK_INT);
+			if (resolved <= SDK_INT) {
+				return false;
+			}
+			SDK_INT = resolved;
+			SDK = String.valueOf(SDK_INT);
+			RELEASE = computeRelease();
+			String RESOURCES_SDK_INT_str = System.getProperty("Build.VERSION.RESOURCES_SDK_INT");
+			RESOURCES_SDK_INT = (RESOURCES_SDK_INT_str != null) ? Math.max(Integer.parseInt(RESOURCES_SDK_INT_str), 1) : SDK_INT;
+			return true;
 		}
 
 		/**
@@ -157,14 +244,21 @@ public class Build {
 
 		/**
 		 * The user-visible version string.  E.g., "1.0" or "3.4b5".
+		 *
+		 * Kept in sync with {@link #SDK_INT} (possibly raised once by
+		 * {@link #applyApplicationMinSdk(int)}), so it is not final.
 		 */
-		public static final String RELEASE = computeRelease();
+		public static String RELEASE = computeRelease();
 
 		/**
 		 * The user-visible SDK version of the framework; its possible
 		 * values are defined in {@link Build.VERSION_CODES}.
+		 *
+		 * Initialized from the --sdk-int override or
+		 * {@link #ATL_PLATFORM_SDK_INT} and raised at most once, to the
+		 * primary app's declared minSdkVersion when that is higher.
 		 */
-		public static final int SDK_INT;
+		public static int SDK_INT;
 
 		/**
 		 * The user-visible SDK version of the framework in its raw String
@@ -173,7 +267,7 @@ public class Build {
 		 * @deprecated Use {@link #SDK_INT} to easily get this as an integer.
 		 */
 		@Deprecated
-		public static final String SDK = String.valueOf(SDK_INT);
+		public static String SDK = String.valueOf(SDK_INT);
 
 		/**
 		 * The current development codename, or the string "REL" if this is
@@ -187,7 +281,7 @@ public class Build {
 		 * also allow the previous SDK version + 1.
 		 * @hide
 		 */
-		public static final int RESOURCES_SDK_INT;
+		public static int RESOURCES_SDK_INT;
 
 		public static final String SECURITY_PATCH = getString("ro.build.version.security_patch");
 

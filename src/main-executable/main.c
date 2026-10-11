@@ -339,6 +339,10 @@ static gboolean install_dbus_service_file(const char *package_name, const char *
 	return TRUE;
 }
 
+/* Defined below; called from open() before its definition. Hands the Java API
+ * level to the bionic runtime so Java, resource selection and native agree. */
+static int sync_android_api_level(JNIEnv *env);
+
 static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
 {
 	if (window) { // this is not the first launch, but a DBus request to open an URI in the running app
@@ -480,18 +484,8 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	set_up_handle_cache(env);
 
 	// Use the same selected API level for Java and Android native libraries.
-	// Build.VERSION applies ATL's existing explicit/minSdk selection policy.
-	jclass version_class = (*env)->FindClass(env, "android/os/Build$VERSION");
-	if (!version_class) { (*env)->ExceptionDescribe(env); exit(1); }
-	jfieldID sdk_field = (*env)->GetStaticFieldID(env, version_class, "SDK_INT", "I");
-	if (!sdk_field) { (*env)->ExceptionDescribe(env); exit(1); }
-	jint sdk = (*env)->GetStaticIntField(env, version_class, sdk_field);
-	(*env)->DeleteLocalRef(env, version_class);
-	int (*set_sdk_version)(int) = dlsym(RTLD_DEFAULT, "bionic_set_android_sdk_version");
-	if ((*env)->ExceptionCheck(env) || !set_sdk_version || set_sdk_version(sdk)) {
-		fprintf(stderr, "Unable to synchronize Android API level; use the pinned bionic_translation runtime\n");
+	if (sync_android_api_level(env))
 		exit(1);
-	}
 
 	/* -- misc -- */
 
@@ -539,6 +533,15 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	 * uncaught-exception guard instead: it reports the original and terminates. */
 	if ((*env)->ExceptionCheck(env))
 		atl_jni_handle_uncaught_exception(env, "Application construction");
+
+	/* Constructing the Application parsed the primary app's package through
+	 * the runtime package parser, which raised Build.VERSION's profile to the
+	 * app's declared minSdkVersion when that is higher than the platform level
+	 * (Build.VERSION.applyApplicationMinSdk). Re-sync now, before the app's
+	 * own native libraries are loaded, so native SDK assertions see the same
+	 * level Java does. */
+	if (sync_android_api_level(env))
+		exit(1);
 
 	jclass content_provider = (*env)->FindClass(env, "android/content/ContentProvider");
 	if ((*env)->ExceptionCheck(env))
@@ -860,6 +863,34 @@ static void pregrow_stack()
 	/* noop, but should generate an access because volatile */
 	dummy[0] = dummy[0];
 #pragma GCC diagnostic pop
+}
+
+/* Hand the Java API level to the bionic runtime so Java, resource selection
+ * and native (__system_property_get("ro.build.version.sdk"),
+ * android_get_device_api_level()) all agree.
+ *
+ * Build.VERSION is the single source of truth. It starts at the platform level
+ * (21) and is raised once by Build.VERSION.applyApplicationMinSdk() to the
+ * primary app's declared minSdkVersion once that app has been parsed
+ * (ATLLoadedApp). This helper is therefore called twice: early, before the GTK
+ * window exists, and again right after the primary Application is constructed,
+ * i.e. before any app native library can be loaded. */
+static int sync_android_api_level(JNIEnv *env)
+{
+	// Use the same selected API level for Java and Android native libraries.
+	// Build.VERSION applies ATL's explicit-override/platform/minSdk policy.
+	jclass version_class = (*env)->FindClass(env, "android/os/Build$VERSION");
+	if (!version_class) { (*env)->ExceptionDescribe(env); return -1; }
+	jfieldID sdk_field = (*env)->GetStaticFieldID(env, version_class, "SDK_INT", "I");
+	if (!sdk_field) { (*env)->ExceptionDescribe(env); return -1; }
+	jint sdk = (*env)->GetStaticIntField(env, version_class, sdk_field);
+	(*env)->DeleteLocalRef(env, version_class);
+	int (*set_sdk_version)(int) = dlsym(RTLD_DEFAULT, "bionic_set_android_sdk_version");
+	if ((*env)->ExceptionCheck(env) || !set_sdk_version || set_sdk_version(sdk)) {
+		fprintf(stderr, "Unable to synchronize Android API level; use the pinned bionic_translation runtime\n");
+		return -1;
+	}
+	return 0;
 }
 
 int main(int argc, char **argv)

@@ -91,7 +91,7 @@ public final class ATLLoadedApp {
 		try {
 			return primary_application = loadFromPath(
 				   pathsIndex == -1 ? classLoaderPath : classLoaderPath.substring(0, pathsIndex),
-				   nativePath, classLoaderPath);
+				   nativePath, classLoaderPath, true);
 		} catch (IOException e) {
 			// Failing to get the primary application should always be an error
 			throw new Error("Failed to parse primary application", e);
@@ -100,6 +100,17 @@ public final class ATLLoadedApp {
 
 	@NonNull
 	public static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath) throws IOException {
+		return loadFromPath(mainApk, nativePath, classLoaderPath, false);
+	}
+
+	/**
+	 * @param isPrimary true only for the app named by atl.app.class.path. The
+	 *                  reported API profile is a property of that app's run;
+	 *                  secondary packages loaded into the same process (e.g.
+	 *                  microG) must not lower or raise it.
+	 */
+	@NonNull
+	private static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath, boolean isPrimary) throws IOException {
 		if (ATLToggles.ATL_GHAX) {
 			// Always load ghax.jar as the first element to override application library classes
 			classLoaderPath = ATLPaths.ghax_jar.getPath() + File.pathSeparator + classLoaderPath;
@@ -119,6 +130,15 @@ public final class ATLLoadedApp {
 		}
 		if (packageParser.getParseError() != PackageManager.INSTALL_SUCCEEDED) {
 			throw new IOException(outError[0]);
+		}
+		if (isPrimary && Build.VERSION.applyApplicationMinSdk(pkg.applicationInfo.minSdkVersion)) {
+			// The app declared a higher minimum than the platform level, so the
+			// reported profile was raised. AssetManager.init() already consumed
+			// the old Build.VERSION.RESOURCES_SDK_INT, so re-apply it to
+			// re-select version-qualified resources (values-vNN) at the new
+			// level; the native runtime is re-synced by the launcher right after
+			// this app is constructed.
+			resources.updateConfiguration(resources.getConfiguration(), resources.getDisplayMetrics());
 		}
 		packageParser.collectCertificates(pkg, 0);
 		// Support for MicroG and other custom GMS implementations.

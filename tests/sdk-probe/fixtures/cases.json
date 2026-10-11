@@ -1,0 +1,156 @@
+[
+ {
+  "name": "valid",
+  "family": "fixtures/valid/family.json",
+  "exit": 0,
+  "code": "OK",
+  "allow_bare": false
+ },
+ {
+  "name": "min21_default_accepted",
+  "family": "fixtures/min21_default_accepted/family.json",
+  "exit": 0,
+  "code": "OK",
+  "allow_bare": false
+ },
+ {
+  "name": "min28_default_accepted",
+  "family": "fixtures/min28_default_accepted/family.json",
+  "exit": 0,
+  "code": "OK",
+  "allow_bare": false
+ },
+ {
+  "name": "default_below_floor",
+  "family": "fixtures/default_below_floor/family.json",
+  "exit": 1,
+  "code": "DEFAULT_PROFILE_WRONG",
+  "allow_bare": false
+ },
+ {
+  "name": "default_above_floor",
+  "family": "fixtures/default_above_floor/family.json",
+  "exit": 1,
+  "code": "DEFAULT_PROFILE_WRONG",
+  "allow_bare": false
+ },
+ {
+  "name": "empty_doc",
+  "family": "fixtures/empty_doc/family.json",
+  "exit": 1,
+  "code": "EMPTY_EVIDENCE",
+  "allow_bare": false
+ },
+ {
+  "name": "missing_doc",
+  "family": "fixtures/missing_doc/family.json",
+  "exit": 1,
+  "code": "MISSING_EVIDENCE",
+  "allow_bare": false
+ },
+ {
+  "name": "truncated_doc",
+  "family": "fixtures/truncated_doc/family.json",
+  "exit": 1,
+  "code": "JSON_PARSE",
+  "allow_bare": false
+ },
+ {
+  "name": "duplicate_scenario",
+  "family": "fixtures/duplicate_scenario/family.json",
+  "exit": 1,
+  "code": "DUPLICATE_SCENARIO",
+  "allow_bare": false
+ },
+ {
+  "name": "wrong_scenario",
+  "family": "fixtures/wrong_scenario/family.json",
+  "exit": 1,
+  "code": "WRONG_SCENARIO",
+  "allow_bare": false
+ },
+ {
+  "name": "wrong_run_kind",
+  "family": "fixtures/wrong_run_kind/family.json",
+  "exit": 1,
+  "code": "WRONG_RUN_KIND",
+  "allow_bare": false
+ },
+ {
+  "name": "inconsistent_sdk",
+  "family": "fixtures/inconsistent_sdk/family.json",
+  "exit": 1,
+  "code": "INCONSISTENT_SDK",
+  "allow_bare": false
+ },
+ {
+  "name": "resource_mismatch",
+  "family": "fixtures/resource_mismatch/family.json",
+  "exit": 1,
+  "code": "RESOURCE_MISMATCH",
+  "allow_bare": false
+ },
+ {
+  "name": "override_not_applied",
+  "family": "fixtures/override_not_applied/family.json",
+  "exit": 1,
+  "code": "OVERRIDE_NOT_APPLIED",
+  "allow_bare": false
+ },
+ {
+  "name": "serial_semantics",
+  "family": "fixtures/serial_semantics/family.json",
+  "exit": 1,
+  "code": "SERIAL_SEMANTICS",
+  "allow_bare": false
+ },
+ {
+  "name": "prop_mismatch",
+  "family": "fixtures/prop_mismatch/family.json",
+  "exit": 1,
+  "code": "PROP_MISMATCH",
+  "allow_bare": false
+ },
+ {
+  "name": "readerror_not_proven",
+  "family": "fixtures/readerror_not_proven/family.json",
+  "exit": 0,
+  "code": "OK",
+  "allow_bare": false
+ },
+ {
+  "name": "rsi_mismatch_no_readerror",
+  "family": "fixtures/rsi_mismatch_no_readerror/family.json",
+  "exit": 1,
+  "code": "INCONSISTENT_SDK",
+  "allow_bare": false
+ },
+ {
+  "name": "release_cross_run_ok",
+  "family": "fixtures/release_cross_run_ok/family.json",
+  "exit": 0,
+  "code": "OK",
+  "allow_bare": false
+ },
+ {
+  "name": "release_contradiction",
+  "family": "fixtures/release_contradiction/family.json",
+  "exit": 1,
+  "code": "RELEASE_MISMATCH",
+  "allow_bare": false
+ },
+ {
+  "name": "bare_no_sentinel",
+  "family": "fixtures/bare_no_sentinel/family.json",
+  "exit": 1,
+  "code": "MISSING_SENTINEL",
+  "allow_bare": false
+ },
+ {
+  "name": "bare_allowed",
+  "family": "fixtures/bare_allowed/family.json",
+  "exit": 0,
+  "code": "OK",
+  "allow_bare": true
+ }
+]
