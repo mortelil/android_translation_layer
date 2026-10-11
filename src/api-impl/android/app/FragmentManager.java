@@ -71,9 +71,11 @@ public class FragmentManager {
 		return didSomething;
 	}
 
-	void enqueueAndExecute(BackStackRecord transaction) {
+	void enqueue(BackStackRecord transaction) {
 		mPendingTransactions.add(transaction);
-		execPendingActions();
+		new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+			@Override public void run() { execPendingActions(); }
+		});
 	}
 
 	void addFragment(Fragment fragment) {

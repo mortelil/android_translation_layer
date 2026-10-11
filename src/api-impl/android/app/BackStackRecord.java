@@ -29,6 +29,7 @@ final class BackStackRecord extends FragmentTransaction {
 	static final int OP_ADD = 1;
 	static final int OP_REMOVE = 3;
 
+	private boolean mCommitted;
 	private final FragmentManager mManager;
 	private final ArrayList<Op> mOps = new ArrayList<>();
 
@@ -50,8 +51,10 @@ final class BackStackRecord extends FragmentTransaction {
 
 	@Override
 	public int commit() {
-		mManager.enqueueAndExecute(this);
-		return 0;
+		if (mCommitted) throw new IllegalStateException("commit already called");
+		mCommitted = true;
+		mManager.enqueue(this);
+		return -1;
 	}
 
 	private void doAddOp(Fragment fragment, String tag, int opcmd) {

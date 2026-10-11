@@ -36,7 +36,7 @@ public abstract class FragmentTransaction {
 	public abstract FragmentTransaction remove(Fragment fragment);
 
 	/**
-	 * Commit this transaction. Returns the transaction's identifier (0 in ATL).
+	 * Commit this transaction. Queues the transaction. Returns -1 because no back-stack entry is added.
 	 */
 	public abstract int commit();
 }
