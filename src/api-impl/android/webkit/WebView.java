@@ -9,6 +9,7 @@ import android.view.ViewGroup;
 public class WebView extends ViewGroup {
 
 	private WebViewClient webViewClient;
+	private WebSettings settings;
 
 	public WebView(Context context) {
 		this(context, null);
@@ -23,7 +24,11 @@ public class WebView extends ViewGroup {
 	}
 
 	public WebSettings getSettings() {
-		return new WebSettings();
+		// AOSP returns one stable instance per WebView; the instance is bound to this view
+		// so its native methods reach this view's real WebKitSettings.
+		if (settings == null)
+			settings = new WebSettings(this);
+		return settings;
 	}
 
 	public void setDownloadListener(DownloadListener downloadListener) {}

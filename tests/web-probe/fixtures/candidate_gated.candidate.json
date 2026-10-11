@@ -1,0 +1,227 @@
+WEBPROBE_JSON_BEGIN
+{
+ "task_id": "C-WEB",
+ "run_id": "candidate-gated",
+ "status": "OK",
+ "exceptions": [],
+ "config": {
+  "targetSdkVersion": 37,
+  "minSdkVersion": 24,
+  "baseUrl": "https://probe.local/",
+  "assetPage": "probe.html",
+  "implementedSettings": [
+   "JavaScriptEnabled",
+   "DomStorageEnabled",
+   "DatabaseEnabled",
+   "LoadsImagesAutomatically",
+   "MediaPlaybackRequiresUserGesture",
+   "JavaScriptCanOpenWindowsAutomatically",
+   "AllowFileAccessFromFileURLs",
+   "AllowUniversalAccessFromFileURLs"
+  ],
+  "notSupportedSettings": [
+   "AllowFileAccess",
+   "BlockNetworkLoads",
+   "BlockNetworkImage",
+   "SupportMultipleWindows",
+   "AppCacheEnabled",
+   "AppCachePath",
+   "AppCacheMaxSize"
+  ],
+  "scenarios": [
+   {
+    "id": "A",
+    "needInitialFocus": true
+   },
+   {
+    "id": "B",
+    "needInitialFocus": false
+   }
+  ]
+ },
+ "completion": {
+  "sentinelBegin": "WEBPROBE_JSON_BEGIN",
+  "sentinelEnd": "WEBPROBE_JSON_END",
+  "doneMarker": "WEBPROBE_DONE"
+ },
+ "apk": {
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ },
+ "engine": {
+  "vmName": "OpenJDK 64-Bit Server VM",
+  "gatingEnvVar": "ATL_UGLY_ENABLE_WEBVIEW",
+  "gatingEnvValue": null,
+  "webviewBackend": "gated",
+  "observable": false,
+  "error": "no WebKitWebView",
+  "getDefaultUserAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 Safari/605.1.15",
+  "userAgentDefault": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 Safari/605.1.15",
+  "userAgentAfterSet": null,
+  "userAgentRoundTrip": false
+ },
+ "settings": [
+  {
+   "name": "JavaScriptEnabled",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "DomStorageEnabled",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "DatabaseEnabled",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "LoadsImagesAutomatically",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "MediaPlaybackRequiresUserGesture",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "JavaScriptCanOpenWindowsAutomatically",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "AllowFileAccessFromFileURLs",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  },
+  {
+   "name": "AllowUniversalAccessFromFileURLs",
+   "supported": true,
+   "observable": false,
+   "error": "backend absent",
+   "defaultValue": null,
+   "setTrueGet": null,
+   "setFalseGet": null,
+   "roundTrip": null
+  }
+ ],
+ "notSupported": [
+  {
+   "name": "AllowFileAccess",
+   "setValue": false,
+   "getValue": true,
+   "note": "NOT_SUPPORTED"
+  },
+  {
+   "name": "BlockNetworkLoads",
+   "setValue": true,
+   "getValue": false,
+   "note": "NOT_SUPPORTED"
+  },
+  {
+   "name": "BlockNetworkImage",
+   "setValue": true,
+   "getValue": false,
+   "note": "NOT_SUPPORTED"
+  },
+  {
+   "name": "SupportMultipleWindows",
+   "setValue": true,
+   "getValue": false,
+   "note": "NOT_SUPPORTED"
+  },
+  {
+   "name": "AppCacheEnabled",
+   "setValue": true,
+   "getValue": null,
+   "note": "NOT_SUPPORTED"
+  },
+  {
+   "name": "AppCachePath",
+   "setValue": "/data/app/appcache",
+   "getValue": null,
+   "note": "NOT_SUPPORTED"
+  },
+  {
+   "name": "AppCacheMaxSize",
+   "setValue": 1048576,
+   "getValue": null,
+   "note": "NOT_SUPPORTED"
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "A",
+   "needInitialFocusSet": true,
+   "pageLoaded": false,
+   "jsObserved": false,
+   "observedOnMainThread": true,
+   "activeId": null,
+   "activeTag": null,
+   "documentHasFocus": null,
+   "firstFieldEditable": null,
+   "secondFieldEditable": null,
+   "field1TabIndex": null,
+   "webViewFocused": false,
+   "imeRequested": null,
+   "observationSource": "timeout",
+   "error": null,
+   "jsError": null
+  },
+  {
+   "id": "B",
+   "needInitialFocusSet": false,
+   "pageLoaded": false,
+   "jsObserved": false,
+   "observedOnMainThread": true,
+   "activeId": null,
+   "activeTag": null,
+   "documentHasFocus": null,
+   "firstFieldEditable": null,
+   "secondFieldEditable": null,
+   "field1TabIndex": null,
+   "webViewFocused": false,
+   "imeRequested": null,
+   "observationSource": "timeout",
+   "error": null,
+   "jsError": null
+  }
+ ]
+}
+WEBPROBE_JSON_END
