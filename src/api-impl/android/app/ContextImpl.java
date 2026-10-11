@@ -315,7 +315,7 @@ public final class ContextImpl extends Context {
 
 	@Override
 	public void unbindService(ServiceConnection serviceConnection) {
-		atl_loaded_app.unbindService(serviceConnection);
+		atl_loaded_app.unbindService(this, serviceConnection);
 	}
 
 	@Override

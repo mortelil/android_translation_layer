@@ -84,5 +84,7 @@
             android:name=".SvcRemote"
             android:exported="false"
             android:process=":remote" />
+    <service android:name=".SvcIdentityOther" android:exported="false" />
+        <service android:name=".SvcIdentity" android:exported="false" />
     </application>
 </manifest>

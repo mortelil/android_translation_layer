@@ -12,6 +12,7 @@ import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Build;
+import android.os.IBinder;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
@@ -243,6 +244,7 @@ public final class ATLLoadedApp {
 		if (component != null) {
 			for (PackageParser.Service service : pkg.services) {
 				if (component.getClassName().equals(service.className)) {
+					requireLocalService(service);
 					return component;
 				}
 			}
@@ -254,6 +256,7 @@ public final class ATLLoadedApp {
 				continue;
 			for (PackageParser.IntentInfo intentInfo : service.intents) {
 				if (intentInfo.matchAction(intent.getAction()) && intentInfo.priority > priority) {
+					requireLocalService(service);
 					component = new ComponentName(pkg.packageName, service.className);
 					priority = intentInfo.priority;
 					break;
@@ -261,6 +264,16 @@ public final class ATLLoadedApp {
 			}
 		}
 		return component;
+	}
+
+	private void requireLocalService(PackageParser.Service service) {
+		String process = service.info.processName;
+		String appProcess = pkg.applicationInfo.processName;
+		if (appProcess == null) appProcess = pkg.packageName;
+		if ((process != null && !process.equals(appProcess)) ||
+		    (service.info.flags & android.content.pm.ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
+			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
+		}
 	}
 
 	/**
@@ -342,6 +355,7 @@ public final class ATLLoadedApp {
 		if (service_registry.consumeRebindPending(record, intent))
 			return true;
 		record.binder = record.instance.onBind(intent);
+		service_registry.cacheBinder(record, intent, record.binder);
 		record.binderResolved = true;
 		return false;
 	}
@@ -349,10 +363,8 @@ public final class ATLLoadedApp {
 	/**
 	 * Delivers the binder to every processed-but-undelivered client of
 	 * {@code record} in registration order, resolving each pending client's
-	 * binding identity first. A connection is notified once per instance: a second
-	 * binding identity of the same connection re-runs {@code onBind()} but does not
-	 * produce another {@code onServiceConnected} (Android: the client already holds
-	 * the connection). An identity whose previous {@code onUnbind()} returned true
+	 * binding identity first. Each context's dispatcher deduplicates an unchanged
+	 * binder; a replacement binder disconnects the old one before connecting the new one. An identity whose previous {@code onUnbind()} returned true
 	 * gets {@code onRebind()} after the connect callback instead of a fresh
 	 * {@code onBind()}. Must be called on the main looper, never while the registry
 	 * lock is held.
@@ -369,14 +381,14 @@ public final class ATLLoadedApp {
 			if (!client.requested || client.delivered)
 				continue;
 			client.delivered = true;
-			boolean connected = !service_registry.connectionDelivered(record, client.connection);
-			if (connected) {
-				service_registry.markConnectionDelivered(record, client.connection);
-				if (record.binder == null) {
-					client.connection.onNullBinding(record.component);
-				} else {
-					client.connection.onServiceConnected(record.component, record.binder);
-				}
+			IBinder binder = service_registry.binderFor(record, client.intent);
+			ATLServiceRegistry.BoundClient old = service_registry.deliveredConnection(record, client);
+			if (old == null || old.deliveredBinder != binder) {
+				IBinder previous = old == null ? null : old.deliveredBinder;
+				service_registry.markConnectionDelivered(record, client, binder);
+				if (previous != null) client.connection.onServiceDisconnected(record.component);
+				if (binder == null) client.connection.onNullBinding(record.component);
+				else client.connection.onServiceConnected(record.component, binder);
 			}
 			// Android delivers onRebind() right after the client is connected;
 			// an onUnbind() == true for this identity armed it.
@@ -462,9 +474,9 @@ public final class ATLLoadedApp {
 	 * throw, matching Android. onServiceDisconnected() is never called for an
 	 * ordinary unbind.
 	 */
-	public void unbindService(ServiceConnection serviceConnection) {
-		final ATLServiceRegistry.UnbindResult result = service_registry.unbind(serviceConnection);
-		postUnbindWork(result.record, result.intents, result.destroy);
+	public void unbindService(Context context, ServiceConnection serviceConnection) {
+		for (ATLServiceRegistry.UnbindResult result : service_registry.unbind(context, serviceConnection))
+			postUnbindWork(result.record, result.intents, result.destroy);
 	}
 
 	/**
@@ -564,13 +576,9 @@ public final class ATLLoadedApp {
 			// Not started / never started, or already stopped.
 			return false;
 		}
-		if (startId >= 0 && service_registry.lastStartIdOf(record) != startId) {
-			// Old start ID: must not stop newer work.
-			return false;
-		}
-		if (!service_registry.detach(record)) {
-			return false;
-		}
+		ATLServiceRegistry.StopResult result = service_registry.stopSelf(record, startId);
+		if (!result.running) return false;
+		if (result.keptBound) return true;
 		final Service instance = record.instance;
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override

@@ -88,11 +88,12 @@ public class ControlActivity extends Activity {
                 EventLog.SVC_005, EventLog.SVC_006, EventLog.SVC_007,
                 EventLog.SVC_008, EventLog.SVC_009,
                 EventLog.SVC_010, EventLog.SVC_011, EventLog.SVC_013, EventLog.SVC_016,
-                EventLog.SVC_012, EventLog.SVC_014, EventLog.SVC_015, EventLog.SVC_017});
+                EventLog.SVC_012, EventLog.SVC_014, EventLog.SVC_015, EventLog.SVC_017, "SVC-018"});
         buildSteps();
         buildV3Steps();
         buildV4Steps();
         buildV5Steps();
+        buildIntegrationSteps();
         handler.postDelayed(watchdog, WATCHDOG_MS);
         pump();
     }
@@ -1067,6 +1068,97 @@ public class ControlActivity extends Activity {
             addV5(EventLog.SVC_017, comp, null, new StopCallV4(EventLog.SVC_017, comp));
             addV5(EventLog.SVC_017, comp, null, new StopCallV4(EventLog.SVC_017, comp));
         }
+    }
+
+
+    public static class IntegrationFragment extends android.app.Fragment {}
+    private void buildIntegrationSteps() {
+        final String sid = "SVC-018", comp = EventLog.PKG + "/.SvcIdentity";
+        final String[] received = new String[2];
+        final int[] deliveries = new int[2];
+        final int[] disconnects = new int[2];
+        final ServiceConnection[] clients = new ServiceConnection[2];
+        for (int i = 0; i < 2; i++) {
+            final int n = i;
+            clients[i] = new ServiceConnection() {
+                public void onServiceConnected(ComponentName c, IBinder binder) {
+                    try { received[n] = binder.getInterfaceDescriptor(); deliveries[n]++; }
+                    catch (Throwable e) { log.noteException("descriptor: " + e); }
+                }
+                public void onServiceDisconnected(ComponentName c) { disconnects[n]++; }
+            };
+        }
+        final Intent a = new Intent(this, SvcIdentity.class).setAction("identity-a");
+        final Intent b = new Intent(this, SvcIdentity.class).setAction("identity-b");
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            android.app.FragmentManager fm = getFragmentManager();
+            android.app.Fragment f = new IntegrationFragment();
+            android.app.FragmentTransaction tx = fm.beginTransaction().add(f, "integration");
+            int result = tx.commit();
+            checkIntegration(result == -1, "no back-stack identifier");
+            checkIntegration(fm.findFragmentByTag("integration") == null, "commit must queue");
+            checkIntegration(fm.executePendingTransactions(), "pending transaction executed");
+            checkIntegration(fm.findFragmentByTag("integration") == f, "fragment found after execute");
+            boolean rejected = false;
+            try { tx.commit(); } catch (IllegalStateException expected) { rejected = true; }
+            checkIntegration(rejected, "second commit rejected");
+            fm.beginTransaction().remove(f).commit(); fm.executePendingTransactions();
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {checkIntegration(bindService(a, clients[0], 0), "bind pending");} });
+        addV5(sid, comp, null, new Runnable() { public void run() {checkIntegration(bindService(b, clients[1], BIND_AUTO_CREATE), "bind auto");} });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration("identity-a".equals(received[0]), "first identity binder");
+            checkIntegration("identity-b".equals(received[1]), "second identity binder");
+            startService(a);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {SvcIdentity.instance.stopSelf();} });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(SvcIdentity.destroyed == 0, "self-stop preserves bound service");
+            unbindService(clients[0]);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {checkIntegration(bindService(a, clients[0], BIND_AUTO_CREATE), "reuse connection");} });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(deliveries[0] == 2, "connection receives binder after rebinding");
+            unbindService(clients[0]); unbindService(clients[1]);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {checkIntegration(SvcIdentity.destroyed == 1, "last unbind destroys once");} });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            deliveries[0] = 0; disconnects[0] = 0;
+            bindService(a, clients[0], BIND_AUTO_CREATE);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() { bindService(b, clients[0], BIND_AUTO_CREATE); } });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(deliveries[0] == 2 && disconnects[0] == 1 && "identity-b".equals(received[0]),
+                    "same connection receives replacement binder");
+            unbindService(clients[0]);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            deliveries[0] = 0;
+            bindService(a, clients[0], BIND_AUTO_CREATE);
+            getApplicationContext().bindService(a, clients[0], BIND_AUTO_CREATE);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(deliveries[0] == 2, "contexts have independent dispatchers");
+            getApplicationContext().unbindService(clients[0]);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(SvcIdentity.destroyed == 0, "other context keeps binding");
+            unbindService(clients[0]);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(SvcIdentity.destroyed == 1, "last context destroys service");
+            bindService(a, clients[0], BIND_AUTO_CREATE);
+            bindService(new Intent(ControlActivity.this, SvcIdentityOther.class), clients[0], BIND_AUTO_CREATE);
+        } });
+        addV5(sid, comp, null, new Runnable() { public void run() { unbindService(clients[0]); } });
+        addV5(sid, comp, null, new Runnable() { public void run() {
+            checkIntegration(SvcIdentity.destroyed == 2, "unbind removes all components");
+        } });
+
+    }
+    private void checkIntegration(boolean value, String label) {
+        if (!value) throw new AssertionError(label);
+        log.clientEvent("SVC-018", "check", EventLog.PKG + "/.SvcIdentity", "none", label, "true", "boolean", null);
     }
 
     /**
