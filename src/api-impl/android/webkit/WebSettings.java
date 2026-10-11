@@ -137,15 +137,9 @@ public class WebSettings {
 		return nativeGetAllowUniversalAccessFromFileURLs(widget());
 	}
 
-	/**
-	 * Tells the WebView whether it needs to set a node to have focus when it is focused.
-	 * Default true. Real effect: when the flag is set, the native side focuses the first
-	 * editable node of the loaded document (on load-finished and when GTK focus enters the
-	 * view); when it is false no node is focused, the view keeps focus itself.
-	 * AOSP declares no getter for this setting.
-	 */
+	/** Initial-node focus integration is not implemented by ATL's WebKit backend. */
 	public void setNeedInitialFocus(boolean flag) {
-		nativeSetNeedInitialFocus(widget(), flag);
+		reportNotSupported("setNeedInitialFocus");
 	}
 
 	/* ------------------------------------------------------------------ *
@@ -265,5 +259,4 @@ public class WebSettings {
 	private static native boolean nativeGetAllowFileAccessFromFileURLs(long widget);
 	private static native void nativeSetAllowUniversalAccessFromFileURLs(long widget, boolean allow);
 	private static native boolean nativeGetAllowUniversalAccessFromFileURLs(long widget);
-	private static native void nativeSetNeedInitialFocus(long widget, boolean flag);
 }

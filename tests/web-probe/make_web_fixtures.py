@@ -327,7 +327,7 @@ def main():
                   p("candidate_scenario_mismatch.candidate.json"), 1, "SCENARIO_MISMATCH", ""))
 
     with open(os.path.join(FIX, "cases.json"), "w", encoding="utf-8") as fh:
-        json.dump([{"name": n, "android": a, "candidate": c, "exit": e,
+        json.dump([{"name": n, "android": os.path.basename(a), "candidate": os.path.basename(c), "exit": e,
                     "code": code, "token": token}
                    for (n, a, c, e, code, token) in cases], fh, indent=1)
     print("wrote %d cases to %s" % (len(cases), FIX))

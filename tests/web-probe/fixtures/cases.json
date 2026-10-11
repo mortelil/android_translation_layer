@@ -1,168 +1,168 @@
 [
  {
   "name": "valid_complete_pair",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "valid_complete_pair.candidate.json",
   "exit": 0,
   "code": "",
   "token": "OK C-WEB implemented subset matched"
  },
  {
   "name": "candidate_gated",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_gated.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_gated.candidate.json",
+  "android": "candidate_gated.android.json",
+  "candidate": "candidate_gated.candidate.json",
   "exit": 0,
   "code": "",
   "token": "GAP candidate WebView backend=gated"
  },
  {
   "name": "empty_android",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_empty.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.candidate.json",
+  "android": "candidate_empty.android.json",
+  "candidate": "valid_complete_pair.candidate.json",
   "exit": 1,
   "code": "EMPTY_EVIDENCE",
   "token": ""
  },
  {
   "name": "empty_candidate",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_empty.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_empty.candidate.json",
   "exit": 1,
   "code": "EMPTY_EVIDENCE",
   "token": ""
  },
  {
   "name": "missing_candidate",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/does_not_exist.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "does_not_exist.candidate.json",
   "exit": 1,
   "code": "MISSING_EVIDENCE",
   "token": ""
  },
  {
   "name": "truncated_candidate",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_truncated.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_truncated.candidate.json",
   "exit": 1,
   "code": "JSON_PARSE",
   "token": ""
  },
  {
   "name": "duplicate_scenario",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_duplicate_scenario.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_duplicate_scenario.candidate.json",
   "exit": 1,
   "code": "DUPLICATE_SCENARIO",
   "token": ""
  },
  {
   "name": "reordered_scenario",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_reordered_scenario.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_reordered_scenario.candidate.json",
   "exit": 1,
   "code": "SCENARIO_ORDER",
   "token": ""
  },
  {
   "name": "wrong_task",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_wrong_task.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_wrong_task.candidate.json",
   "exit": 1,
   "code": "WRONG_TASK",
   "token": ""
  },
  {
   "name": "wrong_thread",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_wrong_thread.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_wrong_thread.candidate.json",
   "exit": 1,
   "code": "WRONG_THREAD",
   "token": ""
  },
  {
   "name": "invalid_number",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_invalid_number.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_invalid_number.candidate.json",
   "exit": 1,
   "code": "INVALID_NUMBER",
   "token": ""
  },
  {
   "name": "missing_setting",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_missing_setting.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_missing_setting.candidate.json",
   "exit": 1,
   "code": "MISSING_SETTING",
   "token": ""
  },
  {
   "name": "marker_mismatch",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_marker_mismatch.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_marker_mismatch.candidate.json",
   "exit": 1,
   "code": "MARKER_MISMATCH",
   "token": ""
  },
  {
   "name": "status_error",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_status_error.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_status_error.candidate.json",
   "exit": 1,
   "code": "STATUS_NOT_OK",
   "token": ""
  },
  {
   "name": "config_mismatch",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_config_mismatch.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_config_mismatch.candidate.json",
   "exit": 1,
   "code": "CONFIG_MISMATCH",
   "token": ""
  },
  {
   "name": "apk_mismatch",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_apk_mismatch.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_apk_mismatch.candidate.json",
   "exit": 1,
   "code": "APK_MISMATCH",
   "token": ""
  },
  {
   "name": "missing_sentinel",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_bare_no_sentinel.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_bare_no_sentinel.candidate.json",
   "exit": 1,
   "code": "MISSING_SENTINEL",
   "token": ""
  },
  {
   "name": "reference_unusable",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/reference_unusable.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.candidate.json",
+  "android": "reference_unusable.android.json",
+  "candidate": "valid_complete_pair.candidate.json",
   "exit": 1,
   "code": "REFERENCE_UNUSABLE",
   "token": ""
  },
  {
   "name": "fake_ua",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_fake_ua.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_fake_ua.candidate.json",
   "exit": 1,
   "code": "FAKE_USER_AGENT",
   "token": ""
  },
  {
   "name": "setting_mismatch",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_setting_mismatch.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_setting_mismatch.candidate.json",
   "exit": 1,
   "code": "SETTING_MISMATCH",
   "token": ""
  },
  {
   "name": "scenario_mismatch",
-  "android": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/valid_complete_pair.android.json",
-  "candidate": "/home/morten/ATL/app-compat/tests/web-probe/fixtures/candidate_scenario_mismatch.candidate.json",
+  "android": "valid_complete_pair.android.json",
+  "candidate": "candidate_scenario_mismatch.candidate.json",
   "exit": 1,
   "code": "SCENARIO_MISMATCH",
   "token": ""

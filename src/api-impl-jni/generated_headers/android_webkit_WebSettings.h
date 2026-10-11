@@ -159,14 +159,6 @@ JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetAllowUniversalAc
 JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetAllowUniversalAccessFromFileURLs
   (JNIEnv *, jclass, jlong);
 
-/*
- * Class:     android_webkit_WebSettings
- * Method:    nativeSetNeedInitialFocus
- * Signature: (JZ)V
- */
-JNIEXPORT void JNICALL Java_android_webkit_WebSettings_nativeSetNeedInitialFocus
-  (JNIEnv *, jclass, jlong, jboolean);
-
 #ifdef __cplusplus
 }
 #endif

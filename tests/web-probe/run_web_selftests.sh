@@ -27,7 +27,7 @@ echo
 while IFS=$'\t' read -r name ref cand want_exit want_code want_token; do
     [ -z "$name" ] && continue
     total=$((total + 1))
-    out="$("$PY" "$VERIFY" "$ref" "$cand" 2>&1)"
+    out="$("$PY" "$VERIFY" "$FIX/$ref" "$FIX/$cand" 2>&1)"
     rc=$?
 
     status="PASS"
