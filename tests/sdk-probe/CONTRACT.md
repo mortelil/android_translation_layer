@@ -45,7 +45,9 @@ exception,message,classification}`.
 
 ## getSerial semantics encoded by the comparator (AOSP DeviceIdentifiersPolicy)
 
-observed permission state of the process, targetSdk of the app:
+ATL uses the Android Q-and-later identifier access policy, independent of its
+reported compatibility API level. It does not emulate historic platform grants.
+The observed permission state of the process and targetSdk determine access:
 
 - `READ_PRIVILEGED_PHONE_STATE` granted → UNKNOWN or OTHER (ro.serialno);
 - else targetSdk < 29 **and** `READ_PHONE_STATE` granted → `UNKNOWN`;

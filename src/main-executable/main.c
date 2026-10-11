@@ -543,14 +543,6 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	if ((*env)->ExceptionCheck(env))
 		atl_jni_handle_uncaught_exception(env, "Application construction");
 
-	/* Constructing the Application parsed the primary app's package through
-	 * the runtime package parser, which raised Build.VERSION's profile to the
-	 * app's declared minSdkVersion when that is higher than the platform level
-	 * (Build.VERSION.applyApplicationMinSdk). Re-sync now, before the app's
-	 * own native libraries are loaded, so native SDK assertions see the same
-	 * level Java does. */
-	if (sync_android_api_level(env))
-		exit(1);
 
 	jclass content_provider = (*env)->FindClass(env, "android/content/ContentProvider");
 	if ((*env)->ExceptionCheck(env))
@@ -625,7 +617,11 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 		XdpPortal *portal = xdp_portal_new();
 
-		const char *app_label = _CSTRING((*env)->CallObjectMethod(env, application_object, _METHOD(handle_cache.application.class, "get_app_label", "()Ljava/lang/String;")));
+		jmethodID label_method = _METHOD(handle_cache.application.class, "get_app_label", "()Ljava/lang/String;");
+		atl_jni_handle_uncaught_exception(env, "Application label lookup");
+		jstring label_string = (*env)->CallObjectMethod(env, application_object, label_method);
+		atl_jni_handle_uncaught_exception(env, "Application label");
+		const char *app_label = label_string ? _CSTRING(label_string) : "";
 		if ((*env)->ExceptionCheck(env))
 			atl_jni_handle_uncaught_exception(env, "Application.get_app_label");
 
@@ -874,16 +870,8 @@ static void pregrow_stack()
 #pragma GCC diagnostic pop
 }
 
-/* Hand the Java API level to the bionic runtime so Java, resource selection
- * and native (__system_property_get("ro.build.version.sdk"),
- * android_get_device_api_level()) all agree.
- *
- * Build.VERSION is the single source of truth. It starts at the platform level
- * (21) and is raised once by Build.VERSION.applyApplicationMinSdk() to the
- * primary app's declared minSdkVersion once that app has been parsed
- * (ATLLoadedApp). This helper is therefore called twice: early, before the GTK
- * window exists, and again right after the primary Application is constructed,
- * i.e. before any app native library can be loaded. */
+/* The early immutable Java profile is selected before app construction and
+ * synchronized to native before any app class can initialize. */
 static int sync_android_api_level(JNIEnv *env)
 {
 	// Use the same selected API level for Java and Android native libraries.
