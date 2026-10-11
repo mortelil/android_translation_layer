@@ -65,6 +65,26 @@ public class TestTextSize {
         measured.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
                          View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         if (measured.getLineCount() != 1) throw new AssertionError("Remeasure must refresh line count");
+        // Reserve trailing/footer space after the first measurement, as a
+        // parent layout does when deciding whether a footer fits beside text.
+        TextView padded = new TextView(context);
+        padded.setText("Example");
+        padded.setTextSize(TypedValue.COMPLEX_UNIT_PX, 20);
+        int free = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        padded.measure(free, free);
+        int originalWidth = padded.getMeasuredWidth(), originalHeight = padded.getMeasuredHeight();
+        padded.setPadding(0, 0, 60, 24);
+        if (!padded.isLayoutRequested()) throw new AssertionError("Padding did not request remeasurement");
+        padded.measure(free, free);
+        if (padded.getMeasuredWidth() < originalWidth + 60 || padded.getMeasuredHeight() < originalHeight + 24)
+            throw new AssertionError("Footer reservation missing from measured size");
+        padded.setPadding(0, 0, 0, 0);
+        padded.measure(free, free);
+        if (padded.getMeasuredWidth() != originalWidth || padded.getMeasuredHeight() != originalHeight)
+            throw new AssertionError("Removing padding must restore measured size");
+        padded.setPadding(0, 0, 0, 0);
+        if (padded.isLayoutRequested()) throw new AssertionError("Unchanged padding requested another layout");
+        System.out.println("PASS: padding remeasurement reserves and releases footer space");
         System.out.println("PASS: TextView pre-layout content width, wrapping and remeasurement");
         System.out.println("PASS: TextView/EditText size units, paint synchronization and GTK pixel measurement");
     }
