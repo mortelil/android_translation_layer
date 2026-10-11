@@ -1,0 +1,4 @@
+JVM launched successfully
+WRONG_IDENTITY
+JNIEXC_IDENTITY_E
+JNIEXC001_RUN_COMPLETE run_id=wrong-identity runner_exit=1

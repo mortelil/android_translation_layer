@@ -25,7 +25,7 @@ command -v "$APKSIGNER" >/dev/null 2>&1 || [ -x "$APKSIGNER" ] || {
 
 mkdir -p "$FREEZE_DIR"
 
-for v in a b c; do
+for v in a b c d e f g; do
     SRC="$BUILD_DIR/$v/jniexc-001-$v-aligned.apk"
     DST="$FREEZE_DIR/jniexc-001-$v.apk"
     [ -f "$SRC" ] || { echo "sign-apks.sh: missing $SRC" >&2; exit 2; }
@@ -40,10 +40,10 @@ for v in a b c; do
     echo "signed $DST"
 done
 
-( cd "$FREEZE_DIR" && sha256sum jniexc-001-a.apk jniexc-001-b.apk jniexc-001-c.apk ) \
+( cd "$FREEZE_DIR" && sha256sum jniexc-001-*.apk ) \
     > "$FREEZE_DIR/apk-sha256.txt"
 cat "$FREEZE_DIR/apk-sha256.txt"
 
-for v in a b c; do
+for v in a b c d e f g; do
     "$APKSIGNER" verify --print-certs "$FREEZE_DIR/jniexc-001-$v.apk" | head -2
 done

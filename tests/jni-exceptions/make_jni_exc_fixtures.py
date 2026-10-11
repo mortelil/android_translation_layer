@@ -26,6 +26,7 @@ JSON_BLOCK = "\n".join([
 FIXED_A = "\n".join([
     JSON_BLOCK,
     "FATAL EXCEPTION: main",
+    "System.exit called, status: 10",
     "java.lang.IllegalStateException: JNI-EXC-001-A",
     "\tat org.atl.tests.jniexc.a.ScenarioAActivity.onCreate(ScenarioAActivity.java:45)",
     "Caused by: java.lang.UnsupportedOperationException: origin-A",
@@ -135,8 +136,28 @@ def main():
     # --- scenario B (experimental) ---------------------------------------
     add("b_secondary_abort", "B", "\n".join([JSON_BLOCK, BASELINE_ABORT]),
         "REJECT", "B_SECONDARY_ABORT", meta_run_id="fixture-b-abort-1")
-    add("b_no_abort", "B", JSON_BLOCK, "PASS", "PASS",
+    add("b_no_abort", "B", JSON_BLOCK, "REJECT", "B_DIAGNOSTIC_MISSING",
         meta_run_id="fixture-b-ok-1", runner_exit=0)
+
+    add("a_not_terminal", "A", FIXED_A.replace("System.exit called, status: 10", ""),
+        "REJECT", "TERMINAL_MISSING", meta_run_id="not-terminal")
+    add("valid_b_fallback", "B", "\n".join([
+        JSON_BLOCK, "JNIEXC_IDENTITY_B", "HostileThrowable: JNI-EXC-001-A",
+        "java.lang.UnsupportedOperationException: origin-A",
+        "JNI-EXC-001-B formatter failure",
+        "fatal: unhandled Java exception from Activity startup"]),
+        "PASS", "PASS", meta_run_id="valid-b")
+    add("c_native_fatal", "C", JSON_BLOCK + "\nJNIEXC001_POS_DONE\nfatal: uncaught Java exception from Looper.loop",
+        "REJECT", "C_FATAL", meta_run_id="c-native-fatal")
+
+    add("valid_d_caught", "D", "JNIEXC_NATIVE_CAUGHT_D\nJNIEXC_RESUME_CAUGHT_D\nJNIEXC_D_DONE",
+        "PASS", "PASS", meta_run_id="valid-d")
+    add("d_catch_missing", "D", "JNIEXC_D_DONE",
+        "REJECT", "D_NOT_CAUGHT", meta_run_id="invalid-d")
+    add("handler_wrong_identity", "E", "WRONG_IDENTITY\nJNIEXC_IDENTITY_E",
+        "REJECT", "EXTENDED_FAILURE", meta_run_id="wrong-identity")
+    add("handler_nonterminal", "E", "JNIEXC_IDENTITY_E",
+        "REJECT", "TERMINAL_MISSING", meta_run_id="handler-nonterminal")
 
     with open(os.path.join(FIX, "cases.json"), "w", encoding="utf-8") as fh:
         json.dump(CASES, fh, indent=2, sort_keys=True)

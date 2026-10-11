@@ -1,88 +1,87 @@
-# JNI-EXC-001 probe (JNI exception handling at the native-owned activity boundary)
+# JNI exception boundaries
 
-Java-only probe APKs for task **JNI-EXC-001**. No instrumentation, no ADB: ATL is
-launched through `tools/run-atl-probe.sh` (marker completion, bounded wait), the
-run is sealed with a trailer, then the fail-closed analyzer `verify_jni_exc.py`
-renders a verdict.
+The pinned ART (`art_standalone` 327b9c2e, `art/runtime/jni/jni_internal.cc`,
+`ExceptionDescribe`) restores the original pending exception after printing.
+Printing and then continuing ordinary JNI work is therefore invalid under
+`-Xcheck:jni`. This patch stops failed callback paths immediately.
 
-## Layout
+Internal Activity helpers propagate the pending exception unchanged. Java
+`nativeStartActivity`, `nativeResumeActivity` and `nativeFinish` callers can
+catch it. Only the outer GTK startup/window/file callbacks and GLib Looper
+boundary dispatch an uncaught exception. `prepare_main_looper` is called only
+from native startup. No helper is installed in Java-owned `nativePollOnce`.
 
-| Path | Purpose |
+The uncaught helper retains the rooted **local** Throwable reference across
+`ExceptionClear`; no additional global allocation is necessary. It dispatches
+that identical object through `Thread.dispatchUncaughtException`. The pinned
+core's default handler prints and calls `System.exit(10)`. If a custom handler
+returns, ATL exits(1), rather than resuming a failed main-thread callback. If
+routing throws, ATL reports the original and secondary exceptions then exits(1).
+This is ATL's main-loop termination policy, not a claim that ART terminates the
+process for every uncaught exception on every thread.
+
+The fallback uses method IDs resolved on `java.lang.Throwable` (valid for both
+subclasses and differently typed causes), checks lookup/UTF allocation failures,
+and traverses at most 16 cause nodes. It does not reconstruct stack frames or
+suppressed exceptions. Throwing accessors truncate diagnostics; arbitrary Java
+handlers/accessors that block cannot be made time-bounded by this helper.
+This is not a general audit/fix of all ATL JNI call sites or lifecycle rollback.
+
+## Tests
+
+| Case | Contract |
 |---|---|
-| `src/org/atl/tests/jniexc/ProbeJson.java` | shared constants, JSON emit, results writer |
-| `src/org/atl/tests/jniexc/{a,b,c}/Scenario*Activity.java` | scenarios A/B/C |
-| `AndroidManifest-{a,b,c}.xml` | one package per variant (`org.atl.tests.jniexc.{a,b,c}`) |
-| `build.sh` | builds 3 unsigned APKs **inside `atl_dev`** |
-| `sign-apks.sh` | signs + freezes APKs **on the host** (refuses overwrite) |
-| `verify_jni_exc.py` | fail-closed analyzer (exit 0 PASS / 1 REJECT / 2 internal) |
-| `make_jni_exc_fixtures.py` | regenerates the bad/good fixture matrix |
-| `run_analyzer_selftests.sh` | runs the analyzer over the fixture matrix |
-| `run-case.sh` | **single harness entry point**: run a case on ATL + analyze |
+| A | Startup throws with cause; original diagnostic, no later callback or CheckJNI abort; verified terminal path. |
+| B | Throwing formatter; handler witnesses original object identity; fallback type/message/cause and secondary failure survive. |
+| C | Java callback catches locally; normal startup completes. |
+| D | Java catches the identical object across actual nativeStartActivity and nativeResumeActivity; later Handler executes. ATL-specific entrypoints, invoked reflectively to compile against public SDK. |
+| E | Custom startup handler receives identical object and current thread; returning handler does not resume failed callback. |
+| F | Uncaught Handler exception reaches GLib Looper boundary; identical object, queued sentinel does not execute. |
+| G | Throwing handler and self-referential cause; bounded 16-node diagnostic, no JNI abort. |
 
-## Scenarios
+B's `original_present=false` remains the older literal-class diagnostic: the
+fallback prints the subclass, not `java.lang.IllegalStateException`. New
+`identity_witnessed` is separate evidence, not a relabeling of a full stack trace.
 
-- **A (negative, primary)** — `onCreate` throws
-  `IllegalStateException("JNI-EXC-001-A", new UnsupportedOperationException("origin-A"))`
-  at the native-owned boundary, after printing its JSON block. Sentinels would only
-  print if ATL continued JNI work past the failure.
-- **B (experimental)** — same throw, but the Throwable overrides
-  `printStackTrace(...)` to throw (exercises `ExceptionDescribe`'s formatter failure).
-  Experimental: only hard failures (secondary abort / sentinel) are asserted.
-- **C (positive control)** — the throwable is caught **inside** the Java callback;
-  normal completion is signalled by the `JNIEXC001_POS_DONE` marker + `results.json`.
-  It deliberately does **not** call `finish()`: completion is the marker, never
-  process exit.
+`helper-test.c` injects failed lookup, throwing accessors, cyclic causes and UTF
+allocation failure into a JNI table which rejects ordinary calls while pending.
+It also tests no-op without an exception. This supplements real CheckJNI probes;
+it is not a substitute for them.
 
-## Completion signals / run IDs
+## Running
 
-`run-case.sh` prints a per-run `run_id=jniexc001-<case>-<UTCstamp>-<pid>`; the same
-id is written to `run-meta.json` and to the trailer
-`JNIEXC001_RUN_COMPLETE run_id=<id> runner_exit=<n>` appended to `combined.log`.
-Marker per case: A/B `JNIEXC001_JSON_END`, C `JNIEXC001_POS_DONE`.
-
-## Usage
+Use the existing Toolbox `atl_dev`, host SDK and probe runner; no runtime install.
+Set `FRAMEWORK_RES` to the candidate build's framework-res.apk and `ANDROID_JAR`
+if the existing SDK differs from the default. Build in the container:
 
 ```sh
-# build (container) + sign/freeze (host)
-toolbox run --container atl_dev sh -lc \
-  'JAVAC=/usr/lib/jvm/java-1.8-openjdk/bin/javac \
-   /home/morten/ATL/jni-exceptions/tests/jni-exceptions/build.sh <BUILD_DIR>'
-tests/jni-exceptions/sign-apks.sh <BUILD_DIR> <FREEZE_DIR>
-
-# analyzer self-test (pure python, no ATL)
-bash run_analyzer_selftests.sh
-
-# run a case on ATL + analyze (baseline defaults; override for a candidate)
-JNIEXC_APK_DIR=<FREEZE_DIR> JNIEXC_TIMEOUT=300 \
-  bash run-case.sh A <RUN_DIR>
+JAVAC=/usr/lib/jvm/java-1.8-openjdk/bin/javac tests/jni-exceptions/build.sh OUTPUT
+cc -I/usr/lib/jvm/java-21-openjdk/include -I/usr/lib/jvm/java-21-openjdk/include/linux \
+  tests/jni-exceptions/helper-test.c -o /tmp/jni-helper-test
+/tmp/jni-helper-test
 ```
 
-Environment: `JNIEXC_APK_DIR` (default `.../JNI-EXC-001/apk`),
-`JNIEXC_TIMEOUT` (default 300), `JNIEXC_RUNNER` (default
-`/home/morten/ATL/tools/run-atl-probe.sh`), `ATL_PROBE_SOURCE_DIR` /
-`ATL_PROBE_BUILD_DIR` (honoured end-to-end; default to the preserved baseline).
+On the host, sign and run each A–G case with explicit candidate paths:
 
-> aapt quirk: this container's `aapt package -M` requires the manifest basename to
-> be `AndroidManifest.xml`; `build.sh` stages each variant under its own output dir.
+```sh
+tests/jni-exceptions/sign-apks.sh OUTPUT FROZEN_APKS
+ATL_PROBE_SOURCE_DIR=CHECKOUT ATL_PROBE_BUILD_DIR=CHECKOUT/build-mobile \
+  JNIEXC_APK_DIR=FROZEN_APKS JNIEXC_RUNNER=EXISTING_RUNNER \
+  tests/jni-exceptions/run-case.sh A FRESH_RESULT_DIRECTORY
+tests/jni-exceptions/run_analyzer_selftests.sh
+```
 
-## Fail-closed preconditions (any run)
+APKs use anonymous classes because the pinned runtime's invokedynamic lambda
+bootstrap is not functional. No unrelated runtime repair is included.
 
-Ordered checks, all before the per-case contract: evidence non-empty → trailer
-present (truncation proxy) → trailer `run_id` == meta `run_id` (staleness) →
-**passive CheckJNI confirmation** (`JVM launched successfully` present and no
-rejected VM option; `env/build-report.md` §5) → per-case rules.
+The analyzer rejects missing evidence, wrong run IDs, absent JVM startup,
+secondary JNI failures, continued callbacks and missing terminal diagnostics.
+Terminal A/B/E/F/G need not write results.json; a generic runner exit1 alone is
+never success. C/D require their completion markers. `runtime-sha256.txt` hashes
+the launcher, implementation library and API jar, not merely the launcher.
+Corroborate origin with runner maps and ART's logged classpath; the JVM startup
+line alone is not independent proof of CheckJNI. ATL's `-Xcheck:jni` option and
+an identical-APK failing baseline provide that evidence in this review.
 
-## Analyzer verdicts
-
-| Code | Meaning |
-|---|---|
-| `PASS` | scenario contract holds (exit 0) |
-| `EVIDENCE_EMPTY` / `_MISSING` / `_TRUNCATED` / `_STALE` / `_META` / `_NO_CHECKJNI` | unusable or unconfirmed evidence (exit 1) |
-| `A_SECONDARY_ABORT` | CheckJNI pending-exception abort replaced the original (exit 1) |
-| `A_SENTINEL_EXECUTED` | ATL continued past the failed `onCreate` (exit 1) |
-| `A_ORIGINAL_MISSING` / `A_CAUSE_MISSING` | original throwable/cause not the terminal record (exit 1) |
-| `B_SECONDARY_ABORT` / `B_SENTINEL_EXECUTED` | experimental variant hard failures (exit 1) |
-| `C_MARKER_MISSING` / `C_FATAL` / `C_NO_EVIDENCE` | positive control did not complete normally (exit 1) |
-| `ERROR internal` | usage/internal failure, never a semantic rejection (exit 2) |
-
-`fixtures/` is generated by `make_jni_exc_fixtures.py`; do not hand-edit.
+The analyzer fixture suite includes formerly accepted empty B diagnostics and
+nonterminal A logs as negative controls. Run directories must be fresh.

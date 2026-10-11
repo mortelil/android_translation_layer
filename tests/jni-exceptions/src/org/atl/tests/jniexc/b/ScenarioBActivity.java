@@ -54,8 +54,16 @@ public class ScenarioBActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         ProbeJson.emit("B", ProbeJson.instanceId("B"));
-        throw new HostileThrowable("JNI-EXC-001-A",
+        final Throwable original = new HostileThrowable("JNI-EXC-001-A",
                 new UnsupportedOperationException("origin-A"));
+        Thread.currentThread().setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override public void uncaughtException(Thread thread, Throwable error) {
+            if (error != original) throw new AssertionError("WRONG_IDENTITY");
+            System.out.println("JNIEXC_IDENTITY_B");
+            error.printStackTrace();
+            }
+        });
+        throw (HostileThrowable) original;
     }
 
     @Override

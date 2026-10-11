@@ -49,3 +49,8 @@ build_one() {
 build_one a ScenarioAActivity
 build_one b ScenarioBActivity
 build_one c ScenarioCActivity
+
+build_one d ScenarioDActivity
+build_one e ScenarioEActivity
+build_one f ScenarioFActivity
+build_one g ScenarioGActivity

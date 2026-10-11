@@ -28,16 +28,21 @@ static void report_throwable(JNIEnv *env, jthrowable throwable, const char *pref
 	if (!throwable)
 		return;
 
-	jclass throwable_class = (*env)->GetObjectClass(env, throwable);
+	jclass throwable_class = (*env)->FindClass(env, "java/lang/Throwable");
 	if (!throwable_class) {
 		(*env)->ExceptionClear(env);
 		return;
 	}
 
 	jmethodID to_string = (*env)->GetMethodID(env, throwable_class, "toString", "()Ljava/lang/String;");
+	if (!to_string) {
+		(*env)->ExceptionClear(env);
+		(*env)->DeleteLocalRef(env, throwable_class);
+		return;
+	}
 	jmethodID get_cause = (*env)->GetMethodID(env, throwable_class, "getCause", "()Ljava/lang/Throwable;");
 	(*env)->DeleteLocalRef(env, throwable_class);
-	if (!to_string || !get_cause) {
+	if (!get_cause) {
 		(*env)->ExceptionClear(env);
 		return;
 	}
@@ -48,6 +53,7 @@ static void report_throwable(JNIEnv *env, jthrowable throwable, const char *pref
 		jstring description = (jstring)(*env)->CallObjectMethod(env, current, to_string);
 		if ((*env)->ExceptionCheck(env)) {
 			(*env)->ExceptionClear(env);
+			fprintf(stderr, "%s<Throwable accessor threw; diagnostic truncated>\n", prefix);
 			break;
 		}
 		if (description) {
@@ -57,6 +63,10 @@ static void report_throwable(JNIEnv *env, jthrowable throwable, const char *pref
 				(*env)->ReleaseStringUTFChars(env, description, text);
 			}
 			(*env)->DeleteLocalRef(env, description);
+			if ((*env)->ExceptionCheck(env)) {
+				(*env)->ExceptionClear(env);
+				break;
+			}
 		}
 
 		prefix = "  caused by: ";
@@ -64,6 +74,7 @@ static void report_throwable(JNIEnv *env, jthrowable throwable, const char *pref
 		jthrowable cause = (jthrowable)(*env)->CallObjectMethod(env, current, get_cause);
 		if ((*env)->ExceptionCheck(env)) {
 			(*env)->ExceptionClear(env);
+			fprintf(stderr, "%s<Throwable accessor threw; diagnostic truncated>\n", prefix);
 			break;
 		}
 		if (current != throwable)
@@ -91,8 +102,12 @@ static bool dispatch_uncaught_exception(JNIEnv *env, jthrowable throwable)
 		return false;
 
 	jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_class, "currentThread", "()Ljava/lang/Thread;");
+	if (!current_thread) {
+		(*env)->DeleteLocalRef(env, thread_class);
+		return false;
+	}
 	jmethodID dispatch = (*env)->GetMethodID(env, thread_class, "dispatchUncaughtException", "(Ljava/lang/Throwable;)V");
-	if (!current_thread || !dispatch) {
+	if (!dispatch) {
 		(*env)->DeleteLocalRef(env, thread_class);
 		return false;
 	}
@@ -109,27 +124,14 @@ static bool dispatch_uncaught_exception(JNIEnv *env, jthrowable throwable)
 
 void atl_jni_handle_uncaught_exception(JNIEnv *env, const char *where)
 {
-	/*
-	 * The retaining reference must be taken *after* clearing: NewGlobalRef is not
-	 * among the JNI calls that CheckJNI permits while an exception is pending
-	 * ("JNI NewGlobalRef called with pending exception"). ExceptionOccurred()
-	 * hands back an ordinary local reference, which stays valid for this frame
-	 * after ExceptionClear(), so the Throwable survives the clear.
+	/* ExceptionOccurred returns a rooted local reference which survives Clear.
+	 * No global allocation is needed: this native frame never returns while
+	 * reporting the original. In particular, OOM cannot replace it during retain.
 	 */
-	jthrowable pending = (*env)->ExceptionOccurred(env);
-	if (!pending)
-		return; /* no exception pending: not a failure, nothing to preserve */
-
+	jthrowable original = (*env)->ExceptionOccurred(env);
+	if (!original)
+		return;
 	(*env)->ExceptionClear(env);
-
-	jthrowable original = (*env)->NewGlobalRef(env, pending);
-	if (!original) {
-		/* Retaining the Throwable failed (out of memory); nothing usable to route. */
-		(*env)->DeleteLocalRef(env, pending);
-		fprintf(stderr, "fatal: unhandled Java exception from %s (could not retain the Throwable)\n", where);
-		exit(1);
-	}
-	(*env)->DeleteLocalRef(env, pending);
 
 	if (dispatch_uncaught_exception(env, original)) {
 		fprintf(stderr, "fatal: uncaught Java exception from %s; terminating\n", where);
@@ -149,6 +151,6 @@ void atl_jni_handle_uncaught_exception(JNIEnv *env, const char *where)
 		}
 	}
 
-	(*env)->DeleteGlobalRef(env, original);
+	(*env)->DeleteLocalRef(env, original);
 	exit(1);
 }

@@ -1,0 +1,8 @@
+{
+  "apk": "fixture://D",
+  "apk_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "case": "D",
+  "run_id": "invalid-d",
+  "runner_exit": 1,
+  "task_id": "JNI-EXC-001"
+}

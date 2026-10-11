@@ -3,7 +3,7 @@
 # run-case.sh - single harness entry point for JNI-EXC-001 probe scenarios.
 #
 # Usage:
-#   tests/jni-exceptions/run-case.sh <A|B|C> <OUT_DIR>
+#   tests/jni-exceptions/run-case.sh <A|B|C|D|E|F|G> <OUT_DIR>
 #
 # It launches the frozen probe APK on ATL through the shared, bounded runner
 # (tools/run-atl-probe.sh: marker completion, never process exit; a
@@ -29,7 +29,7 @@ VERIFY="$HERE/verify_jni_exc.py"
 ANALYZER_PY=${PYTHON:-python3}
 
 if [ "$#" -ne 2 ]; then
-    echo "run-case.sh: usage: run-case.sh <A|B|C> <OUT_DIR>" >&2
+    echo "run-case.sh: usage: run-case.sh <A|B|C|D|E|F|G> <OUT_DIR>" >&2
     exit 2
 fi
 
@@ -37,8 +37,8 @@ CASE=$1
 OUT_DIR=$2
 
 case "$CASE" in
-    A|B|C) ;;
-    *) echo "run-case.sh: unknown case '$CASE' (want A, B or C)" >&2; exit 2 ;;
+    A|B|C|D|E|F|G) ;;
+    *) echo "run-case.sh: unknown case '$CASE' (want A through G)" >&2; exit 2 ;;
 esac
 [ -n "$OUT_DIR" ] || { echo "run-case.sh: OUT_DIR is empty" >&2; exit 2; }
 
@@ -57,10 +57,12 @@ TIMEOUT=${JNIEXC_TIMEOUT:-300}
 export ATL_PROBE_SOURCE_DIR ATL_PROBE_BUILD_DIR
 
 case "$CASE" in
-    A|B) MARKER=JNIEXC001_JSON_END ;;
+    A|B|E|F|G) MARKER=JNIEXC001_JSON_END ;;
     C)   MARKER=JNIEXC001_POS_DONE ;;
+    D) MARKER=JNIEXC_D_DONE ;;
 esac
 
+[ ! -e "$OUT_DIR" ] || { echo "refusing stale output directory" >&2; exit 2; }
 mkdir -p "$OUT_DIR" || { echo "run-case.sh: cannot create $OUT_DIR" >&2; exit 2; }
 OUT_DIR=$(cd "$OUT_DIR" && pwd)
 
@@ -78,6 +80,12 @@ echo "marker=$MARKER timeout=${TIMEOUT}s"
 "$RUNNER" "$APK" "$ATL_DIR" "$MARKER" "$TIMEOUT"
 RUNNER_EXIT=$?
 echo "runner_exit=$RUNNER_EXIT"
+
+# Hash the implementation, not just the launcher. Loaded origin must also be
+# corroborated with runner maps / the ART classpath in stderr.
+sha256sum "$ATL_PROBE_BUILD_DIR/android-translation-layer" \
+    "$ATL_PROBE_BUILD_DIR/libtranslation_layer_main.so" \
+    "$ATL_PROBE_BUILD_DIR/api-impl.jar" > "$OUT_DIR/runtime-sha256.txt" || exit 2
 
 # Collect the captured streams into the run directory (deterministic order).
 : > "$OUT_DIR/stdout.log"

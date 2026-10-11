@@ -2,6 +2,7 @@ JNIEXC001_JSON_BEGIN
 {"task_id":"JNI-EXC-001","case":"A","instance_id":"fixture"}
 JNIEXC001_JSON_END
 FATAL EXCEPTION: main
+System.exit called, status: 10
 java.lang.IllegalStateException: JNI-EXC-001-A
 	at org.atl.tests.jniexc.a.ScenarioAActivity.onCreate(ScenarioAActivity.java:45)
 Caused by: java.lang.UnsupportedOperationException: origin-A

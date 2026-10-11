@@ -23,9 +23,10 @@ Scenario C (positive control: the throwable is caught inside the Java callback)
     PASS requires: marker `JNIEXC001_POS_DONE` present, the JSON block present,
     and no uncaught/fatal record.
 
-Scenario B (formatter-throws variant, EXPERIMENTAL)
-    PASS requires: no pending-exception abort and no sentinel; whether the
-    original record survived the hostile formatter is reported as an observation.
+Scenario B (formatter-throws variant)
+    PASS requires identity witnessed by the handler, fallback message/cause,
+    formatter failure and a terminal record, without a secondary JNI abort.
+    original_present remains the old literal-class diagnostic, not identity.
 """
 
 import json
@@ -44,7 +45,7 @@ ABORT_RES = [
     re.compile(r"JNI DETECTED ERROR IN APPLICATION"),
 ]
 FATAL_RE = re.compile(
-    r"FATAL EXCEPTION|JNI DETECTED ERROR IN APPLICATION|called with pending exception")
+    r"FATAL EXCEPTION|JNI DETECTED ERROR IN APPLICATION|called with pending exception|fatal:|Fatal signal|System.exit called, status: [1-9]")
 SENTINEL_A = "SENTINEL-JNI-EXC-001-A"
 SENTINEL_B = "SENTINEL-JNI-EXC-001-B"
 POS_DONE = "JNIEXC001_POS_DONE"
@@ -103,7 +104,7 @@ def analyze(run_dir):
     run_id = meta.get("run_id")
     if meta.get("task_id") != TASK_ID:
         raise Verdict("EVIDENCE_META", "task_id %r != %r" % (meta.get("task_id"), TASK_ID))
-    if case not in ("A", "B", "C"):
+    if case not in tuple("ABCDEFG"):
         raise Verdict("EVIDENCE_META", "unsupported case %r" % (case,))
     if not run_id:
         raise Verdict("EVIDENCE_META", "empty run_id")
@@ -134,7 +135,27 @@ def analyze(run_dir):
         return analyze_a(case, run_id, text)
     if case == "B":
         return analyze_b(case, run_id, text)
-    return analyze_c(case, run_id, text)
+    if case == "C":
+        return analyze_c(case, run_id, text)
+    if any_match(ABORT_RES, text) or "WRONG_IDENTITY" in text or "SENTINEL_" in text:
+        raise Verdict("EXTENDED_FAILURE", "wrong identity, invalid JNI or continued callback")
+    if case == "D":
+        if "JNIEXC_NATIVE_CAUGHT_D" not in text or "JNIEXC_RESUME_CAUGHT_D" not in text or "JNIEXC_D_DONE" not in text or FATAL_RE.search(text):
+            raise Verdict("D_NOT_CAUGHT", "native exception identity / subsequent Looper not verified")
+    else:
+        if "JNIEXC_IDENTITY_" + case not in text:
+            raise Verdict("IDENTITY_MISSING", "handler did not receive the identical Throwable")
+        require_terminal(text)
+        if case == "F" and "from Looper.loop" not in text:
+            raise Verdict("WRONG_BOUNDARY", "Looper failure not routed at GLib boundary")
+        if case == "G" and ("handler-failed-G" not in text or text.count("  caused by:") != 15):
+            raise Verdict("CYCLE_REPORT", "bounded 16-node fallback not observed")
+    return emit(case, run_id, "PASS", "PASS", "boundary and identity checks passed", {})
+
+
+def require_terminal(text):
+    if not re.search(r"System.exit called, status: 10|fatal: (?:uncaught|unhandled) Java exception from", text):
+        raise Verdict("TERMINAL_MISSING", "no verified expected terminal path")
 
 
 def analyze_a(case, run_id, text):
@@ -150,6 +171,7 @@ def analyze_a(case, run_id, text):
     if not CAUSE_RE.search(text):
         raise Verdict("A_CAUSE_MISSING",
                       "cause UnsupportedOperationException: origin-A not present")
+    require_terminal(text)
     obs = {
         "original_present": True,
         "cause_present": True,
@@ -174,24 +196,28 @@ def analyze_c(case, run_id, text):
 
 
 def analyze_b(case, run_id, text):
-    # EXPERIMENTAL. Deterministic contract asserted here is limited to the two
-    # hard failures (secondary abort, wrongly-continued sentinel); the survival
-    # of the original record against a hostile formatter is reported, not faked.
+    # Keep literal-class presence separate from the identity witness. The
+    # fallback reports the subclass, not a full original stack trace.
     if any_match(ABORT_RES, text):
         raise Verdict("B_SECONDARY_ABORT",
                       "CheckJNI pending-exception abort in formatter-throws variant")
     if SENTINEL_B in text:
         raise Verdict("B_SENTINEL_EXECUTED",
                       "post-failure sentinel executed in formatter-throws variant")
+    if ("JNIEXC_IDENTITY_B" not in text or "HostileThrowable: JNI-EXC-001-A" not in text or not CAUSE_RE.search(text)
+            or "JNI-EXC-001-B formatter failure" not in text):
+        raise Verdict("B_DIAGNOSTIC_MISSING", "original fallback / cause / formatter failure absent")
+    require_terminal(text)
     obs = {
         "original_present": bool(ORIGINAL_RE.search(text)),
         "cause_present": bool(CAUSE_RE.search(text)),
         "formatter_failure_present": "JNI-EXC-001-B formatter failure" in text,
         "checkjni_active": True,
-        "experimental": True,
+        "identity_witnessed": True,
+        "fallback_only": True,
     }
     return emit(case, run_id, "PASS", "PASS",
-                "no secondary abort / sentinel (experimental variant)", obs)
+                "identity witnessed; bounded fallback diagnostic preserved", obs)
 
 
 def main(argv):
