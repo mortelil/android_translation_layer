@@ -6,10 +6,18 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.view.Display;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.Objects;
 
 public class ContextWrapper extends Context {
 	protected Context baseContext;
+
+	// AOSP ContextWrapper.mCallbacksRegisteredToSuper compat list + mLock
+	// (android-17.0.0_r1 ContextWrapper.java:81-93, 1503-1563): callbacks
+	// registered before attachBaseContext() are tracked so they can be
+	// unregistered later.
+	private final Object mLock = new Object();
+	private ArrayList<ComponentCallbacks> mCallbacksRegisteredToSuper;
 
 	public ContextWrapper(Context baseContext) {
 		this.baseContext = baseContext;
@@ -29,6 +37,34 @@ public class ContextWrapper extends Context {
 	public void atl_attach_base_context(Context baseContext) {
 		Objects.requireNonNull(baseContext, "baseContext must not be null");
 		this.attachBaseContext(baseContext);
+	}
+
+	@Override
+	public void registerComponentCallbacks(ComponentCallbacks callback) {
+		if (baseContext != null) {
+			baseContext.registerComponentCallbacks(callback);
+		} else {
+			super.registerComponentCallbacks(callback);
+			synchronized (mLock) {
+				if (mCallbacksRegisteredToSuper == null) {
+					mCallbacksRegisteredToSuper = new ArrayList<ComponentCallbacks>();
+				}
+				mCallbacksRegisteredToSuper.add(callback);
+			}
+		}
+	}
+
+	@Override
+	public void unregisterComponentCallbacks(ComponentCallbacks callback) {
+		synchronized (mLock) {
+			if (mCallbacksRegisteredToSuper != null
+			    && mCallbacksRegisteredToSuper.contains(callback)) {
+				super.unregisterComponentCallbacks(callback);
+				mCallbacksRegisteredToSuper.remove(callback);
+			} else if (baseContext != null) {
+				baseContext.unregisterComponentCallbacks(callback);
+			}
+		}
 	}
 
 	@Override

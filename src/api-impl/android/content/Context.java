@@ -403,9 +403,16 @@ public abstract class Context {
 		return checkCallingOrSelfPermission(permission);
 	}
 
-	public void registerComponentCallbacks(ComponentCallbacks callbacks) {}
+	// AOSP Context.registerComponentCallbacks/unregisterComponentCallbacks
+	// (android-17.0.0_r1 Context.java:1158-1168): register the callbacks with the
+	// base application, which dispatches them.
+	public void registerComponentCallbacks(ComponentCallbacks callbacks) {
+		getApplicationContext().registerComponentCallbacks(callbacks);
+	}
 
-	public void unregisterComponentCallbacks(ComponentCallbacks callbacks) {}
+	public void unregisterComponentCallbacks(ComponentCallbacks callbacks) {
+		getApplicationContext().unregisterComponentCallbacks(callbacks);
+	}
 
 	public abstract boolean bindService(final Intent intent, final ServiceConnection serviceConnection, int flags);
 

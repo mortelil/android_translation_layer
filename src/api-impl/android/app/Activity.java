@@ -3,6 +3,7 @@ package android.app;
 import android.app.ActionBar;
 import android.atl.ATLLoadedApp;
 import android.content.BroadcastReceiver;
+import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -38,7 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class Activity extends ContextThemeWrapper implements Window.Callback, LayoutInflater.Factory2 {
+public class Activity extends ContextThemeWrapper implements Window.Callback, LayoutInflater.Factory2, ComponentCallbacks2 {
 	private final static String TAG = "Activity";
 
 	public static final int RESULT_CANCELED = 0;
@@ -262,6 +263,13 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	}
 
 	public void onLowMemory() {
+	}
+
+	// AOSP Activity implements ComponentCallbacks2 (android-17.0.0_r1
+	// Activity.java declaration); onTrimMemory is part of that type contract.
+	// Dispatch to Context-registered listeners goes through the base Context to
+	// the Application (see Context.registerComponentCallbacks).
+	public void onTrimMemory(int level) {
 	}
 
 	/* --- */

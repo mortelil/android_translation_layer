@@ -18,6 +18,9 @@ package android.app;
 
 import android.R;
 import android.atl.ATLLoadedApp;
+import android.content.ComponentCallbacks;
+import android.content.ComponentCallbacks2;
+import android.content.ComponentCallbacksController;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.pm.PackageParser;
@@ -26,8 +29,23 @@ import android.os.Bundle;
 
 import java.util.ArrayList;
 
-public class Application extends ContextWrapper {
+public class Application extends ContextWrapper implements ComponentCallbacks2 {
 	public long native_window;
+
+	/*
+	 * ComponentCallbacks/ComponentCallbacks2 registry + dispatch.
+	 *
+	 * Adapted from AOSP platform/frameworks/base
+	 *   tag     android-17.0.0_r1
+	 *   commit  94b4c163b7dfe5ce3607f7bb8456f9573f7de57d
+	 *   file    core/java/android/app/Application.java
+	 *   methods onConfigurationChanged/onLowMemory/onTrimMemory (288-300),
+	 *           registerComponentCallbacks/unregisterComponentCallbacks (302-308)
+	 * and core/java/android/content/ComponentCallbacksController.java.
+	 * Apache License 2.0; see this repository's LICENSE.txt.
+	 */
+	private final ComponentCallbacksController mCallbacksController =
+	    new ComponentCallbacksController();
 
 	/*
 	 * ActivityLifecycleCallbacks registry + dispatch.
@@ -137,15 +155,20 @@ public class Application extends ContextWrapper {
 	public void onTerminate() {
 	}
 	public void onConfigurationChanged(Configuration newConfig) {
+		mCallbacksController.dispatchConfigurationChanged(newConfig);
 	}
 	public void onLowMemory() {
+		mCallbacksController.dispatchLowMemory();
 	}
 	public void onTrimMemory(int level) {
+		mCallbacksController.dispatchTrimMemory(level);
 	}
-	/*public void registerComponentCallbacks(ComponentCallbacks callback) {
+	public void registerComponentCallbacks(ComponentCallbacks callback) {
+		mCallbacksController.registerCallbacks(callback);
 	}
 	public void unregisterComponentCallbacks(ComponentCallbacks callback) {
-	}*/
+		mCallbacksController.unregisterCallbacks(callback);
+	}
 	public void registerActivityLifecycleCallbacks(ActivityLifecycleCallbacks callback) {
 		synchronized (mActivityLifecycleCallbacks) {
 			mActivityLifecycleCallbacks.add(callback);
