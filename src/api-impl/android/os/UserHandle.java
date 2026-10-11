@@ -106,17 +106,42 @@ public final class UserHandle {
 	}
 
 	/**
+	 * Whether a UID is an "isolated" UID.
 	 * @hide
 	 */
 	public static final boolean isIsolated(int uid) {
-		return false;
+		if (uid > 0) {
+			return Process.isIsolated(uid);
+		} else {
+			return false;
+		}
 	}
 
 	/**
+	 * Whether a UID belongs to a regular app. *Note* "Not a regular app" does not mean
+	 * "it's system", because of isolated UIDs. Use {@link #isCore} for that.
 	 * @hide
 	 */
 	public static boolean isApp(int uid) {
-		return true;
+		if (uid > 0) {
+			final int appId = getAppId(uid);
+			return appId >= Process.FIRST_APPLICATION_UID && appId <= Process.LAST_APPLICATION_UID;
+		} else {
+			return false;
+		}
+	}
+
+	/**
+	 * Whether a UID belongs to a system core component or not.
+	 * @hide
+	 */
+	public static boolean isCore(int uid) {
+		if (uid >= 0) {
+			final int appId = getAppId(uid);
+			return appId < Process.FIRST_APPLICATION_UID;
+		} else {
+			return false;
+		}
 	}
 
 	/**
@@ -135,7 +160,7 @@ public final class UserHandle {
 	 * @hide
 	 */
 	public static final int getCallingUserId() {
-		return 1000; // FIXME
+		return getUserId(Binder.getCallingUid());
 	}
 
 	/**
@@ -190,7 +215,7 @@ public final class UserHandle {
 	 * @hide
 	 */
 	public static final int myUserId() {
-		return 1000;
+		return getUserId(Process.myUid());
 	}
 
 	/**
