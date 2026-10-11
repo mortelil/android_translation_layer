@@ -10,8 +10,26 @@ public class TestEditText {
 		void nativeInput(String value) { native_setText(widget, value); }
 		String nativeValue() { return native_getText(widget); }
 	}
+	// AppCompat uses this delegation on pre-28 Android. Guard the test so a
+	// regression fails immediately instead of exhausting the VM stack.
+	static class CompatField extends Field {
+		private boolean reading;
+		CompatField(Context context) { super(context); }
+		@Override public Editable getText() {
+			if (reading) throw new AssertionError("getEditableText redispatched getText");
+			reading = true;
+			try { return super.getEditableText(); }
+			finally { reading = false; }
+		}
+	}
 	public static void run(Context context) {
-		final Field field = new Field(context);
+		runField(context, new Field(context));
+		runField(context, new CompatField(context));
+		System.out.println("PASS: EditText subclass accessor delegation without recursion");
+	}
+	private static void runField(Context context, final Field field) {
+		if (field.getEditableText() != field.getText())
+			throw new AssertionError("Both accessors must return the same live Editable");
 		if (field.getInputType() != 1) throw new AssertionError("default editable input type");
 		final StringBuilder events = new StringBuilder();
 		TextWatcher watcher = new TextWatcher() {
