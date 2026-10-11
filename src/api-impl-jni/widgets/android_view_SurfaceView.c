@@ -1,3 +1,4 @@
+#include "../../libandroid/surface_control.h"
 #include <gtk/gtk.h>
 
 #include "../defines.h"
@@ -58,6 +59,7 @@ static void surface_view_widget_snapshot(GtkWidget *widget, GdkSnapshot *snapsho
 		if (surface_view_widget->needs_flip)
 			gtk_snapshot_restore(snapshot);
 	}
+	atl_surface_control_snapshot(widget, GTK_SNAPSHOT(snapshot));
 	if (surface_view_widget->frame_callback) {
 		surface_view_widget->frame_callback(surface_view_widget);
 		surface_view_widget->frame_callback = NULL;

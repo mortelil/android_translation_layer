@@ -19,3 +19,5 @@ int AHardwareBuffer_lock(AHardwareBuffer *, uint64_t, int32_t, const ATLBufferRe
 int AHardwareBuffer_unlock(AHardwareBuffer *, int32_t *);
 AHardwareBuffer *AHardwareBuffer_fromHardwareBuffer(JNIEnv *, jobject);
 jobject AHardwareBuffer_toHardwareBuffer(JNIEnv *, AHardwareBuffer *);
+
+int atl_hardware_buffer_copy_rgba(AHardwareBuffer *, unsigned char **, int *, int *);
