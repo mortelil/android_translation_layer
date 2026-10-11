@@ -26,7 +26,7 @@ moved by `tests/`-only commits and still fails on any non-`tests/` source change
 
 ## Stages / verified command paths
 
-- **build** `toolbox run --container atl_dev sh -lc 'ATL_ALLOW_DEPENDENCY_CHANGES=1 ATL_BUILD_DIR=$HOME/ATL/review-repairs/build-mobile sh $HOME/ATL/review-repairs/scripts/mobile/build.sh'`
+- **build** runs `meson compile -C build-mobile -j2` in the selected checkout inside `atl_dev`. Configure this isolated build first; the gate does not rebuild/install shared dependencies.
 - **identity** sha256 of the loaded `.so`/`api-impl.jar`/launcher + `git rev-parse HEAD`
   + dirty digest, compared to the manifest.
 - **probe** `ATL_PROBE_SOURCE_DIR=/home/morten/ATL/review-repairs ATL_PROBE_BUILD_DIR=/home/morten/ATL/review-repairs/build-mobile /home/morten/ATL/tools/run-atl-probe.sh <APK> <OUT> <MARKER> 300`
@@ -52,3 +52,16 @@ moved by `tests/`-only commits and still fails on any non-`tests/` source change
 CLOSED: missing mandatory input/tool, empty/unparseable/stale evidence, wrong
 APK/artifact/comparator hash, or a skipped/failed required check ⇒ non-zero exit.
 `--stage` runs are diagnostic and never grant `READY_FOR_REVIEW`.
+
+## Integration builds
+
+The regression stage sources the shared dependency environment **before** selecting
+`ATL_BUILD_DIR` and `atl_repo`. Otherwise test-env.sh can silently overwrite the
+candidate path. The probe runner must likewise select the candidate and use fresh
+app data/cache. Capture process maps (including the api-impl dex cache path) and
+SHA-256 of the mapped library, launcher, JAR, dependencies and APKs; a recorded
+manifest alone does not establish that a running process loaded those files.
+
+Keep separate stage verdicts when using staged runs. In particular, the FONT-007
+bitmap structural check is not Android parity, and lifecycle baseline-pinned
+divergences are not newly implemented Android ordering.

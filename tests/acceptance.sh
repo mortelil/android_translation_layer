@@ -5,7 +5,7 @@
 # repair repo (gate version: see tests/ACCEPTANCE-GATE.md, v1).
 #
 # It wires only commands that were actually executed (tooling.md / progress.md):
-#   * build      - scripts/mobile/build.sh inside container `atl_dev`
+#   * build      - meson compile in this checkout's configured build-mobile (atl_dev)
 #   * identity   - sha256 of the loaded ATL artifacts + source commit/dirty state
 #                  + frozen APK / comparator hashes, against a recorded manifest
 #   * probe      - /home/morten/ATL/tools/run-atl-probe.sh for FONT-003/004/006/007
@@ -194,7 +194,7 @@ preflight() {
 stage_build() {
   echo "-- build (container $TOOLBOX_CONTAINER)"
   if toolbox run --container "$TOOLBOX_CONTAINER" sh -lc \
-      "ATL_ALLOW_DEPENDENCY_CHANGES=1 ATL_BUILD_DIR=\$HOME/$(rel "$REPO")/build-mobile sh \$HOME/$(rel "$REPO")/scripts/mobile/build.sh" \
+      "cd \$HOME/$(rel "$REPO") && meson compile -C build-mobile -j 2" \
       > "$WORKDIR/build.log" 2>&1; then
     ok "build exit 0 ($(tail -1 "$WORKDIR/build.log"))"
     return 0
@@ -459,7 +459,7 @@ stage_regression() {
   echo "-- regression (mobile-smoke)"
   local out="$WORKDIR/regression"; mkdir -p "$out"
   if toolbox run --container "$TOOLBOX_CONTAINER" sh -lc \
-      "export ATL_BUILD_DIR=\$HOME/$(rel "$REPO")/build-mobile; atl_repo=\$HOME/$(rel "$REPO"); . \$HOME/ATL/test-env.sh; . \$HOME/$(rel "$REPO")/scripts/mobile/environment.sh; cd \$HOME/$(rel "$REPO"); export JAVAC=/usr/lib/jvm/java-1.8-openjdk/bin/javac; tests/mobile-smoke/build.sh \"\$atl_build\" build/mobile-tests/smoke && tests/mobile-smoke/run.sh \"\$atl_build\" build/mobile-tests/smoke/mobile-smoke.apk build/mobile-tests/smoke-run" \
+      ". \$HOME/ATL/test-env.sh; export ATL_BUILD_DIR=\$HOME/$(rel "$REPO")/build-mobile; atl_repo=\$HOME/$(rel "$REPO"); . \$HOME/$(rel "$REPO")/scripts/mobile/environment.sh; cd \$HOME/$(rel "$REPO"); export JAVAC=/usr/lib/jvm/java-1.8-openjdk/bin/javac; tests/mobile-smoke/build.sh \"\$atl_build\" build/mobile-tests/smoke && tests/mobile-smoke/run.sh \"\$atl_build\" build/mobile-tests/smoke/mobile-smoke.apk build/mobile-tests/smoke-run" \
       > "$out/smoke.log" 2>&1 && grep -q '^ATL TEST APK PASSED$' "$out/smoke.log"; then
     ok "regression mobile-smoke: ATL TEST APK PASSED"
     return 0
