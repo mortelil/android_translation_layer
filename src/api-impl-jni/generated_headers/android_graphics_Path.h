@@ -161,6 +161,22 @@ JNIEXPORT void JNICALL Java_android_graphics_Path_native_1get_1bounds
 
 /*
  * Class:     android_graphics_Path
+ * Method:    native_is_empty
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_graphics_Path_native_1is_1empty
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     android_graphics_Path
+ * Method:    native_op
+ * Signature: (JJIII[I)J
+ */
+JNIEXPORT jlong JNICALL Java_android_graphics_Path_native_1op
+  (JNIEnv *, jclass, jlong, jlong, jint, jint, jint, jintArray);
+
+/*
+ * Class:     android_graphics_Path
  * Method:    native_transform
  * Signature: (JJ)J
  */

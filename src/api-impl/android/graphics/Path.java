@@ -37,6 +37,7 @@ public class Path {
 
 	public Path(Path path) {
 		this.path = native_ref_path(path.getGskPath());
+		this.fillType = path.fillType;
 	}
 
 	private long getBuilder() {
@@ -51,6 +52,7 @@ public class Path {
 	public long getGskPath() {
 		if (path == 0) {
 			path = native_create_path(builder);
+			builder = 0;
 		}
 		return path;
 	}
@@ -148,7 +150,20 @@ public class Path {
 	}
 
 	public void addRect(float left, float top, float right, float bottom, Path.Direction dir) {
-		native_add_rect(getBuilder(), left, top, right, bottom);
+		/* gsk_path_builder_add_rect() (native_add_rect) is unconditional CW, so the
+		 * CCW case has to be emitted explicitly. Dropping the direction here turned a
+		 * WINDING-fill hole into a solid outer contour for every consumer (e.g. a
+		 * rect(outer,CW) + rect(hole,CCW) ring lost its hole). The explicit CCW order
+		 * is the exact reverse of the CW order GSK/Android use. */
+		if (dir == Direction.CCW) {
+			moveTo(left, top);
+			lineTo(left, bottom);
+			lineTo(right, bottom);
+			lineTo(right, top);
+			close();
+		} else {
+			native_add_rect(getBuilder(), left, top, right, bottom);
+		}
 	}
 
 	public void addRoundRect(float left, float top, float right, float bottom,
@@ -200,17 +215,44 @@ public class Path {
 	}
 
 	public boolean op(Path path, Op op) {
-		Log.w("Path", "STUB: op");
-		return false;
+		return op(this, path, op);
 	}
 
-	public boolean op(Path path, Path dst, Op op) {
-		Log.w("Path", "STUB: op");
-		return false;
+	public boolean op(Path path1, Path path2, Op op) {
+		/* Android reads each operand's raw native handle field, so a null operand
+		 * raises NullPointerException before any work happens (the native is never
+		 * reached with a bogus handle). The handles are read straight off the
+		 * operands here too, so a failed call leaves the receiver unmodified. */
+		long h1 = path1.path;
+		long h2 = path2.path;
+		if (h1 == 0)
+			h1 = path1.getGskPath();
+		if (h2 == 0)
+			h2 = path2.getGskPath();
+
+		int[] outFillType = new int[1];
+		long result = native_op(h1, h2, op.ordinal(),
+		                        path1.fillType.ordinal(), path2.fillType.ordinal(),
+		                        outFillType);
+		if (outFillType[0] < 0)
+			return false; /* receiver remains unmodified */
+
+		/* success: the receiver is replaced by the result. Read the old handles
+		 * after the native call, because materialising an operand may have
+		 * converted the receiver from a builder to a path (receiver aliasing). */
+		long oldPath = this.path;
+		long oldBuilder = this.builder;
+
+		this.path = result;
+		this.builder = 0;
+		this.fillType = FillType.values()[outFillType[0]];
+
+		native_reset(oldPath, oldBuilder);
+		return true;
 	}
 
 	public boolean isEmpty() {
-		return path == 0 && builder == 0;
+		return (path == 0 && builder == 0) || native_is_empty(getGskPath());
 	}
 
 	public void incReserve(int additionalPoints) {}
@@ -266,5 +308,7 @@ public class Path {
 	private static native void native_add_rect(long builder, float left, float top, float right, float bottom);
 	private static native void native_add_round_rect(long builder, float left, float top, float right, float bottom, float[] radii);
 	private static native void native_get_bounds(long path, RectF rect);
+	private static native boolean native_is_empty(long path);
+	private static native long native_op(long p1, long p2, int op, int fill1, int fill2, int[] outFillType);
 	private static native long native_transform(long path, long matrix);
 }
