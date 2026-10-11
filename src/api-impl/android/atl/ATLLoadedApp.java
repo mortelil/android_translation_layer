@@ -110,6 +110,10 @@ public final class ATLLoadedApp {
 	 */
 	@NonNull
 	private static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath, boolean isPrimary) throws IOException {
+		ATLAppSplits.SplitSet splits = ATLAppSplits.resolve(classLoaderPath);
+		classLoaderPath = splits.classPath;
+		String dexPath = splits.dexPath;
+		if (splits.baseApk != null) mainApk = splits.baseApk;
 		// Before anything of this application is loaded: refuse a package whose
 		// native code has no variant for the ABI this host runs, instead of
 		// letting it fail later with an UnsatisfiedLinkError cascade.
@@ -118,9 +122,10 @@ public final class ATLLoadedApp {
 		if (ATLToggles.ATL_GHAX) {
 			// Always load ghax.jar as the first element to override application library classes
 			classLoaderPath = ATLPaths.ghax_jar.getPath() + File.pathSeparator + classLoaderPath;
+			dexPath = ATLPaths.ghax_jar.getPath() + File.pathSeparator + dexPath;
 		}
 		BaseDexClassLoader classLoader = new PathClassLoader(
-		    classLoaderPath, nativePath, ATLLoadedApp.class.getClassLoader());
+		    dexPath, nativePath, ATLLoadedApp.class.getClassLoader());
 		AssetManager assetManager = new AssetManager(classLoaderPath + ":" + System.getProperty("java.class.path"));
 		PackageParser packageParser = new PackageParser(mainApk);
 		Resources resources = new Resources(assetManager, new DisplayMetrics(), Context.sys_config, classLoader);
@@ -142,6 +147,8 @@ public final class ATLLoadedApp {
 		}
 		// ATL uses one logical Android application UID, independent of the Linux UID.
 		pkg.applicationInfo.uid = android.os.Process.myUid();
+		pkg.applicationInfo.splitSourceDirs = splits.splitPaths;
+		pkg.applicationInfo.splitPublicSourceDirs = splits.splitPaths.clone();
 		pkg.applicationInfo.sourceDir = mainApk;
 		pkg.applicationInfo.publicSourceDir = mainApk;
 		return new ATLLoadedApp(resources, classLoader, pkg);

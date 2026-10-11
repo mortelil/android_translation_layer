@@ -172,7 +172,7 @@ public class Build {
 			if (SDK_INT_str != null) {
 				// Always force SDK_INT to be at least 1 as 0 is used to detect early accesses.
 				SDK_INT_tmp = Integer.parseInt(SDK_INT_str);
-			} else if ((mainApkPath = System.getProperty("atl.app.class.path")) != null) {
+			} else if ((mainApkPath = System.getProperty("atl.app.resolved.class.path", System.getProperty("atl.app.class.path"))) != null) {
 				// We need to set the SDK int to at least the minSdk as the
 				// Android Gradle plugin strips the SDK_INT check below anyway.
 				// And applications may also expect the SDK_INT to be at least

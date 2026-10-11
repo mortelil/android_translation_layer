@@ -1,0 +1,10 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- ARM-only native config split (negative case: must be rejected on x86_64). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.split"
+    split="config.arm64_v8a"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="37" />
+    <application android:hasCode="false" />
+</manifest>

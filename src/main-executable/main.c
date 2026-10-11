@@ -352,6 +352,24 @@ static gboolean install_dbus_service_file(const char *package_name, const char *
  * level to the bionic runtime so Java, resource selection and native agree. */
 static int sync_android_api_level(JNIEnv *env);
 
+static char *resolve_apk_path(JNIEnv *env)
+{
+	jclass cls = (*env)->FindClass(env, "android/atl/ATLAppSplits");
+	atl_jni_handle_uncaught_exception(env, "split resolver lookup");
+	jmethodID method = (*env)->GetStaticMethodID(env, cls, "resolveAppClassPath", "()Ljava/lang/String;");
+	atl_jni_handle_uncaught_exception(env, "split resolver method");
+	jstring result = (*env)->CallStaticObjectMethod(env, cls, method);
+	atl_jni_handle_uncaught_exception(env, "split resolution");
+	const char *chars = (*env)->GetStringUTFChars(env, result, NULL);
+	atl_jni_handle_uncaught_exception(env, "resolved split path");
+	char *path = g_strdup(chars);
+	(*env)->ReleaseStringUTFChars(env, result, chars);
+	(*env)->DeleteLocalRef(env, result);
+	(*env)->DeleteLocalRef(env, cls);
+	return path;
+}
+
+
 static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
 {
 	if (window) { // this is not the first launch, but a DBus request to open an URI in the running app
@@ -487,7 +505,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	(*env)->CallVoidMethod(env, java_runtime, loadLibrary_with_classloader, _JSTRING("translation_layer_main"), class_loader);
 
 	// some apps need the apk path since they directly read their apk
-	apk_path = strdup(apk_classpath);
+	apk_path = resolve_apk_path(env);
 
 	(*env)->GetJavaVM(env, &jvm);
 	set_up_handle_cache(env);

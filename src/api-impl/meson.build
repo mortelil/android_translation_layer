@@ -94,6 +94,7 @@ srcs = [
     'android/atl/EarlyPackageParser.java',
 	'android/atl/ATLLoadedAppManager.java',
 	'android/atl/ATLNativeAbi.java',
+	'android/atl/ATLAppSplits.java',
 	'android/atl/ATLServiceRegistry.java',
 	'android/atl/ATLMediaContentProvider.java',
 	'android/atl/ATLDocumentsProvider.java',

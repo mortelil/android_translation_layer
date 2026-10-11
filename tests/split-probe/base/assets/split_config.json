@@ -1,0 +1,8 @@
+{
+  "task_id": "APP-COMPAT-F-SPLIT",
+  "expected_splits": ["config.x86_64", "config.xxhdpi", "config.en"],
+  "native_lib": "libsplitprobe.so",
+  "native_value_expected": 23063,
+  "density_sentinel": "xxhdpi_sentinel.txt",
+  "language_sentinel": "lang_sentinel.txt"
+}
