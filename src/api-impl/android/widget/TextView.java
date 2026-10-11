@@ -38,6 +38,7 @@ public class TextView extends View {
 	private ColorStateList hintColors = ColorStateList.valueOf(0xff808080);
 	private TransformationMethod transformationMethod;
 	private TextPaint paint = new TextPaint();
+	private int textLayoutWidth = -1;
 	private boolean include_padding = false;
 	private int break_strategy = 0 /*BREAK_STRATEGY_SIMPLE*/;
 	private int hyphenation_frequency = 0 /*HYPHENATION_FREQUENCY_NONE*/;
@@ -313,7 +314,10 @@ public class TextView extends View {
 		setCompoundDrawables(start, top, end, bottom);
 	}
 
-	public int getLineCount() { return 1; }
+	public int getLineCount() {
+		Layout layout = getLayout();
+		return layout == null ? 0 : layout.getLineCount();
+	}
 
 	public URLSpan[] getUrls() { return new URLSpan[0]; }
 
@@ -347,8 +351,17 @@ public class TextView extends View {
 		SPANNABLE,
 	}
 
+	@Override
+	protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+		super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+		// Parents inspect text lines during measurement, before View.layout has
+		// assigned a frame. The frame width may be zero or from an earlier pass.
+		textLayoutWidth = Math.max(0, getMeasuredWidth() - getPaddingLeft() - getPaddingRight());
+	}
+
 	public Layout getLayout() {
-		return new BoringLayout(getText(), getPaint(), getWidth(), Layout.Alignment.ALIGN_NORMAL, 1, 0, new BoringLayout.Metrics(), false);
+		if (textLayoutWidth < 0) return null;
+		return new BoringLayout(getText(), getPaint(), textLayoutWidth, Layout.Alignment.ALIGN_NORMAL, 1, 0, new BoringLayout.Metrics(), false);
 	}
 
 	public int getCurrentTextColor() {
