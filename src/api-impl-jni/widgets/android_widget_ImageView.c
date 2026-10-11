@@ -48,6 +48,9 @@ JNIEXPORT void JNICALL Java_android_widget_ImageView_native_1setScaleType(JNIEnv
 			gtk_picture_set_content_fit(picture, GTK_CONTENT_FIT_COVER);
 			break;
 		case SCALE_TYPE_CENTER_INSIDE:
+			gtk_picture_set_content_fit(picture, GTK_CONTENT_FIT_SCALE_DOWN);
+			break;
+		case SCALE_TYPE_FIT_CENTER:
 			gtk_picture_set_content_fit(picture, GTK_CONTENT_FIT_CONTAIN);
 			break;
 	}
