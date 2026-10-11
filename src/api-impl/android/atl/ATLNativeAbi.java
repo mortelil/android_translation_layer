@@ -64,8 +64,8 @@ public final class ATLNativeAbi {
 	 *
 	 * @param apkClassPath colon-separated APK paths of the application: the
 	 *                     value of {@code atl.app.class.path} (base APK plus any
-	 *                     splits) for the primary app, or the single package
-	 *                     path of a secondary package loaded into the process.
+	 *                     splits) for the primary app. Do not use this terminating
+	 *                     diagnostic for secondary package loads.
 	 */
 	public static void checkOrExit(String apkClassPath) {
 		if (apkClassPath == null || apkClassPath.isEmpty())
@@ -134,7 +134,7 @@ public final class ATLNativeAbi {
 				else if (isNestedPackage(name))
 					nested.add(entry);
 			}
-			if (found)
+			if (found || zip.getEntry("AndroidManifest.xml") != null)
 				return;
 			// Every nested member is scanned: a later split may add the host ABI
 			// that makes the whole set compatible.

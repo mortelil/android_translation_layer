@@ -105,16 +105,16 @@ public final class ATLLoadedApp {
 
 	/**
 	 * @param isPrimary true only for the app named by atl.app.class.path. The
-	 *                  reported API profile is a property of that app's run;
-	 *                  secondary packages loaded into the same process (e.g.
-	 *                  microG) must not lower or raise it.
+	 *                  ABI diagnostic may terminate this primary launch; loading a
+	 *                  secondary package must keep normal recoverable errors.
 	 */
 	@NonNull
 	private static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath, boolean isPrimary) throws IOException {
 		// Before anything of this application is loaded: refuse a package whose
 		// native code has no variant for the ABI this host runs, instead of
 		// letting it fail later with an UnsatisfiedLinkError cascade.
-		ATLNativeAbi.checkOrExit(classLoaderPath);
+		if (isPrimary)
+			ATLNativeAbi.checkOrExit(classLoaderPath);
 		if (ATLToggles.ATL_GHAX) {
 			// Always load ghax.jar as the first element to override application library classes
 			classLoaderPath = ATLPaths.ghax_jar.getPath() + File.pathSeparator + classLoaderPath;
@@ -135,21 +135,12 @@ public final class ATLLoadedApp {
 		if (packageParser.getParseError() != PackageManager.INSTALL_SUCCEEDED) {
 			throw new IOException(outError[0]);
 		}
-		if (isPrimary && Build.VERSION.applyApplicationMinSdk(pkg.applicationInfo.minSdkVersion)) {
-			// The app declared a higher minimum than the platform level, so the
-			// reported profile was raised. AssetManager.init() already consumed
-			// the old Build.VERSION.RESOURCES_SDK_INT, so re-apply it to
-			// re-select version-qualified resources (values-vNN) at the new
-			// level; the native runtime is re-synced by the launcher right after
-			// this app is constructed.
-			resources.updateConfiguration(resources.getConfiguration(), resources.getDisplayMetrics());
-		}
 		packageParser.collectCertificates(pkg, 0);
 		// Support for MicroG and other custom GMS implementations.
 		if (play_services.contains(pkg.packageName)) {
 			ATLSigHelper.addGMSSignatures(pkg);
 		}
-		// Loaded applications share this host process; ATL does not assign Android sandbox UIDs.
+		// ATL uses one logical Android application UID, independent of the Linux UID.
 		pkg.applicationInfo.uid = android.os.Process.myUid();
 		pkg.applicationInfo.sourceDir = mainApk;
 		pkg.applicationInfo.publicSourceDir = mainApk;
