@@ -1,0 +1,10 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- Native config split: provides lib/x86_64/libsplitprobe.so only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.split"
+    split="config.x86_64"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="37" />
+    <application android:hasCode="false" />
+</manifest>

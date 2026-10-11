@@ -1,0 +1,28 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- APP-COMPAT case F base APK. Declares the config-split structure and the
+     native library name that must be supplied by the ABI-matching split. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.split"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="37" />
+    <application
+        android:label="ATL F-SPLIT probe"
+        android:debuggable="true"
+        android:extractNativeLibs="true">
+        <meta-data
+            android:name="atl.split.config"
+            android:value="config.x86_64,config.xxhdpi,config.en" />
+        <meta-data
+            android:name="atl.split.nativeLib"
+            android:value="libsplitprobe.so" />
+        <activity
+            android:name=".SplitProbeActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
