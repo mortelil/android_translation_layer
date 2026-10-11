@@ -83,6 +83,13 @@ char *construct_classpath(char *prefix, char **cp_array, size_t len)
 
 #define JDWP_ARG    "-XjdwpOptions:transport=dt_socket,server=y,suspend=y,address="
 #define SDK_INT_ARG "-DBuild.VERSION.SDK_INT="
+// the ABI whose lib/<abi>/ directory extract_from_apk() unpacks; ATLNativeAbi
+// compares the application's declared ABIs against it. Keep in sync with the
+// NATIVE_ARCH definition above.
+#define NATIVE_ARCH_ARG "-Datl.native.arch=" NATIVE_ARCH
+
+// number of options always set at fixed indices 0..N_FIXED_OPTIONS-1 below
+#define N_FIXED_OPTIONS 6
 
 JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_apk, char *test_runner_jar, char *api_impl_natives_dir, char *app_lib_dir, char *sdk_int, char **extra_jvm_options)
 {
@@ -90,11 +97,12 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 	JNIEnv *env;
 	JavaVMInitArgs args = {
 		.version = JNI_VERSION_1_6,
-		.nOptions = 5,
+		.nOptions = N_FIXED_OPTIONS,
 	};
 	JavaVMOption *options;
 
-	int option_counter = args.nOptions;
+	// dynamic options (jdwp, sdk, caller supplied) start after the fixed ones
+	int option_counter = N_FIXED_OPTIONS;
 
 	char jdwp_option_string[sizeof(JDWP_ARG) + 5] = JDWP_ARG;          // 5 chars for port number, NULL byte is counted by sizeof
 	char sdk_int_option_string[sizeof(SDK_INT_ARG) + 2] = SDK_INT_ARG; // 2 chars for SDK_INT, NULL byte is counted by sizeof
@@ -121,6 +129,7 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 	options[2].optionString = construct_classpath("-Datl.app.class.path=", (char *[]){apk_classpath}, 1);
 	options[3].optionString = construct_classpath("-Datl.app.library.path=", (char *[]){api_impl_natives_dir, app_lib_dir}, 2);
 	options[4].optionString = "-Xcheck:jni";
+	options[5].optionString = NATIVE_ARCH_ARG;
 	if (jdwp_port) {
 		strncat(jdwp_option_string, jdwp_port, 5); // 5 chars is enough for a port number, and won't overflow our array
 		options[option_counter++].optionString = "-XjdwpProvider:internal";

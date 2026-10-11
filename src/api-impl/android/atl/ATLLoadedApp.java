@@ -111,6 +111,10 @@ public final class ATLLoadedApp {
 	 */
 	@NonNull
 	private static ATLLoadedApp loadFromPath(String mainApk, String nativePath, String classLoaderPath, boolean isPrimary) throws IOException {
+		// Before anything of this application is loaded: refuse a package whose
+		// native code has no variant for the ABI this host runs, instead of
+		// letting it fail later with an UnsatisfiedLinkError cascade.
+		ATLNativeAbi.checkOrExit(classLoaderPath);
 		if (ATLToggles.ATL_GHAX) {
 			// Always load ghax.jar as the first element to override application library classes
 			classLoaderPath = ATLPaths.ghax_jar.getPath() + File.pathSeparator + classLoaderPath;
