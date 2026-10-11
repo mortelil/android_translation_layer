@@ -1,0 +1,20 @@
+ATL_UI_CLOSE_HELPER built
+ATL_UI_SCRIPT=wait:30;shot:startup;close:
+ATL_UI_STEP wait:30 rc=0
+ATL_UI_STEP shot:startup rc=0
+ATL_UI_STEP close rc=2
+ATL_UI_CLOSE atl_exited=yes waited=0s
+ATL_UI_STOP_BEGIN at=1791707325.457087331
+ATL_UI_SMOKE_DONE
+
+JNIEXC001_JSON_BEGIN
+{"task_id":"JNI-EXC-001","case":"H","instance_id":"jniexc001-H-apk-fixture","config":{"scenario":"application-construction","throwable":"java.lang.IllegalStateException","message":"JNI-EXC-001-H application-constructor"}}
+JNIEXC001_JSON_END
+java.lang.RuntimeException: java.lang.reflect.InvocationTargetException
+	at android.atl.ATLLoadedApp.getApplication(ATLLoadedApp.java:204)
+Caused by: java.lang.reflect.InvocationTargetException
+Caused by: java.lang.IllegalStateException: JNI-EXC-001-H application-constructor
+	at org.atl.tests.jniexc.h.ScenarioHApplication.<init>(ScenarioHApplication.java:32)
+I/android-translation-layer(523313): System.exit called, status: 10
+JNIEXC001_RUN_COMPLETE run_id=fixture-dup-1 runner_exit=0
+JNIEXC001_RUN_COMPLETE run_id=fixture-dup-1 runner_exit=0

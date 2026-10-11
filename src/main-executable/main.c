@@ -350,7 +350,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		                                                  _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;)Landroid/app/Activity;"),
 		                                                  _JSTRING(d->apk_main_activity_class), _INTPTR(window), _JSTRING(uri));
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity construction");
 		activity_start(env, activity);
 		atl_jni_handle_uncaught_exception(env, "Activity startup");
 		return;
@@ -533,20 +533,26 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	// construct Application
 	application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,
 	                                                    _STATIC_METHOD(handle_cache.context.class, "createApplication", "(J)Landroid/app/Application;"), window);
+	/* ExceptionDescribe is non-terminal in the pinned ART (jni_internal.cc:885
+	 * re-installs the Throwable), so the FindClass below would abort with the
+	 * original still pending and replace it. Route the failing operation to the
+	 * uncaught-exception guard instead: it reports the original and terminates. */
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application construction");
 
 	jclass content_provider = (*env)->FindClass(env, "android/content/ContentProvider");
+	if ((*env)->ExceptionCheck(env))
+		atl_jni_handle_uncaught_exception(env, "ContentProvider class");
 	(*env)->CallStaticVoidMethod(env, content_provider, _STATIC_METHOD(content_provider, "createContentProviders", "()V"));
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "ContentProvider.createContentProviders");
 
 	jmethodID on_create_method = _METHOD(handle_cache.application.class, "onCreate", "()V");
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application.onCreate lookup");
 	(*env)->CallVoidMethod(env, application_object, on_create_method);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application.onCreate");
 
 	if (d->apk_instrumentation_class) {
 		if (d->apk_main_activity_class) {
@@ -566,7 +572,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		                               _JSTRING(d->apk_instrumentation_class), intent);
 
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Instrumentation.create");
 	}
 
 	// construct main Activity
@@ -575,7 +581,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		                                                 _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;)Landroid/app/Activity;"),
 		                                                 _JSTRING(d->apk_main_activity_class), _INTPTR(window), (uri_option && *uri_option) ? _JSTRING(uri_option) : NULL);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity construction");
 		if (uri_option)
 			g_free(uri_option);
 
@@ -591,13 +597,13 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		jstring package_name_jstr = (*env)->CallObjectMethod(env, application_object, handle_cache.context.get_package_name);
 		package_name = package_name_jstr ? _CSTRING(package_name_jstr) : NULL;
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Application.getPackageName");
 	}
 
 	jstring app_icon_path_jstr = (*env)->CallObjectMethod(env, application_object, handle_cache.application.get_app_icon_path);
 	const char *app_icon_path = app_icon_path_jstr ? _CSTRING(app_icon_path_jstr) : NULL;
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Application.get_app_icon_path");
 
 	if (d->install || d->install_internal) {
 		if (d->apk_instrumentation_class) {
@@ -609,7 +615,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 		const char *app_label = _CSTRING((*env)->CallObjectMethod(env, application_object, _METHOD(handle_cache.application.class, "get_app_label", "()Ljava/lang/String;")));
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Application.get_app_label");
 
 		GVariant *icon_serialized = NULL;
 		if (!d->install_internal) {
@@ -665,7 +671,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		jstring supported_mime_types_jstr = (*env)->CallObjectMethod(env, application_object, get_supported_mime_types);
 		const char *supported_mime_types = supported_mime_types_jstr ? _CSTRING(supported_mime_types_jstr) : NULL;
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Application.get_supported_mime_types");
 
 		GString *exec_cmd = g_string_new("env ");
 		if (getenv("RUN_FROM_BUILDDIR")) {
@@ -766,7 +772,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 		(*env)->CallVoidMethod(env, input_queue_callback, handle_cache.input_queue_callback.onInputQueueCreated, input_queue);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "InputQueueCallback.onInputQueueCreated");
 	}
 
 	if (strcmp(app_id, "com.example.demo_application")) {

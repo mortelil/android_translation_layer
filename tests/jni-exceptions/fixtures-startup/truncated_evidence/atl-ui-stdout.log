@@ -1,0 +1,3 @@
+JNIEXC001_JSON_BEGIN
+{"task_id":"JNI-EXC-001","case":"H","instance_id":"jniexc001-H-apk-fixture","config":{"scenario":"application-construction","throwable":"java.lang.IllegalStateException","message":"JNI-EXC-001-H application-constructor"}}
+JNIEXC001_JSON_END

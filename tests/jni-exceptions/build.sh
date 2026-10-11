@@ -25,15 +25,17 @@ source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 build_one() {
     variant=$1
-    activity=$2
     odir="$output/$variant"
     mkdir -p "$odir/classes"
+    # Compile every source in the variant directory: single-Activity variants
+    # (a-g) plus the multi-class startup-boundary variants (h: Application +
+    # Activity, i: Application + Activity).
     # shellcheck disable=SC2046
     "${JAVAC:-javac}" -source 8 -target 8 \
         -cp "$ANDROID_JAR" \
         -d "$odir/classes" \
         "$source_dir/src/org/atl/tests/jniexc/ProbeJson.java" \
-        "$source_dir/src/org/atl/tests/jniexc/$variant/$activity.java"
+        "$source_dir/src/org/atl/tests/jniexc/$variant"/*.java
     dx --min-sdk-version=24 --dex --output="$odir/classes.dex" "$odir/classes"
     # This aapt build requires the manifest basename to be AndroidManifest.xml.
     cp -f "$source_dir/AndroidManifest-$variant.xml" "$odir/AndroidManifest.xml"
@@ -46,11 +48,15 @@ build_one() {
     printf '%s\n' "$odir/jniexc-001-$variant-aligned.apk"
 }
 
-build_one a ScenarioAActivity
-build_one b ScenarioBActivity
-build_one c ScenarioCActivity
+build_one a
+build_one b
+build_one c
+build_one d
+build_one e
+build_one f
+build_one g
 
-build_one d ScenarioDActivity
-build_one e ScenarioEActivity
-build_one f ScenarioFActivity
-build_one g ScenarioGActivity
+# Startup-boundary variants (A-JNI): Application construction failure and
+# missing native library during Application startup.
+build_one h
+build_one i

@@ -1,0 +1,8 @@
+{
+  "apk": "fixture://I",
+  "apk_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "case": "I",
+  "run_id": "fixture-i-1",
+  "runner_exit": 0,
+  "task_id": "JNI-EXC-001"
+}

@@ -1,0 +1,8 @@
+ATL_UI_CLOSE_HELPER built
+ATL_UI_SCRIPT=wait:30;shot:startup;close:
+ATL_UI_STEP wait:30 rc=0
+ATL_UI_STEP shot:startup rc=0
+ATL_UI_STEP close rc=2
+ATL_UI_CLOSE atl_exited=yes waited=0s
+ATL_UI_STOP_BEGIN at=1791707325.457087331
+ATL_UI_SMOKE_DONE
