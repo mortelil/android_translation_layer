@@ -60,3 +60,9 @@ ATL_APK_VERIFIER; ordinary single-APK signing behavior remains unchanged.
 Tests are x86_64. A real app reaching a later unsupported API is evidence for the
 loader only, not proof that the app works. Keep malformed/ABI rejection distinct
 from graphics, Java API and app-runtime failures.
+
+`check-extended.py FEATURE_JSON COLLISION_JSON ARCHIVE_NEGATIVE_DIR IDENTITY_NEGATIVE_DIR`
+checks the extended run's result artifacts and recorded `exit`/`log` files. It
+rejects missing evidence and checks that refused inputs did not execute app code.
+The probe explicitly creates its output directory because ATL's pre-existing
+Context.openFileOutput implementation does not create it automatically.
