@@ -433,7 +433,7 @@ public class TextView extends View {
 	public void setPaintFlags(int flags) {}
 
 	public int getLineHeight() {
-		return 10; // FIXME
+		return paint.getFontMetricsInt(null);
 	}
 
 	public int getMaxHeight() {
