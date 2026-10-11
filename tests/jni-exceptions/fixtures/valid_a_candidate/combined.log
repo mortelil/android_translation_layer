@@ -1,0 +1,10 @@
+JVM launched successfully
+JNIEXC001_JSON_BEGIN
+{"task_id":"JNI-EXC-001","case":"A","instance_id":"fixture"}
+JNIEXC001_JSON_END
+FATAL EXCEPTION: main
+java.lang.IllegalStateException: JNI-EXC-001-A
+	at org.atl.tests.jniexc.a.ScenarioAActivity.onCreate(ScenarioAActivity.java:45)
+Caused by: java.lang.UnsupportedOperationException: origin-A
+	at org.atl.tests.jniexc.a.ScenarioAActivity.onCreate(ScenarioAActivity.java:46)
+JNIEXC001_RUN_COMPLETE run_id=fixture-a-1 runner_exit=0

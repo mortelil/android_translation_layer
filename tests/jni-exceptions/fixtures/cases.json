@@ -1,0 +1,114 @@
+[
+  {
+    "code": "PASS",
+    "dir": "valid_a_candidate",
+    "exit": 0,
+    "name": "valid_a_candidate",
+    "verdict": "PASS"
+  },
+  {
+    "code": "PASS",
+    "dir": "valid_c_positive",
+    "exit": 0,
+    "name": "valid_c_positive",
+    "verdict": "PASS"
+  },
+  {
+    "code": "EVIDENCE_EMPTY",
+    "dir": "empty_evidence",
+    "exit": 1,
+    "name": "empty_evidence",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_TRUNCATED",
+    "dir": "truncated_evidence",
+    "exit": 1,
+    "name": "truncated_evidence",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_META",
+    "dir": "meta_missing",
+    "exit": 1,
+    "name": "meta_missing",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_STALE",
+    "dir": "stale_run_id",
+    "exit": 1,
+    "name": "stale_run_id",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "EVIDENCE_NO_CHECKJNI",
+    "dir": "no_checkjni",
+    "exit": 1,
+    "name": "no_checkjni",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "A_ORIGINAL_MISSING",
+    "dir": "missing_original",
+    "exit": 1,
+    "name": "missing_original",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "A_ORIGINAL_MISSING",
+    "dir": "wrong_message",
+    "exit": 1,
+    "name": "wrong_message",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "A_CAUSE_MISSING",
+    "dir": "missing_cause",
+    "exit": 1,
+    "name": "missing_cause",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "A_SENTINEL_EXECUTED",
+    "dir": "sentinel_present",
+    "exit": 1,
+    "name": "sentinel_present",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "A_SECONDARY_ABORT",
+    "dir": "secondary_abort",
+    "exit": 1,
+    "name": "secondary_abort",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "C_MARKER_MISSING",
+    "dir": "c_marker_missing",
+    "exit": 1,
+    "name": "c_marker_missing",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "C_FATAL",
+    "dir": "c_fatal",
+    "exit": 1,
+    "name": "c_fatal",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "B_SECONDARY_ABORT",
+    "dir": "b_secondary_abort",
+    "exit": 1,
+    "name": "b_secondary_abort",
+    "verdict": "REJECT"
+  },
+  {
+    "code": "PASS",
+    "dir": "b_no_abort",
+    "exit": 0,
+    "name": "b_no_abort",
+    "verdict": "PASS"
+  }
+]

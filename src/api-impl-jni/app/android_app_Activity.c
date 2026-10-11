@@ -7,6 +7,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../jni_exceptions.h"
 #include "../generated_headers/android_app_Activity.h"
 #include "../../main-executable/back_button.h"
 #include "android_app_Activity.h"
@@ -26,11 +27,10 @@ static GtkWidget *get_decor_view(JNIEnv *env, jobject activity)
 
 static void activity_close(JNIEnv *env, jobject activity)
 {
-	// in case some exception was left unhandled in native code, print it here so we don't confuse it with an exception thrown by onDestroy
-	if ((*env)->ExceptionCheck(env)) {
-		fprintf(stderr, "activity.onDestroy: seems there was a pending exception... :");
-		(*env)->ExceptionDescribe(env);
-	}
+	// in case some exception was left unhandled in native code, handle it here so we don't confuse it with an exception thrown by onDestroy
+	// (and so the get_decor_view() lookups below never run with a pending exception)
+	if ((*env)->ExceptionCheck(env))
+		atl_jni_handle_uncaught_exception(env, "Activity (pending before onDestroy)");
 
 	GtkWidget *decor_view = get_decor_view(env, activity);
 	GtkStack *stack = GTK_STACK(atl_window_get_content(window));
@@ -39,7 +39,7 @@ static void activity_close(JNIEnv *env, jobject activity)
 	/* -- run the activity's onDestroy -- */
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onDestroy);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onDestroy");
 }
 
 static void activity_unfocus(JNIEnv *env, jobject activity)
@@ -47,16 +47,16 @@ static void activity_unfocus(JNIEnv *env, jobject activity)
 	if (!_GET_BOOL_FIELD(activity, "paused")) {
 		(*env)->CallVoidMethod(env, activity, handle_cache.activity.onPause);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity.onPause");
 	}
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onStop);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onStop");
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onWindowFocusChanged, false);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onWindowFocusChanged");
 }
 
 static void activity_focus(JNIEnv *env, jobject activity)
@@ -66,7 +66,7 @@ static void activity_focus(JNIEnv *env, jobject activity)
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onStart);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onStart");
 	if (_GET_BOOL_FIELD(activity, "finishing"))
 		return;
 
@@ -76,19 +76,19 @@ static void activity_focus(JNIEnv *env, jobject activity)
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onResume);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onResume");
 	if (_GET_BOOL_FIELD(activity, "finishing"))
 		return;
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onPostResume);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onPostResume");
 	if (_GET_BOOL_FIELD(activity, "finishing"))
 		return;
 
 	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onWindowFocusChanged, true);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onWindowFocusChanged");
 }
 
 static void activity_update_current(JNIEnv *env)
@@ -112,7 +112,7 @@ static void activity_update_current(JNIEnv *env)
 		jclass current_activity_class = (*env)->GetObjectClass(env, activity_current);
 		jmethodID current_activity_on_back_pressed_method_id = (*env)->GetMethodID(env, current_activity_class, "onBackPressed", "()V");
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity.onBackPressed lookup");
 
 		if (g_list_length(activity_backlog) > 1 || handle_cache.activity.onBackPressed != current_activity_on_back_pressed_method_id) {
 			back_button_set_sensitive(true);
@@ -129,7 +129,7 @@ void activity_window_ready(void)
 	for (GList *l = activity_backlog; l != NULL; l = l->next) {
 		(*env)->CallVoidMethod(env, l->data, handle_cache.activity.onWindowFocusChanged, true);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity.onWindowFocusChanged");
 	}
 }
 
@@ -140,13 +140,13 @@ void current_activity_back_pressed(void)
 	jclass current_activity_class = (*env)->GetObjectClass(env, activity_current);
 	jmethodID current_activity_on_back_pressed_method_id = (*env)->GetMethodID(env, current_activity_class, "onBackPressed", "()V");
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onBackPressed lookup");
 
 	// Either a new activity was added to the backlog or the current activity's onBackPressed method was changed
 	if (g_list_length(activity_backlog) > 1 || handle_cache.activity.onBackPressed != current_activity_on_back_pressed_method_id) {
 		(*env)->CallVoidMethod(env, activity_current, handle_cache.activity.onBackPressed);
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity.onBackPressed");
 	} else {
 		back_button_set_sensitive(false);
 	}
@@ -181,10 +181,15 @@ void activity_start(JNIEnv *env, jobject activity_object)
 	if (activity_current)
 		activity_unfocus(env, activity_current);
 	activity_current = NULL;
-	/* -- run the activity's onCreate -- */
+	/* -- run the activity's onCreate --
+	 * There is no Java frame above this call (the activity is started from the GTK main
+	 * loop), so a Throwable raised by the app callback cannot unwind back to Java here:
+	 * preserve it and take the documented fatal path instead of continuing with a
+	 * half-created activity while the exception is still pending.
+	 */
 	(*env)->CallVoidMethod(env, activity_object, handle_cache.activity.onCreate, NULL);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onCreate");
 
 	if (_GET_BOOL_FIELD(activity_object, "finishing")) { // finish() was called before the activity was created
 		return;
@@ -192,7 +197,7 @@ void activity_start(JNIEnv *env, jobject activity_object)
 
 	(*env)->CallVoidMethod(env, activity_object, handle_cache.activity.onPostCreate, NULL);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Activity.onPostCreate");
 
 	activity_backlog = g_list_prepend(activity_backlog, _REF(activity_object));
 
@@ -245,7 +250,7 @@ JNIEXPORT jboolean JNICALL Java_android_app_Activity_nativeResumeActivity(JNIEnv
 			/* -- run the activity's onNewIntent -- */
 			(*env)->CallVoidMethod(env, l->data, handle_cache.activity.onNewIntent, intent);
 			if ((*env)->ExceptionCheck(env))
-				(*env)->ExceptionDescribe(env);
+				atl_jni_handle_uncaught_exception(env, "Activity.onNewIntent");
 			found = JNI_TRUE;
 			break;
 		}
@@ -297,18 +302,22 @@ static void file_dialog_callback(GObject *source_object, GAsyncResult *res, gpoi
 	GFile *file = finish_functions[d->action](dialog, res, NULL);
 	JNIEnv *env = get_jni_env();
 	jmethodID fileChooserResultCallback = _METHOD(handle_cache.activity.class, "fileChooserResultCallback", "(IIILjava/lang/String;)V");
+	if ((*env)->ExceptionCheck(env))
+		atl_jni_handle_uncaught_exception(env, "Activity.fileChooserResultCallback lookup");
 
 	if (file) {
 		char *uri = g_file_get_uri(file);
 
 		(*env)->CallVoidMethod(env, d->activity, fileChooserResultCallback, d->request_code, RESULT_OK, d->action, _JSTRING(uri));
 		if ((*env)->ExceptionCheck(env))
-			(*env)->ExceptionDescribe(env);
+			atl_jni_handle_uncaught_exception(env, "Activity.fileChooserResultCallback");
 
 		g_free(uri);
 		g_object_unref(file);
 	} else {
 		(*env)->CallVoidMethod(env, d->activity, fileChooserResultCallback, d->request_code, RESULT_CANCELED, d->action, NULL);
+		if ((*env)->ExceptionCheck(env))
+			atl_jni_handle_uncaught_exception(env, "Activity.fileChooserResultCallback");
 	}
 	free(d);
 }
