@@ -1426,11 +1426,15 @@ public class View implements Drawable.Callback {
 	}
 
 	public void setPadding(int left, int top, int right, int bottom) {
+		if (paddingLeft == left && paddingTop == top && paddingRight == right && paddingBottom == bottom)
+			return;
 		paddingLeft = left;
 		paddingTop = top;
 		paddingRight = right;
 		paddingBottom = bottom;
 		native_setPadding(widget, left, top, right, bottom);
+		// Invalidate Java's measure cache as well as GTK's preferred size.
+		requestLayout();
 	}
 	public native void native_setPadding(long widget, int left, int top, int right, int bottom);
 

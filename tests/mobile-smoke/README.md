@@ -28,7 +28,10 @@ and editable fields. Default line height must match the paint font metrics and
 change with font size; custom line spacing remains unsupported. XML dimensions are already pixels and must not be scaled
 again. The same test checks the pre-layout measurement phase: no fabricated
 layout before measurement, content width excluding padding, wrapped line count,
-and refresh after changing text and measuring again. This does not establish complete TextView layout, autosizing or native
+and refresh after changing text and measuring again. A footer-space test changes
+padding after measurement, repeats the same measure specs, and checks both the
+expanded native size and restoration after clearing padding. Unchanged padding
+must not request another layout. This does not establish complete TextView layout, autosizing or native
 button styling support.
 
 `TestQwerty` covers full-keyboard insertion, selected replacement and code-point
