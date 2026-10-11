@@ -45,7 +45,7 @@ int main(void){
  for(int i=0;i<200;i++){data[4*i]=255;data[4*i+1]=0;data[4*i+2]=0;data[4*i+3]=255;}
  GBytes*b=g_bytes_new(data,sizeof(data));GdkTexture*t=gdk_memory_texture_new(20,10,GDK_MEMORY_R8G8B8A8,b,80);g_bytes_unref(b);
  picture=gtk_picture_new_for_paintable(GDK_PAINTABLE(t));g_object_unref(t);
- window=gtk_window_new();gtk_window_set_decorated(GTK_WINDOW(window),FALSE);gtk_window_set_default_size(GTK_WINDOW(window),100,100);gtk_window_set_child(GTK_WINDOW(window),picture);
+ window=gtk_window_new();gtk_window_set_decorated(GTK_WINDOW(window),FALSE);gtk_window_set_default_size(GTK_WINDOW(window),100,100);GtkWidget *fixed=gtk_fixed_new();gtk_widget_set_size_request(picture,100,100);gtk_fixed_put(GTK_FIXED(fixed),picture,0,0);gtk_window_set_child(GTK_WINDOW(window),fixed);
  select_mode();gtk_window_present(GTK_WINDOW(window));g_timeout_add(300,check,NULL);
  while(1)g_main_context_iteration(NULL,TRUE);
 }

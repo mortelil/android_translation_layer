@@ -4,18 +4,17 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.ColorFilter;
 import android.graphics.Matrix;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.BitmapDrawable;
 import android.util.AttributeSet;
 import android.view.View;
 
 public class ImageView extends View {
 
-	private Bitmap bitmap = null;
 	private ScaleType scaleType = ScaleType.FIT_CENTER;
 	private Drawable drawable = null;
 	private ColorFilter colorFilter = null;
@@ -53,12 +52,7 @@ public class ImageView extends View {
 	}
 
 	public void setImageResource(final int resid) {
-		if (this.getResources().getString(resid).endsWith(".xml")) {
-			setImageDrawable(getContext().getDrawable(resid));
-			return;
-		}
-		bitmap = BitmapFactory.decodeResource(this.getResources(), resid);
-		native_setDrawable(widget, bitmap != null ? bitmap.getTexture() : 0);
+		setImageDrawable(resid == 0 ? null : getContext().getDrawable(resid));
 	}
 	public void setAdjustViewBounds(boolean adjustViewBounds) {}
 
@@ -88,12 +82,14 @@ public class ImageView extends View {
 			drawable.setCallback(this);
 		}
 		native_setDrawable(widget, drawable != null ? drawable.paintable : 0);
+		requestLayout();
+		invalidate();
 	}
 
 	public void setImageMatrix(Matrix matrix) {}
 
 	public void setImageBitmap(Bitmap bitmap) {
-		native_setDrawable(widget, bitmap != null ? bitmap.getTexture() : 0);
+		setImageDrawable(bitmap == null ? null : new BitmapDrawable(getResources(), bitmap));
 	}
 
 	/**

@@ -56,3 +56,7 @@ in `tests/native-compat`; their ALSA input is the null test device, not a microp
 
 API tests complement app testing. They do not verify accounts, server uploads,
 Signal messaging/calls, LocalSend peer transfers or Plexamp playback.
+
+`TestImageView` checks that bitmap replacement updates drawable identity and
+callback ownership, requests measurement, changes the actual native preferred
+size, and supports clearing with a null bitmap or resource ID zero.
