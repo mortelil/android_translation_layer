@@ -278,4 +278,3 @@ JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetAllowUnivers
 	WebKitSettings *settings = webview_settings_from_ptr(widget);
 	return settings ? webkit_settings_get_allow_universal_access_from_file_urls(settings) : FALSE;
 }
-
