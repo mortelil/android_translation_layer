@@ -20,10 +20,14 @@ public class TestTextSize {
                 view.setTextSize(12);
                 near(36, view.getTextSize(), "SP conversion");
                 near(36, view.getPaint().getTextSize(), "measurement paint");
+                int largeHeight = view.getLineHeight();
+                near(view.getPaint().getFontMetricsInt(null), largeHeight, "default line height");
                 view.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
                 near(24, view.getTextSize(), "DP conversion");
                 view.setTextSize(TypedValue.COMPLEX_UNIT_PX, 20.5f);
                 near(20.5f, view.getTextSize(), "fractional pixels");
+                if (view.getLineHeight() >= largeHeight || view.getLineHeight() < 20)
+                    throw new AssertionError("Line height must follow font size");
                 view.setText("MMMMMMMMMM");
                 view.setTextSize(TypedValue.COMPLEX_UNIT_PX, 40);
                 near(40, view.getPaint().getTextSize(), "updated measurement paint");
