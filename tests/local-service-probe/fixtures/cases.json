@@ -1,0 +1,258 @@
+[
+ {
+  "name": "positive",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/positive/candidate.json",
+  "exit": 0,
+  "code": null,
+  "args": []
+ },
+ {
+  "name": "empty",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/empty.json",
+  "exit": 1,
+  "code": "EVIDENCE",
+  "args": []
+ },
+ {
+  "name": "unparseable",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/unparseable.json",
+  "exit": 1,
+  "code": "EVIDENCE",
+  "args": []
+ },
+ {
+  "name": "stale",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/stale.json",
+  "exit": 1,
+  "code": "STALE",
+  "args": []
+ },
+ {
+  "name": "config",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/config.json",
+  "exit": 1,
+  "code": "CONFIG",
+  "args": []
+ },
+ {
+  "name": "exceptions",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref-noexc.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/exceptions.json",
+  "exit": 1,
+  "code": "EXCEPTIONS",
+  "args": []
+ },
+ {
+  "name": "count",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/count.json",
+  "exit": 1,
+  "code": "COUNT",
+  "args": []
+ },
+ {
+  "name": "duplicate",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/duplicate.json",
+  "exit": 1,
+  "code": "DUPLICATE",
+  "args": []
+ },
+ {
+  "name": "aborted",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/aborted.json",
+  "exit": 1,
+  "code": "ABORTED",
+  "args": []
+ },
+ {
+  "name": "scenario_missing",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/scenario_missing.json",
+  "exit": 1,
+  "code": "SCENARIO_MISSING",
+  "args": []
+ },
+ {
+  "name": "missing",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/missing.json",
+  "exit": 1,
+  "code": "MISSING",
+  "args": []
+ },
+ {
+  "name": "truncated",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/truncated.json",
+  "exit": 1,
+  "code": "MISSING",
+  "args": []
+ },
+ {
+  "name": "extra",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/extra.json",
+  "exit": 1,
+  "code": "EXTRA",
+  "args": []
+ },
+ {
+  "name": "wrong_order",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/wrong_order.json",
+  "exit": 1,
+  "code": "ORDER",
+  "args": []
+ },
+ {
+  "name": "seq_shift",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/seq_shift.json",
+  "exit": 0,
+  "code": null,
+  "args": []
+ },
+ {
+  "name": "seq_shift_subset",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/seq_shift.json",
+  "exit": 0,
+  "code": null,
+  "args": [
+   "--scenarios",
+   "SVC-002,SVC-005"
+  ]
+ },
+ {
+  "name": "seq_shift_order",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/seq_shift_order.json",
+  "exit": 1,
+  "code": "ORDER",
+  "args": []
+ },
+ {
+  "name": "dup_rewritten_seq",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/dup_rewritten_seq.json",
+  "exit": 1,
+  "code": "DUPLICATE",
+  "args": []
+ },
+ {
+  "name": "changed_field",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/changed_field.json",
+  "exit": 1,
+  "code": "FIELD",
+  "args": []
+ },
+ {
+  "name": "wrong_component",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/wrong_component.json",
+  "exit": 1,
+  "code": "FIELD",
+  "args": []
+ },
+ {
+  "name": "wrong_thread",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/wrong_thread.json",
+  "exit": 1,
+  "code": "THREAD",
+  "args": []
+ },
+ {
+  "name": "invalid_number",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/invalid_number.json",
+  "exit": 1,
+  "code": "NUMBER",
+  "args": []
+ },
+ {
+  "name": "subset_pass",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/positive/candidate.json",
+  "exit": 0,
+  "code": null,
+  "args": [
+   "--scenarios",
+   "SVC-002,SVC-005"
+  ]
+ },
+ {
+  "name": "subset_aborted",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/aborted.json",
+  "exit": 1,
+  "code": "ABORTED",
+  "args": [
+   "--scenarios",
+   "SVC-004"
+  ]
+ },
+ {
+  "name": "subset_scenario_missing",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/scenario_missing.json",
+  "exit": 1,
+  "code": "SCENARIO_MISSING",
+  "args": [
+   "--scenarios",
+   "SVC-007"
+  ]
+ },
+ {
+  "name": "subset_unknown",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/positive/candidate.json",
+  "exit": 2,
+  "code": "-",
+  "args": [
+   "--scenarios",
+   "SVC-999"
+  ]
+ },
+ {
+  "name": "subset_duplicate",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/positive/candidate.json",
+  "exit": 2,
+  "code": "-",
+  "args": [
+   "--scenarios",
+   "SVC-002,SVC-002"
+  ]
+ },
+ {
+  "name": "subset_exceptions_selected",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref-noexc.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/exceptions.json",
+  "exit": 1,
+  "code": "EXCEPTIONS",
+  "args": [
+   "--scenarios",
+   "SVC-010"
+  ]
+ },
+ {
+  "name": "subset_exceptions_unscoped",
+  "ref": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/refs/android-ref-noexc.json",
+  "cand": "/home/morten/ATL/local-services/tests/local-service-probe/fixtures/negative/exceptions.json",
+  "exit": 0,
+  "code": null,
+  "args": [
+   "--scenarios",
+   "SVC-002"
+  ]
+ }
+]

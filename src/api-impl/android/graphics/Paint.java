@@ -2,6 +2,8 @@ package android.graphics;
 
 import java.util.Locale;
 
+import android.graphics.fonts.FontVariationAxis;
+
 public class Paint {
 	public static final int ANTI_ALIAS_FLAG = (1 << 0);
 	public static final int FILTER_BITMAP_FLAG = (1 << 1);
@@ -17,12 +19,23 @@ public class Paint {
 	public static final int AUTO_HINTING_TEXT_FLAG = (1 << 11);
 	public static final int VERTICAL_TEXT_FLAG = (1 << 12);
 
+	public static final int HINTING_OFF = 0x0;
+	public static final int HINTING_ON = 0x1;
+
 	public long paint; // native paint
 	private Typeface typeface;
 	private Xfermode xfermode;
 	private Shader shader;
 	private Align align = Align.CENTER;
 	private ColorFilter color_filter;
+	// Android's default Paint flags (ANTI_ALIAS|FILTER_BITMAP|DEV_KERN|EMBEDDED_BITMAP); the
+	// subpixel/linear bits added by setFlags() are what the text measurement consults.
+	private int flags = ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG | DEV_KERN_TEXT_FLAG | EMBEDDED_BITMAP_TEXT_FLAG;
+	private int hinting = HINTING_ON;
+	/* hwui Paint's mLetterSpacing/mTextSkewX default to 0 (Paint.h) and are only inputs to text
+	 * measurement; reset() puts them back to 0. */
+	private float letterSpacing = 0;
+	private float textSkewX = 0;
 
 	public Paint() {
 		paint = native_create();
@@ -36,6 +49,10 @@ public class Paint {
 	public Paint(Paint paint) {
 		this.paint = native_clone(paint.paint);
 		this.typeface = paint.typeface;
+		this.flags = paint.flags;
+		this.hinting = paint.hinting;
+		this.letterSpacing = paint.letterSpacing;
+		this.textSkewX = paint.textSkewX;
 	}
 
 	@Override protected void finalize() throws Throwable {
@@ -71,7 +88,14 @@ public class Paint {
 	}
 
 	public boolean setFontVariationSettings(String fvs) {
-		return true;
+		FontVariationAxis[] axes = FontVariationAxis.fromFontVariationSettings(fvs);
+		StringBuilder settings = new StringBuilder();
+		if (axes != null) for (FontVariationAxis axis : axes) {
+			if (axis == null) continue;
+			if (settings.length() > 0) settings.append(',');
+			settings.append(axis.getTag()).append('=').append(axis.getStyleValue());
+		}
+		return native_set_font_variation_settings(paint, settings.length() == 0 ? null : settings.toString());
 	}
 
 	public void setStrokeWidth(float width) {
@@ -89,22 +113,79 @@ public class Paint {
 	public void getTextBounds(String text, int start, int end, Rect bounds) {
 		if (end > text.length())
 			end = text.length();
-		native_get_text_bounds(paint, text.substring(start, end), bounds);
+		native_get_text_bounds(paint, text.substring(start, end), bounds, flags, hinting,
+				(typeface == null ? Typeface.DEFAULT : typeface).getWeight(), letterSpacing, textSkewX);
 	}
 	public void getTextBounds(char[] text, int index, int count, Rect bounds) {
-		native_get_text_bounds(paint, new String(text, index, count), bounds);
+		native_get_text_bounds(paint, new String(text, index, count), bounds, flags, hinting,
+				(typeface == null ? Typeface.DEFAULT : typeface).getWeight(), letterSpacing, textSkewX);
+	}
+	public int getTextWidths(String text, float[] widths) {
+		return getTextWidths(text, 0, text.length(), widths);
 	}
 	public int getTextWidths(String text, int start, int end, float[] widths) {
-		Rect bounds = new Rect();
-		native_get_text_bounds(paint, text.substring(start, end), bounds);
-		return bounds.width();
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		if (end - start > widths.length)
+			throw new ArrayIndexOutOfBoundsException();
+		if (start == end)
+			return 0;
+		native_get_text_widths(paint, text.substring(start, end), widths, flags, hinting, letterSpacing, textSkewX);
+		return end - start;
+	}
+	public int getTextWidths(char[] text, int index, int count, float[] widths) {
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((index | count) < 0 || index + count > text.length || count > widths.length)
+			throw new ArrayIndexOutOfBoundsException();
+		if (count == 0)
+			return 0;
+		native_get_text_widths(paint, new String(text, index, count), widths, flags, hinting, letterSpacing, textSkewX);
+		return count;
+	}
+	public int getTextWidths(CharSequence text, int start, int end, float[] widths) {
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		if (end - start > widths.length)
+			throw new ArrayIndexOutOfBoundsException();
+		if (start == end)
+			return 0;
+		native_get_text_widths(paint, text.subSequence(start, end).toString(), widths, flags, hinting, letterSpacing, textSkewX);
+		return end - start;
 	}
 	public void setFilterBitmap(boolean filter) {}
 
+	public int getFlags() { return flags; }
+
 	public void setFlags(int flags) {
+		this.flags = flags;
 		if ((flags & ANTI_ALIAS_FLAG) != 0)
 			setAntiAlias(true);
 	}
+
+	public int getHinting() { return hinting; }
+	public void setHinting(int mode) {
+		// Android maps HINTING_OFF -> SkFontHinting::kNone and every other value -> kNormal.
+		hinting = (mode == HINTING_OFF) ? HINTING_OFF : HINTING_ON;
+	}
+	public void setLinearText(boolean linearText) {
+		if (linearText)
+			flags |= LINEAR_TEXT_FLAG;
+		else
+			flags &= ~LINEAR_TEXT_FLAG;
+	}
+	public boolean isLinearText() { return (flags & LINEAR_TEXT_FLAG) != 0; }
+	public void setSubpixelText(boolean subpixelText) {
+		if (subpixelText)
+			flags |= SUBPIXEL_TEXT_FLAG;
+		else
+			flags &= ~SUBPIXEL_TEXT_FLAG;
+	}
+	public boolean isSubpixelText() { return (flags & SUBPIXEL_TEXT_FLAG) != 0; }
 
 	public void setStyle(Style style) {
 		native_set_style(paint, style.ordinal());
@@ -114,15 +195,42 @@ public class Paint {
 		return -getTextSize();
 	}
 
-	public float measureText(char[] text, int index, int count) { return (float)Math.ceil(native_text_advance(paint, new String(text, index, count))); }
+	public float measureText(char[] text, int index, int count) {
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((index | count) < 0 || index + count > text.length)
+			throw new ArrayIndexOutOfBoundsException();
+		return (float)Math.ceil(sumTextWidths(new String(text, index, count)));
+	}
 	public float measureText(String text, int start, int end) {
-		return (float)Math.ceil(native_text_advance(paint, text.substring(start, end)));
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		return (float)Math.ceil(sumTextWidths(text.substring(start, end)));
 	}
 	public float measureText(String text) {
 		return measureText(text, 0, text.length());
 	}
 	public float measureText(CharSequence text, int start, int end) {
-		return measureText(text.toString(), start, end);
+		if (text == null)
+			throw new IllegalArgumentException("text cannot be null");
+		if ((start | end | (end - start) | (text.length() - end)) < 0)
+			throw new IndexOutOfBoundsException();
+		return (float)Math.ceil(sumTextWidths(text.subSequence(start, end).toString()));
+	}
+
+	/* Android's measureText is ceil() of the summed advances nGetTextAdvances reports; the same
+	 * advances fill getTextWidths, so the sum must be taken over the widths array. */
+	private float sumTextWidths(String text) {
+		if (text.length() == 0)
+			return 0f;
+		float[] widths = new float[text.length()];
+		int count = getTextWidths(text, widths);
+		float sum = 0f;
+		for (int i = 0; i < count; i++)
+			sum += widths[i];
+		return sum;
 	}
 
 	public ColorFilter setColorFilter(ColorFilter colorFilter) {
@@ -206,21 +314,20 @@ public class Paint {
 		}
 	}
 
-	public /*native*/ int getFlags() { return 0; }
-
-	public /*native*/ int getHinting() { return 0; }
-	public /*native*/ void setHinting(int mode) {}
-
 	public /*native*/ void setDither(boolean dither) {}
 	public boolean isDither() {
 		return false;
 	}
 
-	public /*native*/ void setLinearText(boolean linearText) {}
-	public /*native*/ void setSubpixelText(boolean subpixelText) {}
 	public /*native*/ void setUnderlineText(boolean underlineText) {}
 	public /*native*/ void setStrikeThruText(boolean strikeThruText) {}
-	public /*native*/ void setFakeBoldText(boolean fakeBoldText) {}
+	public void setFakeBoldText(boolean fakeBoldText) {
+		// Android's FAKE_BOLD_TEXT_FLAG is what hwui turns into SkFont::setEmbolden().
+		if (fakeBoldText)
+			flags |= FAKE_BOLD_TEXT_FLAG;
+		else
+			flags &= ~FAKE_BOLD_TEXT_FLAG;
+	}
 
 	public float getStrokeWidth() {
 		return native_get_stroke_width(paint);
@@ -234,8 +341,8 @@ public class Paint {
 
 	public /*native*/ float getTextScaleX() { return 0; }
 	public /*native*/ void setTextScaleX(float scaleX) {}
-	public /*native*/ float getTextSkewX() { return 0; }
-	public /*native*/ void setTextSkewX(float skewX) {}
+	public float getTextSkewX() { return textSkewX; }
+	public void setTextSkewX(float skewX) { this.textSkewX = skewX; }
 
 	public /*native*/ float descent() { return 0; }
 	public float getFontMetrics(FontMetrics metrics) {
@@ -267,7 +374,7 @@ public class Paint {
 		return null;
 	}
 
-	public void setLetterSpacing(float spacing) {}
+	public void setLetterSpacing(float spacing) { this.letterSpacing = spacing; }
 
 	public enum Cap {
 		/**
@@ -383,7 +490,7 @@ public class Paint {
 
 	public Locale getTextLocale() { return Locale.getDefault(); }
 
-	public float getLetterSpacing() { return 1.0f; }
+	public float getLetterSpacing() { return letterSpacing; }
 
 	public Style getStyle() {
 		return Style.values[native_get_style(paint)];
@@ -398,7 +505,7 @@ public class Paint {
 	public MaskFilter setMaskFilter(MaskFilter filter) { return filter; }
 
 	public boolean isFakeBoldText() {
-		return false;
+		return (flags & FAKE_BOLD_TEXT_FLAG) != 0;
 	}
 
 	public void setFontFeatureSettings(String settings) {}
@@ -415,10 +522,16 @@ public class Paint {
 		shader = null;
 		align = Align.CENTER;
 		color_filter = null;
+		flags = ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG | DEV_KERN_TEXT_FLAG | EMBEDDED_BITMAP_TEXT_FLAG;
+		hinting = HINTING_ON;
+		letterSpacing = 0;
+		textSkewX = 0;
 	}
 
+	private static native float native_get_text_widths(long paint, String text, float[] widths, int flags, int hinting, float letterSpacing, float textSkewX);
 	private static native float native_text_advance(long paint, String text);
 	private static native void native_set_typeface(long paint, long typeface);
+	private static native boolean native_set_font_variation_settings(long paint, String settings);
 	private static native long native_create();
 	private static native long native_clone(long paint);
 	private static native void native_recycle(long paint);
@@ -437,7 +550,7 @@ public class Paint {
 	private static native void native_set_text_size(long paint, float size);
 	private static native float native_get_text_size(long paint);
 	private static native void native_set_color_filter(long paint, int mode, int color);
-	private static native void native_get_text_bounds(long paint, String text, Rect bounds);
+	private static native void native_get_text_bounds(long paint, String text, Rect bounds, int flags, int hinting, int typefaceWeight, float letterSpacing, float textSkewX);
 	private static native void native_set_text_align(long paint, int align);
 	private static native float native_get_font_metrics(long paint, FontMetrics metrics);
 	private static native int native_get_font_metrics_int(long paint, FontMetricsInt metrics);

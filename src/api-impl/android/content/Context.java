@@ -510,6 +510,8 @@ public abstract class Context {
 	}
 
 	public static final int CONTEXT_INCLUDE_CODE = 0x00000001;
+	/** Automatically create the service instance when binding to it. */
+	public static final int BIND_AUTO_CREATE = 0x00000001;
 	public static final int CONTEXT_IGNORE_SECURITY = 0x00000002;
 	public static final int CONTEXT_RESTRICTED = 0x00000004;
 

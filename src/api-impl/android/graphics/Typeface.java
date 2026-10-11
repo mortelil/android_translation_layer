@@ -95,9 +95,92 @@ public class Typeface {
 			return new Typeface(configured);
 		}
 	}
+
+	/**
+	 * Builds a Typeface from an ordered chain of custom {@link android.graphics.fonts.FontFamily}s,
+	 * optionally followed by a system fallback family. Each text run is later measured with the file
+	 * that actually serves it (AOSP minikin FontCollection semantics; frameworks-base 94b4c163
+	 * graphics/java/android/graphics/Typeface.java:881).
+	 */
+	public static final class CustomFallbackBuilder {
+		private static final int MAX_CUSTOM_FALLBACK = 64;
+		private final java.util.ArrayList<android.graphics.fonts.FontFamily> mFamilies = new java.util.ArrayList<>();
+		private String mFallbackName = null;
+		private android.graphics.fonts.FontStyle mStyle = null;
+
+		/** @return the maximum number of custom fallback families */
+		public static int getMaxCustomFallbackCount() { return MAX_CUSTOM_FALLBACK; }
+
+		/**
+		 * Constructs a builder with a font family.
+		 *
+		 * @param family a family object
+		 */
+		public CustomFallbackBuilder(android.graphics.fonts.FontFamily family) {
+			mFamilies.add(Objects.requireNonNull(family));
+		}
+
+		/**
+		 * Append a font family to the end of the custom font fallback.
+		 *
+		 * @param family a fallback family
+		 */
+		public CustomFallbackBuilder addCustomFallback(android.graphics.fonts.FontFamily family) {
+			Objects.requireNonNull(family);
+			if (mFamilies.size() >= MAX_CUSTOM_FALLBACK)
+				throw new IllegalArgumentException("Custom fallback limit exceeded");
+			mFamilies.add(family);
+			return this;
+		}
+
+		/**
+		 * Sets the system fallback family name.
+		 *
+		 * @param familyName a family name to be used for fallback
+		 */
+		public CustomFallbackBuilder setSystemFallback(String familyName) {
+			mFallbackName = Objects.requireNonNull(familyName);
+			return this;
+		}
+
+		/**
+		 * Sets the style of the Typeface.
+		 *
+		 * @param style a font style
+		 */
+		public CustomFallbackBuilder setStyle(android.graphics.fonts.FontStyle style) {
+			mStyle = Objects.requireNonNull(style);
+			return this;
+		}
+
+		/** Creates the Typeface based on the configured values. */
+		public Typeface build() {
+			java.util.ArrayList<String> paths = new java.util.ArrayList<>();
+			java.util.ArrayList<Integer> indices = new java.util.ArrayList<>();
+			java.util.ArrayList<String> variations = new java.util.ArrayList<>();
+			for (android.graphics.fonts.FontFamily family : mFamilies) {
+				for (int i = 0; i < family.getSize(); i++) {
+					android.graphics.fonts.Font font = family.getFont(i);
+					paths.add(font.getFile().getAbsolutePath());
+					indices.add(font.getTtcIndex());
+					variations.add(FontVariationAxis.toFontVariationSettings(font.getAxes()));
+				}
+			}
+			int[] indexArray = new int[indices.size()];
+			for (int i = 0; i < indexArray.length; i++) indexArray[i] = indices.get(i);
+			int weight = mStyle == null ? 400 : mStyle.getWeight();
+			boolean italic = mStyle != null
+					&& mStyle.getSlant() == android.graphics.fonts.FontStyle.FONT_SLANT_ITALIC;
+			return new Typeface(nativeCreateFromFamilies(
+					paths.toArray(new String[0]), indexArray, variations.toArray(new String[0]),
+					mFallbackName, weight, italic));
+		}
+	}
+
 	private static native long nativeCreate(String family, int weight, boolean italic);
 	private static native long nativeLoad(String path, int index);
 	private static native long nativeCopy(long handle, int weight, int italic, String variations);
+	private static native long nativeCreateFromFamilies(String[] paths, int[] indices, String[] variations, String fallback, int weight, boolean italic);
 	private static native int nativeStyle(long handle);
 	private static native void nativeRelease(long handle);
 }

@@ -151,6 +151,10 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 			fragment.onCreate(savedInstanceState);
 		}
 
+		// AOSP Activity.onCreate (android-17.0.0_r1 Activity.java:1915) dispatches
+		// after the fragment state is restored and before mCalled is set.
+		getApplication().dispatchActivityCreated(this, savedInstanceState);
+
 		return;
 	}
 
@@ -167,6 +171,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 			fragment.onStart();
 		}
 
+		// AOSP Activity.onStart (android-17.0.0_r1 Activity.java:2208).
+		getApplication().dispatchActivityStarted(this);
+
 		return;
 	}
 
@@ -178,6 +185,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	protected void onResume() {
 		Slog.i(TAG, "- onResume - yay!");
+
+		// AOSP Activity.onResume (android-17.0.0_r1 Activity.java:2284) dispatches first.
+		getApplication().dispatchActivityResumed(this);
 
 		for (Fragment fragment : fragments) {
 			fragment.onResume();
@@ -195,6 +205,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	protected void onPause() {
 		Slog.i(TAG, "- onPause - yay!");
 
+		// AOSP Activity.onPause (android-17.0.0_r1 Activity.java:2721) dispatches first.
+		getApplication().dispatchActivityPaused(this);
+
 		for (Fragment fragment : fragments) {
 			fragment.onPause();
 		}
@@ -210,6 +223,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 			fragment.onStop();
 		}
 
+		// AOSP Activity.onStop (android-17.0.0_r1 Activity.java:2952).
+		getApplication().dispatchActivityStopped(this);
+
 		return;
 	}
 
@@ -219,6 +235,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		for (Fragment fragment : fragments) {
 			fragment.onDestroy();
 		}
+
+		// AOSP Activity.onDestroy (android-17.0.0_r1 Activity.java:3030).
+		getApplication().dispatchActivityDestroyed(this);
 
 		destroyed = true;
 		return;
@@ -231,6 +250,12 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	}
 
 	protected void onSaveInstanceState(Bundle outState) {
+		// AOSP Activity.onSaveInstanceState (android-17.0.0_r1 Activity.java:2621)
+		// dispatches as its last statement. NOTE: ATL does not currently invoke
+		// Activity.onSaveInstanceState from the activity manager, so this path is
+		// exercised only if something calls it explicitly; no end-to-end
+		// save-state support is claimed.
+		getApplication().dispatchActivitySaveInstanceState(this, outState);
 	}
 
 	public void onConfigurationChanged(Configuration newConfig) {

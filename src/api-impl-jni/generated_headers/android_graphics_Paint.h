@@ -33,6 +33,18 @@ extern "C" {
 #define android_graphics_Paint_AUTO_HINTING_TEXT_FLAG 2048L
 #undef android_graphics_Paint_VERTICAL_TEXT_FLAG
 #define android_graphics_Paint_VERTICAL_TEXT_FLAG 4096L
+#undef android_graphics_Paint_HINTING_OFF
+#define android_graphics_Paint_HINTING_OFF 0L
+#undef android_graphics_Paint_HINTING_ON
+#define android_graphics_Paint_HINTING_ON 1L
+/*
+ * Class:     android_graphics_Paint
+ * Method:    native_get_text_widths
+ * Signature: (JLjava/lang/String;[FIIFF)F
+ */
+JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths
+  (JNIEnv *, jclass, jlong, jstring, jfloatArray, jint, jint, jfloat, jfloat);
+
 /*
  * Class:     android_graphics_Paint
  * Method:    native_text_advance
@@ -48,6 +60,14 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1text_1advance
  */
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1typeface
   (JNIEnv *, jclass, jlong, jlong);
+
+/*
+ * Class:     android_graphics_Paint
+ * Method:    native_set_font_variation_settings
+ * Signature: (JLjava/lang/String;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_graphics_Paint_native_1set_1font_1variation_1settings
+  (JNIEnv *, jclass, jlong, jstring);
 
 /*
  * Class:     android_graphics_Paint
@@ -196,10 +216,10 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1color_1filter
 /*
  * Class:     android_graphics_Paint
  * Method:    native_get_text_bounds
- * Signature: (JLjava/lang/String;Landroid/graphics/Rect;)V
+ * Signature: (JLjava/lang/String;Landroid/graphics/Rect;IIIFF)V
  */
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds
-  (JNIEnv *, jclass, jlong, jstring, jobject);
+  (JNIEnv *, jclass, jlong, jstring, jobject, jint, jint, jint, jfloat, jfloat);
 
 /*
  * Class:     android_graphics_Paint

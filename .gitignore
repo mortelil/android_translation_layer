@@ -12,3 +12,6 @@ builddir/
 /core
 __pycache__/
 *.pyc
+
+# probe build output (not source)
+/tests/lifecycle-probe/build-v2.1/

@@ -1,0 +1,440 @@
+{
+  "manifest_version": 3,
+  "description": "Contract-derived expected structure for the frozen lifecycle/fragment-probe-v2.1 APK. Every expected value is derived from the pinned AOSP Application.ActivityLifecycleCallbacks and android.app.FragmentManager call sites (CONTRACT.md), never from observed ATL or Android output. The scenario script (activity instance tags, call sequence) is fixed by the probe design (ProbeApp.java/ActA/ActB/FragmentProbe), which is identical on both sides. L-THROW is a TERMINAL scenario: it runs AFTER the aggregate/completion markers so the framework mCalled crash cannot destroy the reference evidence.",
+  "contract": {
+    "aosp_ref": "refs/tags/android-17.0.0_r1",
+    "aosp_commit": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+    "rules": [
+      "Application.mActivityLifecycleCallbacks is an ArrayList; dispatch iterates it FORWARD (registration order) for all seven callbacks (Application.java:310-320, 470-478, 578-586).",
+      "Duplicate registration is additive: the same instance registered N times is invoked N times in its list positions (Application.add + dispatch).",
+      "Unregister removes exactly one occurrence, the first element equal to the argument (ArrayList.remove uses argument.equals(element)) (Application.java:316-320).",
+      "A dispatch uses a private toArray() snapshot (collectActivityLifecycleCallbacks, Application.java:608-616): a callback removed during dispatch still runs for the in-flight event and is absent from the next; a callback added during dispatch is absent from the in-flight event and runs from the next.",
+      "Dispatch does not catch a callback exception (plain for loop): the remaining callbacks for that event are skipped and the exception propagates out of the enclosing super.*() (Application.dispatchActivity*).",
+      "An observer exception thrown from onActivityCreated escapes the app's super.onCreate() (Activity.dispatchActivityCreated, Activity.java:1589-1598, runs at Activity.java:1915 BEFORE mCalled is set at Activity.java:1920). ActivityThread.performLaunchActivity sets mCalled=false before onCreate (ActivityThread.java:4550) and raises SuperNotCalledException when it is still false (ActivityThread.java:4561-4564). L-THROW is therefore a TERMINAL scenario: on Android it crashes the process, so it runs AFTER the aggregate/completion markers.",
+      "The Application callback for a lifecycle method is delivered inside the app's super.<method>() call, i.e. between the probe's .pre and .post lines (Activity.java:1915,2208,2284,2721,2952,3030).",
+      "Older/unknown ActivityLifecycleCallbacks default methods (onActivityPre*/Post*Created etc.) are no-ops for the probe observers, so only the seven classic callbacks are logged.",
+      "On a fresh launch onActivityCreated receives a null savedInstanceState Bundle; all other basic callbacks receive no Bundle.",
+      "All seven callbacks run on the ActivityThread main thread.",
+      "Activity identity is the exact instance; the probe tags instances ActA#N / ActB#N.",
+      "FragmentManager.findFragmentByTag scans mAdded in REVERSE add order, then mActive; duplicate tags therefore resolve to the newest-added fragment (FragmentManager.java:1847-1866).",
+      "The tag is assigned at add() time but the fragment is only placed in mAdded when the transaction executes, so lookup before executePendingTransactions is null (FragmentManager.addFragment 1710-1731, BackStackRecord.executeOps).",
+      "Removing an added fragment runs the destroy path (removeFragment 1734-1752, makeInactive 1697-1708, burpActive 2949-2958), which purges mActive, so a later findFragmentByTag returns null."
+    ]
+  },
+  "identity": {
+    "task_id": "ACTIVITY-LIFECYCLE",
+    "probe": "lifecycle-probe-v2.1",
+    "package": "org.atl.tests.lifecycle"
+  },
+  "acceptance_surface": {
+    "surface": "lifecycle-callbacks (LC) + FragmentManager tag lookup (FT)",
+    "candidate_contract": "per-(activity,event) lifecycle callback contract (mandatory event presence, and exact order/multiplicity/identity/Bundle/phase WITHIN each callback list) PLUS every FragmentManager tag scenario observation (add tag, find results, getTag, duplicate-tag newest, null/missing, pre-commit visibility, removal). Both are validated per event against the Android reference.",
+    "in_scope": {
+      "validated_against": "android-reference",
+      "dimensions": [
+        "LC per-(activity,event) callback contract",
+        "FT scenario observations (add tag, find results, getTag, duplicate-tag newest, null/missing, pre-commit visibility, removal)"
+      ],
+      "scenario_ids": ["S1", "S2", "S4.1", "S4.2", "S4.3", "S4.4", "S4.5", "S3D1", "L-SNAP", "L-REGD", "L-EQUALS", "F-ADD-TAG", "F-TAG-READ", "F-DUP-TAG", "F-NULL-MISS", "F-PRE-COMMIT", "F-REMOVE", "L-THROW"]
+    },
+    "pinned": {
+      "baseline_required": true,
+      "dimensions": ["cross-Activity Activity-event ordering (the Activity-only pre/post framing sequence)"],
+      "note": "ONLY this single dimension is compared against the baseline. Every in_scope scenario/event is otherwise compared against the Android reference. A candidate whose Activity ordering diverges from the reference must match the baseline's Activity ordering exactly per non-terminal scenario, or it is rejected (BASELINE_MISMATCH)."
+    }
+  },
+  "cross_activity_ordering": {
+    "baseline_required": true,
+    "divergence": "ATL runs the outgoing Activity's onPause/onStop before creating the incoming Activity, emitting ActA#1 onStop/onStart framing at a point where Android emits it elsewhere. This is pre-existing on the ATL side and byte-identical to the ATL baseline; it is not a regression the candidate can be blamed for.",
+    "pin": "In PINNED mode (baseline supplied) the candidate's per-scenario Activity-only pre/post framing sequence must equal the baseline's. Scenario observations other than that single dimension (all LC callback contract values and all FT lookup values) are still validated per event against the Android reference. Candidate scenarios whose Activity ordering differs from the Android reference are reported with an explicit DIVERGENCE line instead of being rejected. A candidate Activity ordering that does not match the baseline is rejected (BASELINE_MISMATCH). Without a baseline, a candidate whose cross-Activity ordering diverges is rejected (MISSING_BASELINE, fail closed)."
+  },
+  "completion_marker": "LIFE_ALL_DONE",
+  "terminal_marker": "LIFE_PROBE_MARK TERMINAL_THROW_DONE",
+  "required_event_fields": ["k", "seq", "scenario", "actor", "event", "activity", "bundle", "phase", "owner", "thread", "threadRole", "main"],
+  "event_field_types": {
+    "seq": "int",
+    "main": "bool"
+  },
+  "numerics_must_be_finite": ["seq"],
+  "owner": "ProbeApp",
+  "main_thread_role": "main",
+  "callback_map": {
+    "onCreate": "onActivityCreated",
+    "onStart": "onActivityStarted",
+    "onResume": "onActivityResumed",
+    "onPause": "onActivityPaused",
+    "onStop": "onActivityStopped",
+    "onSaveInstanceState": "onActivitySaveInstanceState",
+    "onDestroy": "onActivityDestroyed"
+  },
+  "bundle_map": {
+    "onCreate": "null",
+    "onSaveInstanceState": "non-null"
+  },
+  "default_bundle": "-",
+  "activity_tags": {
+    "ActA#1": "ActA",
+    "ActB#1": "ActB",
+    "ActB#2": "ActB",
+    "ActB#3": "ActB",
+    "ActB#4": "ActB",
+    "ActB#5": "ActB",
+    "ActB#6": "ActB",
+    "ActB#7": "ActB",
+    "ActB#8": "ActB",
+    "ActB#9": "ActB",
+    "ActB#10": "ActB",
+    "ActB#11": "ActB"
+  },
+  "observers": ["AppObs-A", "AppObs-B", "AppObs-C"],
+  "preamble": {
+    "id": "INIT",
+    "begin": 0,
+    "end": 0,
+    "observers": [],
+    "events": [
+      {"kind": "app", "actor": "ProbeApp", "event": "appOnCreate"},
+      {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+      {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"}
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "S1",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-B"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"}
+      ]
+    },
+    {
+      "id": "S2",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-B"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#1", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.1",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-B"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#2", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.2",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#3", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.3",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-C", "AppObs-C"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#4", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.4",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-C"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#5", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S4.5",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#6", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "S3D1",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "events": [
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#7", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "L-SNAP",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-MUT", "AppObs-VICT"],
+      "note": "Unregister during dispatch (Application.collectActivityLifecycleCallbacks toArray snapshot, Application.java:608-616). obsMut removes obsVict while handling onActivityCreated of ActB#8; obsVict still runs for the in-flight onActivityCreated and is absent from the following events.",
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+        {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#8", "base": "onCreate",
+         "callbacks": [
+           "AppObs-A",
+           {"actor": "AppObs-MUT", "event": "onActivityCreated", "activity": "ActB#8", "bundle": "null", "phase": "-"},
+           {"actor": "AppObs-MUT", "event": "unregisterCallback", "activity": "-", "bundle": "-", "phase": "-"},
+           "AppObs-VICT"
+         ]},
+        {"kind": "lifecycle", "activity": "ActB#8", "base": "onStart", "observers": ["AppObs-A", "AppObs-MUT"]},
+        {"kind": "lifecycle", "activity": "ActB#8", "base": "onResume", "observers": ["AppObs-A", "AppObs-MUT"]},
+        {"kind": "lifecycle", "activity": "ActB#8", "base": "onPause", "observers": ["AppObs-A", "AppObs-MUT"]},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume", "observers": ["AppObs-A", "AppObs-MUT"]},
+        {"kind": "lifecycle", "activity": "ActB#8", "base": "onStop", "observers": ["AppObs-A", "AppObs-MUT"]},
+        {"kind": "lifecycle", "activity": "ActB#8", "base": "onDestroy", "observers": ["AppObs-A", "AppObs-MUT"]}
+      ]
+    },
+    {
+      "id": "L-REGD",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A", "AppObs-REG"],
+      "note": "Register during dispatch (snapshot, Application.java:608-616). obsReg adds obsNew while handling onActivityCreated of ActB#9; obsNew is absent from the in-flight event and runs from onStart onwards.",
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause", "observers": ["AppObs-A", "AppObs-REG"]},
+        {"kind": "lifecycle", "activity": "ActB#9", "base": "onCreate",
+         "callbacks": [
+           "AppObs-A",
+           {"actor": "AppObs-REG", "event": "onActivityCreated", "activity": "ActB#9", "bundle": "null", "phase": "-"},
+           {"actor": "AppObs-REG", "event": "registerCallback", "activity": "-", "bundle": "-", "phase": "-"}
+         ]},
+        {"kind": "lifecycle", "activity": "ActB#9", "base": "onStart", "observers": ["AppObs-A", "AppObs-REG", "AppObs-NEW"]},
+        {"kind": "lifecycle", "activity": "ActB#9", "base": "onResume", "observers": ["AppObs-A", "AppObs-REG", "AppObs-NEW"]},
+        {"kind": "lifecycle", "activity": "ActB#9", "base": "onPause", "observers": ["AppObs-A", "AppObs-REG", "AppObs-NEW"]},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume", "observers": ["AppObs-A", "AppObs-REG", "AppObs-NEW"]},
+        {"kind": "lifecycle", "activity": "ActB#9", "base": "onStop", "observers": ["AppObs-A", "AppObs-REG", "AppObs-NEW"]},
+        {"kind": "lifecycle", "activity": "ActB#9", "base": "onDestroy", "observers": ["AppObs-A", "AppObs-REG", "AppObs-NEW"]}
+      ]
+    },
+    {
+      "id": "L-EQUALS",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": ["AppObs-A"],
+      "note": "equals-overriding removal: obsEq1 (AppObs-EQ1, key 'eq') is registered; unregister(AppObs-EQ2) removes obsEq1 because ArrayList.remove uses argument.equals(element) (Application.java:316-320). obsEq2 was never added, so after the removal the only remaining observer for the ActB#10 events is AppObs-A.",
+      "events": [
+        {"kind": "app", "actor": "ProbeApp", "event": "registerCallback"},
+        {"kind": "app", "actor": "ProbeApp", "event": "unregisterCallback"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActB#10", "base": "onCreate"},
+        {"kind": "lifecycle", "activity": "ActB#10", "base": "onStart"},
+        {"kind": "lifecycle", "activity": "ActB#10", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#10", "base": "onPause"},
+        {"kind": "lifecycle", "activity": "ActA#1", "base": "onResume"},
+        {"kind": "lifecycle", "activity": "ActB#10", "base": "onStop"},
+        {"kind": "lifecycle", "activity": "ActB#10", "base": "onDestroy"}
+      ]
+    },
+    {
+      "id": "F-ADD-TAG",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": [],
+      "events": [
+        {"kind": "app", "actor": "FragMgr", "event": "add:tag=t1"},
+        {"kind": "app", "actor": "FragMgr", "event": "commit"},
+        {"kind": "app", "actor": "FragMgr", "event": "executePendingTransactions"},
+        {"kind": "app", "actor": "FragMgr", "event": "find:t1=frag#1"}
+      ]
+    },
+    {
+      "id": "F-TAG-READ",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": [],
+      "events": [
+        {"kind": "app", "actor": "FragMgr", "event": "getTag:t1=t1"}
+      ]
+    },
+    {
+      "id": "F-DUP-TAG",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": [],
+      "note": "Reverse scan of mAdded (FragmentManager.java:1849-1856) resolves the duplicate tag to the newest-added fragment, frag#3.",
+      "events": [
+        {"kind": "app", "actor": "FragMgr", "event": "add:tag=tdup"},
+        {"kind": "app", "actor": "FragMgr", "event": "add:tag=tdup"},
+        {"kind": "app", "actor": "FragMgr", "event": "commit"},
+        {"kind": "app", "actor": "FragMgr", "event": "executePendingTransactions"},
+        {"kind": "app", "actor": "FragMgr", "event": "find:tdup=frag#3"}
+      ]
+    },
+    {
+      "id": "F-NULL-MISS",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": [],
+      "events": [
+        {"kind": "app", "actor": "FragMgr", "event": "find:null=null"},
+        {"kind": "app", "actor": "FragMgr", "event": "find:missing=null"}
+      ]
+    },
+    {
+      "id": "F-PRE-COMMIT",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": [],
+      "note": "add() assigns the tag but only registers the fragment in mAdded at execution time, so the lookup before executePendingTransactions is null and the lookup after is frag#4.",
+      "events": [
+        {"kind": "app", "actor": "FragMgr", "event": "add:tag=tpre"},
+        {"kind": "app", "actor": "FragMgr", "event": "find:tpre=null"},
+        {"kind": "app", "actor": "FragMgr", "event": "commit"},
+        {"kind": "app", "actor": "FragMgr", "event": "executePendingTransactions"},
+        {"kind": "app", "actor": "FragMgr", "event": "find:tpre=frag#4"}
+      ]
+    },
+    {
+      "id": "F-REMOVE",
+      "mandatory": true,
+      "begin": 1,
+      "end": 1,
+      "externally_driven": false,
+      "observers": [],
+      "note": "Removing the t1 fragment runs the destroy path (makeInactive/burpActive), purging mActive; the final lookup is null.",
+      "events": [
+        {"kind": "app", "actor": "FragMgr", "event": "find:t1=frag#1"},
+        {"kind": "app", "actor": "FragMgr", "event": "remove:t1"},
+        {"kind": "app", "actor": "FragMgr", "event": "commit"},
+        {"kind": "app", "actor": "FragMgr", "event": "executePendingTransactions"},
+        {"kind": "app", "actor": "FragMgr", "event": "find:t1=null"}
+      ]
+    },
+    {
+      "id": "S3D2",
+      "mandatory": true,
+      "begin": 1,
+      "end": 0,
+      "externally_driven": true,
+      "observers": ["AppObs-A"],
+      "events": [],
+      "note": "Evidence that the scenario ran is its LIFE_SCEN_BEGIN plus LIFE_ALL_DONE; the activities appended on an external normal close are optional and are validated only for well-formedness/identity, not against a fixed count."
+    },
+    {
+      "id": "L-THROW",
+      "mandatory": true,
+      "begin": 1,
+      "end": 0,
+      "externally_driven": false,
+      "terminal": true,
+      "observers": ["AppObs-A", "AppObs-THROW", "AppObs-POST"],
+      "events": [],
+      "note": "TERMINAL scenario. Runs last, after LIFE_JSON_END/LIFE_ALL_DONE. obsThrow throws on ActB#11.onCreate (Application.dispatchActivityCreated is a plain for loop, no try/catch), so the remaining observer AppObs-POST is NOT invoked for that event and the exception escapes super.onCreate; ActivityThread.performLaunchActivity then raises SuperNotCalledException (mCalled never set), which is fatal on Android. Evidence is therefore the ordered prefix below (BEGIN after the aggregate, ending at AppObs-THROW.onActivityCreated) plus the absence of the forbidden callback; the trace may legitimately end there on Android. The reliable completion signal is the LIFE_PROBE_MARK TERMINAL_THROW_DONE line ActB emits after it catches the throw (before the framework kill); it is accepted in either side and carries no scenario semantics.",
+      "terminal_prefix": [
+        {"actor": "ProbeApp", "event": "registerCallback", "activity": "-", "bundle": "-", "phase": "-"},
+        {"actor": "ProbeApp", "event": "registerCallback", "activity": "-", "bundle": "-", "phase": "-"},
+        {"actor": "ActA#1", "event": "onPause.pre", "activity": "ActA#1", "bundle": "-", "phase": "pre"},
+        {"actor": "AppObs-A", "event": "onActivityPaused", "activity": "ActA#1", "bundle": "-", "phase": "-"},
+        {"actor": "AppObs-THROW", "event": "onActivityPaused", "activity": "ActA#1", "bundle": "-", "phase": "-"},
+        {"actor": "AppObs-POST", "event": "onActivityPaused", "activity": "ActA#1", "bundle": "-", "phase": "-"},
+        {"actor": "ActA#1", "event": "onPause.post", "activity": "ActA#1", "bundle": "-", "phase": "post"},
+        {"actor": "ActB#11", "event": "onCreate.pre", "activity": "ActB#11", "bundle": "null", "phase": "pre"},
+        {"actor": "AppObs-A", "event": "onActivityCreated", "activity": "ActB#11", "bundle": "null", "phase": "-"},
+        {"actor": "AppObs-THROW", "event": "onActivityCreated", "activity": "ActB#11", "bundle": "null", "phase": "-"}
+      ],
+      "terminal_forbidden": [
+        {"actor": "AppObs-POST", "event": "onActivityCreated", "activity": "ActB#11"}
+      ]
+    }
+  ]
+}

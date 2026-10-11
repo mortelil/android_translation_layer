@@ -265,7 +265,7 @@ public final class ContextImpl extends Context {
 				nativeStartExternalService(intent);
 			return null;
 		}
-		return targetApp.startOrBindService(intent, null);
+		return targetApp.startService(intent);
 	}
 
 	@Override
@@ -307,7 +307,15 @@ public final class ContextImpl extends Context {
 		if (targetApp == null) {
 			return false;
 		}
-		return targetApp.startOrBindService(intent, serviceConnection) != null;
+		// The issuing context is this context: Android keys a client-side binding
+		// registration (LoadedApk.mServices) by getOuterContext(), so a bind a
+		// Service issues from its own context belongs to that instance.
+		return targetApp.bindService(this, intent, serviceConnection, flags) != null;
+	}
+
+	@Override
+	public void unbindService(ServiceConnection serviceConnection) {
+		atl_loaded_app.unbindService(this, serviceConnection);
 	}
 
 	@Override

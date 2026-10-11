@@ -72,6 +72,11 @@ public class ContextWrapper extends Context {
 	}
 
 	@Override
+	public void unbindService(ServiceConnection serviceConnection) {
+		this.baseContext.unbindService(serviceConnection);
+	}
+
+	@Override
 	public void startActivity(Intent intent) {
 		this.baseContext.startActivity(intent);
 	}

@@ -1,0 +1,128 @@
+[
+  {
+    "name": "valid_complete_pair",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/valid_complete_pair.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/valid_complete_pair.candidate.json",
+    "exit": 0,
+    "code": "OK"
+  },
+  {
+    "name": "android_empty",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/android_empty.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/android_empty.candidate.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE"
+  },
+  {
+    "name": "candidate_empty",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_empty.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_empty.candidate.json",
+    "exit": 1,
+    "code": "EMPTY_EVIDENCE"
+  },
+  {
+    "name": "candidate_malformed",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_malformed.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_malformed.candidate.json",
+    "exit": 1,
+    "code": "JSON_PARSE"
+  },
+  {
+    "name": "candidate_missing_field",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_missing_field.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_missing_field.candidate.json",
+    "exit": 1,
+    "code": "MISSING_FIELD"
+  },
+  {
+    "name": "candidate_wrong_font_hash",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_font_hash.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_font_hash.candidate.json",
+    "exit": 1,
+    "code": "FONT_HASH_MISMATCH"
+  },
+  {
+    "name": "candidate_wrong_string",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_string.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_string.candidate.json",
+    "exit": 1,
+    "code": "WRONG_CELL_IDENTITY"
+  },
+  {
+    "name": "candidate_wrong_length",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_length.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_length.candidate.json",
+    "exit": 1,
+    "code": "WRONG_CELL_IDENTITY"
+  },
+  {
+    "name": "candidate_wrong_range",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_range.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_wrong_range.candidate.json",
+    "exit": 1,
+    "code": "WRONG_CELL_IDENTITY"
+  },
+  {
+    "name": "candidate_left_off",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_left_off.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_left_off.candidate.json",
+    "exit": 1,
+    "code": "INT_MISMATCH"
+  },
+  {
+    "name": "candidate_top_off",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_top_off.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_top_off.candidate.json",
+    "exit": 1,
+    "code": "INT_MISMATCH"
+  },
+  {
+    "name": "candidate_right_off",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_right_off.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_right_off.candidate.json",
+    "exit": 1,
+    "code": "INT_MISMATCH"
+  },
+  {
+    "name": "candidate_bottom_off",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_bottom_off.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_bottom_off.candidate.json",
+    "exit": 1,
+    "code": "INT_MISMATCH"
+  },
+  {
+    "name": "candidate_duplicate_cell",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_duplicate_cell.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_duplicate_cell.candidate.json",
+    "exit": 1,
+    "code": "DUPLICATE_CELL"
+  },
+  {
+    "name": "candidate_missing_cell",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_missing_cell.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_missing_cell.candidate.json",
+    "exit": 1,
+    "code": "MISSING_CELL"
+  },
+  {
+    "name": "candidate_invalid_utf16",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_invalid_utf16.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_invalid_utf16.candidate.json",
+    "exit": 1,
+    "code": "UTF16_MISMATCH"
+  },
+  {
+    "name": "candidate_bare_no_sentinel",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_bare_no_sentinel.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_bare_no_sentinel.candidate.json",
+    "exit": 1,
+    "code": "MISSING_SENTINEL"
+  },
+  {
+    "name": "candidate_status_error",
+    "android": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_status_error.android.json",
+    "candidate": "/home/morten/ATL/review-repairs/tests/font-probe-bounds/fixtures/candidate_status_error.candidate.json",
+    "exit": 1,
+    "code": "STATUS_NOT_OK"
+  }
+]
