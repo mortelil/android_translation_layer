@@ -5,12 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* CPU-only BLOB storage. GPU usage is explicitly unsupported: malloc memory
+/* CPU-only BLOB and RGBA8888 storage. GPU usage is explicitly unsupported: malloc memory
 	* must never be advertised as importable by EGL or Vulkan. */
 struct AHardwareBuffer {
 	AHardwareBuffer_Desc desc;
 	atomic_uint references;
 	unsigned char *data;
+	atomic_bool image_locked;
 };
 static int valid_cpu_usage(uint64_t usage) {
 	unsigned read = usage & 15, write = (usage >> 4) & 15;
@@ -18,8 +19,10 @@ static int valid_cpu_usage(uint64_t usage) {
 		(read == 0 || read == 2 || read == 3) && (write == 0 || write == 2 || write == 3);
 }
 int AHardwareBuffer_isSupported(const AHardwareBuffer_Desc *d) {
-	return d && d->width && d->height == 1 && d->layers == 1 &&
-		d->format == 0x21 && !d->rfu0 && !d->rfu1 && valid_cpu_usage(d->usage);
+	if (!d || !d->width || !d->height || d->layers != 1 || d->rfu0 || d->rfu1 || !valid_cpu_usage(d->usage)) return 0;
+	if (d->format == 0x21) return d->height == 1;
+	return d->format == 1 && d->width <= INT32_MAX && d->height <= INT32_MAX &&
+		(uint64_t)d->width * d->height <= SIZE_MAX / 4;
 }
 int AHardwareBuffer_allocate(const AHardwareBuffer_Desc *d, AHardwareBuffer **out) {
 	if (!out) return -EINVAL;
@@ -27,11 +30,12 @@ int AHardwareBuffer_allocate(const AHardwareBuffer_Desc *d, AHardwareBuffer **ou
 	if (!AHardwareBuffer_isSupported(d)) return -EINVAL;
 	AHardwareBuffer *b = calloc(1, sizeof(*b));
 	if (!b) return -ENOMEM;
-	b->data = calloc(1, d->width);
+	b->data = calloc(1, d->format == 1 ? (size_t)d->width * d->height * 4 : d->width);
 	if (!b->data) { free(b); return -ENOMEM; }
 	b->desc = *d;
 	b->desc.stride = d->width;
 	atomic_init(&b->references, 1);
+	atomic_init(&b->image_locked, 0);
 	*out = b;
 	return 0;
 }
@@ -55,13 +59,15 @@ int AHardwareBuffer_lock(AHardwareBuffer *b, uint64_t usage, int32_t fence,
 			((usage & 0xf0) && !(b->desc.usage & 0xf0))) return -EINVAL;
 	if (fence != -1) return -ENOSYS; // No device fences for CPU-only allocations.
 	if (r && (r->left < 0 || r->top < 0 || r->right < r->left ||
-			r->bottom < r->top || (uint32_t)r->right > b->desc.width || r->bottom > 1)) return -EINVAL;
-	// BLOB buffers permit concurrent CPU access, as specified by the NDK.
+			r->bottom < r->top || (uint32_t)r->right > b->desc.width || (uint32_t)r->bottom > b->desc.height)) return -EINVAL;
+	// BLOB permits concurrent CPU access; image buffers require exclusive access.
+	if (b->desc.format == 1 && atomic_exchange(&b->image_locked, 1)) return -EBUSY;
 	*out = b->data;
 	return 0;
 }
 int AHardwareBuffer_unlock(AHardwareBuffer *b, int32_t *fence) {
 	if (!b) return -EINVAL;
+	if (b->desc.format == 1 && !atomic_exchange(&b->image_locked, 0)) return -EINVAL;
 	if (fence) *fence = -1; // CPU stores require no device synchronization.
 	return 0;
 }
@@ -104,4 +110,19 @@ JNIEXPORT jobject JNICALL Java_android_hardware_HardwareBuffer_create(JNIEnv *en
 	jobject obj = AHardwareBuffer_toHardwareBuffer(env, b);
 	AHardwareBuffer_release(b);
 	return obj;
+}
+
+/* Snapshot CPU RGBA pixels for the compositor. No GPU import is advertised.
+ * The caller must obey buffer/fence ownership and not write after submission. */
+int atl_hardware_buffer_copy_rgba(AHardwareBuffer *b, unsigned char **pixels, int *width, int *height) {
+	*pixels = NULL;
+	if (!b || b->desc.format != 1) return -ENOTSUP;
+	if (atomic_exchange(&b->image_locked, 1)) return -EBUSY;
+	size_t size = (size_t)b->desc.width * b->desc.height * 4;
+	unsigned char *copy = malloc(size);
+	if (copy) memcpy(copy, b->data, size);
+	atomic_store(&b->image_locked, 0);
+	if (!copy) return -ENOMEM;
+	*pixels = copy; *width = b->desc.width; *height = b->desc.height;
+	return 0;
 }
