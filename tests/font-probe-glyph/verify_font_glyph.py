@@ -446,17 +446,28 @@ def compare_cells(ref, cand):
 
 
 def main(argv):
+    global STRINGS, EXPECTED_CELLS, EXPECTED_KEYS
     allow_bare = False
     positional = []
     for arg in argv:
         if arg == "--allow-bare":
             allow_bare = True
+        elif arg == "--extended":
+            STRINGS = STRINGS[:6] + [
+                ("combining", "x\u0301"), ("arabic", "\u0633\u0644\u0627\u0645"),
+                ("supplementary", "\U0001d54f"),
+                ("arabic_marks", "\u0633\u064e\u0644\u064e\u0627\u0645"),
+                ("stacked_marks", "q\u0301\u0323"),
+            ]
         elif arg.startswith("--"):
             usage("unknown option %r" % arg)
         else:
             positional.append(arg)
     if len(positional) != 2:
         usage("expected <android_json> <candidate_json>")
+
+    EXPECTED_CELLS = expected_cells()
+    EXPECTED_KEYS = {cell_key(c): c for c in EXPECTED_CELLS}
 
     ref_doc, ref_sentinel = load_side(positional[0], "android", allow_bare)
     cand_doc, cand_sentinel = load_side(positional[1], "candidate", allow_bare)

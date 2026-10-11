@@ -3,6 +3,7 @@ package android.graphics.fonts;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.graphics.Typeface;
 
 import java.io.File;
 import java.io.IOException;
@@ -135,11 +136,12 @@ public final class Font {
 		public @NonNull Font build() throws IOException {
 			if (!mFile.isFile())
 				throw new IOException("Font file does not exist: " + mFile);
-			/* AOSP derives the unspecified weight/italic from the font tables (FontFileUtil
-			 * .analyzeStyle); ATL does not re-read the tables here, so the unresolved values fall
-			 * back to the regular upright style. */
-			int weight = mWeight < 0 ? FontStyle.FONT_WEIGHT_NORMAL : mWeight;
-			boolean italic = mItalic == 1;
+			Typeface face = new Typeface.Builder(mFile).setTtcIndex(mTtcIndex)
+					.setFontVariationSettings(mAxes).build();
+			if (face == null)
+				throw new IOException("Unable to load font: " + mFile);
+			int weight = mWeight < 0 ? face.getWeight() : mWeight;
+			boolean italic = mItalic < 0 ? face.isItalic() : mItalic == 1;
 			return new Font(mFile, mTtcIndex, weight, italic, mAxes);
 		}
 	}

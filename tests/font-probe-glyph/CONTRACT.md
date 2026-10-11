@@ -23,3 +23,21 @@ of hinting/linear flags, real versus synthetic italic and variable-font settings
 
 Commands: `sh build.sh`, `bash run_font_glyph_selftests.sh`, and
 `python3 verify_font_glyph.py <android-ref.json> <candidate.json> --allow-bare`.
+
+## Extended integration regression
+
+Build with `FONT_GLYPH_EXTENDED=true` using the same `build.sh`, sign once, and run
+that identical APK on Android and ATL. Compare using
+`verify_font_glyph.py --extended --allow-bare ANDROID.json ATL.json`. This adds
+combining accents, Arabic with/without marks, a supplementary code point, and
+stacked marks (`q` + acute + dot below) at the four existing sizes. All original
+tolerances remain unchanged: bounds are exact. The probe also asserts that
+`Font.Builder(File)` infers the bundled bold font's weight and respects explicit
+weight/slant overrides. Failures produce ERROR evidence, rejected by the oracle.
+
+The ordinary mode and frozen 41-cell references are unchanged. Extended mode
+requires its own Android reference and matching APK hash; it cannot reuse the
+ordinary reference. During integration, the preserved pre-repair runtime rejected
+the extended font style test, and the shaping-only variant exposed bottom=3 vs
+Android bottom=6 for stacked marks at 12.5px. This is an implementation negative
+control, separate from malformed-evidence analyzer controls.

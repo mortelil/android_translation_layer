@@ -15,11 +15,13 @@ FRAMEWORK_RES=${FRAMEWORK_RES:-$HOME/ATL/review-repairs/build-mobile/res/framewo
 output=$(mkdir -p "$1" && cd "$1" && pwd)
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 mkdir -p "$output/classes"
+case ${FONT_GLYPH_EXTENDED:-false} in true|false) ;; *) echo "FONT_GLYPH_EXTENDED must be true or false" >&2; exit 2 ;; esac
+printf 'package org.atl.tests.fontglyph; final class ProbeConfig { static final boolean EXTENDED = %s; }\n' "${FONT_GLYPH_EXTENDED:-false}" > "$output/ProbeConfig.java"
 # shellcheck disable=SC2046
 "${JAVAC:-javac}" -source 8 -target 8 \
 	-cp "$ANDROID_JAR" \
 	-d "$output/classes" \
-	$(find "$source_dir/src" -name '*.java')
+	$(find "$source_dir/src" -name '*.java') "$output/ProbeConfig.java"
 dx --min-sdk-version=24 --dex --output="$output/classes.dex" "$output/classes"
 aapt package -f \
 	-M "$source_dir/AndroidManifest.xml" \

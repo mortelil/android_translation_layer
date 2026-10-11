@@ -401,9 +401,10 @@ static hb_font_t *atl_run_hb_font(struct atl_face_cache *cache, float size)
  * the shaped x_advance with and without the "kern" feature at minikin's scale. Returns a newly
  * allocated array of NUM_GLYPHS entries (0 where a glyph carries none), or NULL when the run
  * cannot be shaped (single glyph, shape/reorder mismatch) and the caller must fall back. */
-static int *atl_run_pair_kerns(struct atl_face_cache *cache, float size, const char *text, int text_len, int num_glyphs)
+static int *atl_run_pair_kerns(struct atl_face_cache *cache, float size, const char *text, int text_len, PangoGlyphString *glyphs, int **x_offsets, int **y_offsets)
 {
-	if (num_glyphs < 2 || !text || text_len <= 0) return NULL;
+	int num_glyphs = glyphs->num_glyphs;
+	if (num_glyphs < 1 || !text || text_len <= 0) return NULL;
 	hb_font_t *hb = atl_run_hb_font(cache, size);
 	if (!hb) return NULL;
 	hb_feature_t no_kern;
@@ -420,12 +421,24 @@ static int *atl_run_pair_kerns(struct atl_face_cache *cache, float size, const c
 			hb_shape(hb, buf, NULL, 0);
 		unsigned int n = 0;
 		hb_glyph_position_t *pos = hb_buffer_get_glyph_positions(buf, &n);
-		if (n != (unsigned int)num_glyphs) { /* not the same glyph sequence: no pair terms */
+		hb_glyph_info_t *info = hb_buffer_get_glyph_infos(buf, NULL);
+		bool matching = n == (unsigned int)num_glyphs;
+		for (unsigned int i = 0; matching && i < n; i++)
+			matching = info[i].codepoint == glyphs->glyphs[i].glyph;
+		if (!matching) { /* Do not apply positions to a different glyph sequence. */
 			g_free(out);
 			out = NULL;
 			break;
 		}
 		if (pass == 0) {
+			if (x_offsets && y_offsets) {
+				*x_offsets = g_new0(int, n);
+				*y_offsets = g_new0(int, n);
+				for (unsigned int i = 0; i < n; i++) {
+					(*x_offsets)[i] = pos[i].x_offset;
+					(*y_offsets)[i] = pos[i].y_offset;
+				}
+			}
 			out = g_new0(int, n);
 			for (unsigned int i = 0; i < n; i++) out[i] = pos[i].x_advance;
 		} else {
@@ -665,9 +678,10 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 			int run_offset = ((PangoGlyphItem *)run->data)->item->offset;
 			/* The pair adjustment the shaping result carries for this run (1/256 px per glyph),
 			 * or NULL when there is none to apply. */
+			int *x_offsets = NULL, *y_offsets = NULL;
 			int *pair_kerns = atl_run_pair_kerns(&face_cache, size, str + run_offset,
 			                                     ((PangoGlyphItem *)run->data)->item->length,
-			                                     glyphs->num_glyphs);
+			                                     glyphs, &x_offsets, &y_offsets);
 			/* Letter spacing is applied per script run and only to letter spacing capable scripts
 			 * (a Pango run is one script, so its first code point selects it). */
 			double run_ls = 0, run_ls_half = 0;
@@ -721,21 +735,24 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 					int glyph_right = (int)ceil(cbox.xMax / 64.0);
 					int glyph_bottom = (int)ceil(-cbox.yMin / 64.0);
 					if (glyph_right > glyph_left && glyph_bottom > glyph_top) {
-						double glyph_pen = pen;
+						double glyph_pen = pen + (x_offsets ? x_offsets[i] / 256.0 : 0.0);
+						double glyph_y = y_offsets ? -y_offsets[i] / 256.0 : 0.0;
 						if (!have_ink || glyph_pen + glyph_left < min_left)
 							min_left = glyph_pen + glyph_left;
 						if (!have_ink || glyph_pen + glyph_right > max_right)
 							max_right = glyph_pen + glyph_right;
-						if (!have_ink || glyph_top < min_top)
-							min_top = glyph_top;
-						if (!have_ink || glyph_bottom > max_bottom)
-							max_bottom = glyph_bottom;
+						if (!have_ink || glyph_y + glyph_top < min_top)
+							min_top = glyph_y + glyph_top;
+						if (!have_ink || glyph_y + glyph_bottom > max_bottom)
+							max_bottom = glyph_y + glyph_bottom;
 						have_ink = true;
 					}
 				}
 				pen += (double)atl_hb_glyph_advance(face, glyphs, i, loaded, linear, kern_scale, pair_kerns ? pair_kerns[i] : 0) * (1.0 / 256.0);
 			}
 			g_free(pair_kerns);
+			g_free(x_offsets);
+			g_free(y_offsets);
 		}
 		if (have_ink) {
 			left = (int)floor(min_left);
@@ -847,7 +864,7 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1widths(J
 			 * or NULL when there is none to apply. */
 			int *pair_kerns = atl_run_pair_kerns(&face_cache, size, str + run_offset,
 			                                     ((PangoGlyphItem *)run->data)->item->length,
-			                                     glyphs->num_glyphs);
+			                                     glyphs, NULL, NULL);
 			/* The shaping loop decides letter spacing per script run; a Pango run is one script,
 			 * so its first code point selects it. */
 			double run_ls = 0, run_ls_half = 0;

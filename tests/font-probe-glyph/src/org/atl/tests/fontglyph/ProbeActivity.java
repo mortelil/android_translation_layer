@@ -61,8 +61,8 @@ public class ProbeActivity extends Activity {
             "5c1247acef7f2b8522a31742c76d6adcb5569bacc0be7ceaa4dc39dd252ce895";
 
     private static final float[] SIZES = {12.5f, 16.3f, 33.4f, 64.0f};
-    private static final String[] STRINGS = {"Hello", "AV", "jgy", "iiii", "\u2026", "m"};
-    private static final String[] STRING_NAMES =
+    private String[] STRINGS = {"Hello", "AV", "jgy", "iiii", "\u2026", "m"};
+    private String[] STRING_NAMES =
             {"Hello", "AV", "jgy", "iiii", "ellipsis", "m"};
 
     private static final float FLAG_SIZE = 33.4f;
@@ -106,6 +106,11 @@ public class ProbeActivity extends Activity {
     }
 
     private String runProbe() throws Exception {
+        boolean extended = ProbeConfig.EXTENDED;
+        if (extended) STRINGS = new String[] {"Hello", "AV", "jgy", "iiii", "\u2026", "m",
+                "x\u0301", "\u0633\u0644\u0627\u0645", "\uD835\uDD4F",
+                "\u0633\u064e\u0644\u064e\u0627\u0645", "q\u0301\u0323"};
+        if (extended) STRING_NAMES = new String[] {"Hello", "AV", "jgy", "iiii", "ellipsis", "m", "combining", "arabic", "supplementary", "arabic_marks", "stacked_marks"};
         File fileA = new File(getFilesDir(), ASSET_A);
         File fileB = new File(getFilesDir(), ASSET_B);
         File fileBold = new File(getFilesDir(), ASSET_BOLD);
@@ -121,6 +126,16 @@ public class ProbeActivity extends Activity {
         Typeface typefaceB = Typeface.createFromFile(fileB);
         Typeface typefaceBoldFile = Typeface.createFromFile(fileBold);
         Typeface typefaceCreateBold = Typeface.create(typefaceA, Typeface.BOLD);
+
+        if (extended) {
+            android.graphics.fonts.Font bold = new android.graphics.fonts.Font.Builder(fileBold).build();
+            if (bold.getStyle().getWeight() != 700)
+                throw new AssertionError("Font.Builder must infer bold weight");
+            android.graphics.fonts.Font overridden = new android.graphics.fonts.Font.Builder(fileBold)
+                    .setWeight(300).setSlant(0).build();
+            if (overridden.getStyle().getWeight() != 300 || overridden.getStyle().getSlant() != 0)
+                throw new AssertionError("Font.Builder must preserve explicit style");
+        }
 
         StringBuilder exceptions = new StringBuilder();
         checkSha(exceptions, "A", shaA, EXPECTED_SHA_A);
