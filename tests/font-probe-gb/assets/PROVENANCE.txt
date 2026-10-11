@@ -1,0 +1,7 @@
+Test fonts are unmodified host distribution fonts, not ATL-authored code.
+DejaVuSans.ttf: /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+Ubuntu-Variable.ttf: /usr/share/fonts/truetype/ubuntu/Ubuntu[wdth,wght].ttf (filename only renamed)
+NotoSansCJK-Regular.ttc: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+8x13.pcf: decompressed X11/misc/8x13-ISO8859-1.pcf.gz from xfonts-base.
+See the adjacent original distribution copyright/license notices. These are
+separate test assets; their font licenses are not replaced by ATL's GPL license.
