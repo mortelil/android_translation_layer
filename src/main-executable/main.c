@@ -1,6 +1,8 @@
 // for dladdr
 #define _GNU_SOURCE
 
+#include "../api-impl-jni/jni_exceptions.h"
+
 #include <cairo-svg.h>
 #include <gdk/wayland/gdkwayland.h>
 #include <gtk/gtk.h>
@@ -280,6 +282,7 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, do
 		return FALSE;
 	}
 	activity_start(env, activity);
+	atl_jni_handle_uncaught_exception(env, "Activity startup");
 	return TRUE;
 }
 
@@ -349,6 +352,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		if ((*env)->ExceptionCheck(env))
 			(*env)->ExceptionDescribe(env);
 		activity_start(env, activity);
+		atl_jni_handle_uncaught_exception(env, "Activity startup");
 		return;
 	}
 	char *dex_install_dir;
@@ -751,6 +755,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 	if (!d->apk_instrumentation_class) {
 		activity_start(env, activity_object);
+		atl_jni_handle_uncaught_exception(env, "Activity startup");
 
 		g_timeout_add(10, G_SOURCE_FUNC(hacky_on_window_focus_changed_callback), env);
 	}

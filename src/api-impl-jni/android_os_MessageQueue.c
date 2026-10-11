@@ -1,5 +1,6 @@
 #include "defines.h"
 #include "util.h"
+#include "jni_exceptions.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -31,7 +32,7 @@ static gboolean dispatch_func(GSource *source, GSourceFunc callback, gpointer us
 	dispatch_deadline = g_get_monotonic_time() + 4000;
 	(*env)->CallStaticVoidMethod(env, handle_cache.looper.class, handle_cache.looper.loop);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Looper.loop");
 
 	return G_SOURCE_CONTINUE;
 }
@@ -90,7 +91,7 @@ void prepare_main_looper(JNIEnv *env)
 
 	(*env)->CallStaticVoidMethod(env, handle_cache.looper.class, handle_cache.looper.prepareMainLooper);
 	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
+		atl_jni_handle_uncaught_exception(env, "Looper.prepareMainLooper");
 	source = g_source_new(&source_funcs, sizeof(GSource));
 	/* Share a priority with GTK redraws: a busy Android loop must not
 	 * prevent queued textures and input feedback from reaching the screen. */

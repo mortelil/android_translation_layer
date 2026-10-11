@@ -1,0 +1,8 @@
+{
+  "apk": "fixture://E",
+  "apk_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "case": "E",
+  "run_id": "wrong-identity",
+  "runner_exit": 1,
+  "task_id": "JNI-EXC-001"
+}

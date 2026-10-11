@@ -1,0 +1,6 @@
+JVM launched successfully
+JNIEXC001_JSON_BEGIN
+{"task_id":"JNI-EXC-001","case":"A","instance_id":"fixture"}
+JNIEXC001_JSON_END
+JNI DETECTED ERROR IN APPLICATION: JNI GetObjectClass called with pending exception java.lang.IllegalStateException: JNI-EXC-001-A
+JNIEXC001_RUN_COMPLETE run_id=fixture-b-abort-1 runner_exit=1

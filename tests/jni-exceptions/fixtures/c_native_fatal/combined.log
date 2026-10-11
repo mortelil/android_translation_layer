@@ -1,0 +1,7 @@
+JVM launched successfully
+JNIEXC001_JSON_BEGIN
+{"task_id":"JNI-EXC-001","case":"A","instance_id":"fixture"}
+JNIEXC001_JSON_END
+JNIEXC001_POS_DONE
+fatal: uncaught Java exception from Looper.loop
+JNIEXC001_RUN_COMPLETE run_id=c-native-fatal runner_exit=1
