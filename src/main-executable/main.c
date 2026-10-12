@@ -14,6 +14,7 @@
 #include "../api-impl-jni/app/android_app_Activity.h"
 #include "../api-impl-jni/content/android_content_Context.h"
 
+#include "../libandroid/choreographer.h"
 #include "actions.h"
 #include "back_button.h"
 #include "libc_bio_path_overrides.h"
@@ -546,6 +547,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	/* -- misc -- */
 
 	window = gtk_application_window_new(app);
+	ATL_choreographer_set_widget(GTK_WIDGET(window));
 	GtkWidget *stack = gtk_stack_new();
 	gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
 	atl_window_set_content(env, GTK_WINDOW(window), stack);

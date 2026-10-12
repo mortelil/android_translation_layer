@@ -13,18 +13,28 @@ struct sp {
 	char filler[16];
 };
 
+/* The C++ functions return an owning sp<Looper>. Unwrap the temporary
+ * reference while leaving the Looper's thread-local reference alive. */
+void _ZNK7android7RefBase9decStrongEPKv(ALooper *this, void *id);
+
 /* --- */
 
 struct sp _ZN7android6Looper12getForThreadEv(void);
 ALooper *ALooper_forThread(void)
 {
-	return _ZN7android6Looper12getForThreadEv().ptr;
+	struct sp ref = _ZN7android6Looper12getForThreadEv();
+	ALooper *ptr = ref.ptr;
+	if (ptr) _ZNK7android7RefBase9decStrongEPKv(ptr, &ref);
+	return ptr;
 }
 
 struct sp _ZN7android6Looper7prepareEi(int opts);
 ALooper *ALooper_prepare(int opts)
 {
-	return _ZN7android6Looper7prepareEi(opts).ptr;
+	struct sp ref = _ZN7android6Looper7prepareEi(opts);
+	ALooper *ptr = ref.ptr;
+	if (ptr) _ZNK7android7RefBase9decStrongEPKv(ptr, &ref);
+	return ptr;
 }
 
 void _ZNK7android7RefBase9incStrongEPKv(ALooper *this, void *unused);

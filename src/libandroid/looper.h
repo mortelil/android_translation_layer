@@ -1,9 +1,14 @@
 #ifndef LOOPER_H
 #define LOOPER_H
+#include <stdbool.h>
 
 typedef void ALooper;
 typedef int (*Looper_callbackFunc)(int fd, int events, void *data);
 
+ALooper *ALooper_forThread(void);
+void ALooper_acquire(ALooper *looper);
+void ALooper_release(ALooper *looper);
+int ALooper_removeFd(ALooper *looper, int fd);
 ALooper *ALooper_prepare(int opts);
 void ALooper_wake(ALooper *looper);
 bool ALooper_isPolling(ALooper *looper);

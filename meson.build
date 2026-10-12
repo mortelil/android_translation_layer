@@ -66,6 +66,7 @@ libandroid_so = shared_library('android', [
                                           'src/libandroid/aaudio.c',
                                           'src/libandroid/shared_memory.c',
                                           	'src/libandroid/looper.c',
+                                          'src/libandroid/choreographer.c',
                                           	'src/libandroid/media.c',
                                           	'src/libandroid/native_window.c',
                                           'src/libandroid/surface_control.c',
@@ -223,7 +224,7 @@ executable('android-translation-layer', [
                                         ],
                                         install: true,
                                         dependencies: [
-                                        	dependency('gtk4'), dependency('jni'), declare_dependency(link_with: libtranslationlayer_so), libart_dep, dependency('dl'), libdl_bio_dep, libc_bio_dep, dependency('libportal'), dependency('fontconfig'),
+                                        dependency('gtk4'), dependency('jni'), declare_dependency(link_with: [libtranslationlayer_so, libandroid_so]), libart_dep, dependency('dl'), libdl_bio_dep, libc_bio_dep, dependency('libportal'), dependency('fontconfig'),
                                         ],
                                         link_args: [
                                         	'-rdynamic'
