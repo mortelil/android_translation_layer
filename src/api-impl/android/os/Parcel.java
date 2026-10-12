@@ -584,11 +584,13 @@ public class Parcel {
 		return array;
 	}
 
+	// Android typed containers use a four-byte presence marker, not a stream
+	// boolean. Any nonzero marker denotes an object (SafeParcel uses sizes).
 	public void writeTypedArray(Parcelable[] array, int flags) {
 		int len = array == null ? -1 : array.length;
 		writeInt(len);
 		for (int i = 0; i < len; i++) {
-			writeBoolean(array[i] != null);
+			writeInt(array[i] != null ? 1 : 0);
 			if (array[i] != null)
 				array[i].writeToParcel(this, flags);
 		}
@@ -599,7 +601,7 @@ public class Parcel {
 		if (array.length != size)
 			throw new RuntimeException("array length mismatch");
 		for (int i = 0; i < size; i++) {
-			if (readBoolean())
+			if (readInt() != 0)
 				array[i] = creator.createFromParcel(this);
 			else
 				array[i] = null;
@@ -608,11 +610,11 @@ public class Parcel {
 
 	public Object[] createTypedArray(Parcelable.Creator<Parcelable> creator) {
 		int size = readInt();
-		if (size == -1)
+		if (size < 0)
 			return null;
 		Object[] array = creator.newArray(size);
 		for (int i = 0; i < size; i++) {
-			if (readBoolean())
+			if (readInt() != 0)
 				array[i] = creator.createFromParcel(this);
 		}
 		return array;
@@ -622,7 +624,7 @@ public class Parcel {
 		int len = list == null ? -1 : list.size();
 		writeInt(len);
 		for (int i = 0; i < len; i++) {
-			writeBoolean(list.get(i) != null);
+			writeInt(list.get(i) != null ? 1 : 0);
 			if (list.get(i) != null)
 				list.get(i).writeToParcel(this, 0);
 		}
@@ -632,7 +634,7 @@ public class Parcel {
 		int size = readInt();
 		list.clear();
 		for (int i = 0; i < size; i++) {
-			if (readBoolean())
+			if (readInt() != 0)
 				list.add(creator.createFromParcel(this));
 			else
 				list.add(null);
@@ -641,11 +643,11 @@ public class Parcel {
 
 	public ArrayList<Parcelable> createTypedArrayList(Parcelable.Creator<Parcelable> creator) throws ReflectiveOperationException {
 		int size = readInt();
-		if (size == -1)
+		if (size < 0)
 			return null;
 		ArrayList<Parcelable> list = new ArrayList<>(size);
 		for (int i = 0; i < size; i++) {
-			if (readBoolean())
+			if (readInt() != 0)
 				list.add(creator.createFromParcel(this));
 			else
 				list.add(null);
