@@ -267,6 +267,30 @@ JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1loadDataWithBaseURL
 JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1loadUrl
   (JNIEnv *, jobject, jlong, jstring);
 
+/*
+ * Class:     android_webkit_WebView
+ * Method:    native_evaluateJavascript
+ * Signature: (JLjava/lang/String;Landroid/webkit/ValueCallback;)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1evaluateJavascript
+  (JNIEnv *, jobject, jlong, jstring, jobject);
+
+/*
+ * Class:     android_webkit_WebView
+ * Method:    native_setJavascriptBridge
+ * Signature: (JLandroid/webkit/JavascriptBridge;Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1setJavascriptBridge
+  (JNIEnv *, jobject, jlong, jobject, jstring);
+
+/*
+ * Class:     android_webkit_WebView
+ * Method:    native_destroyJavascript
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1destroyJavascript
+  (JNIEnv *, jobject, jlong);
+
 #ifdef __cplusplus
 }
 #endif
