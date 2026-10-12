@@ -41,6 +41,7 @@ public final class ATLLoadedAppManager {
 		if ("android".equals(packageName) || "atl".equals(packageName)) {
 			return ATLLoadedApp.getSystemApplication().pkg;
 		}
+		if (!isPackageVisible(app.pkg.packageName, packageName)) return null;
 		app = loaded_apps.get(packageName);
 		if (app != null) {
 			return app.pkg;
@@ -193,7 +194,13 @@ public final class ATLLoadedAppManager {
 	}
 
 	private static boolean isPackageVisible(String sourcePackageName, String targetPackageName) {
-		return always_visible_packages.contains(targetPackageName) || always_allow_query_all_packages.contains(sourcePackageName);
+		if (always_visible_packages.contains(targetPackageName) || always_allow_query_all_packages.contains(sourcePackageName)) return true;
+		PackageParser.Package source = ATLLoadedApp.getPrimaryApplication().pkg;
+		return source.packageName.equals(sourcePackageName) && (
+		    source.packageName.equals(targetPackageName) ||
+		    source.applicationInfo.targetSdkVersion < 30 ||
+		    source.requestedPermissions.contains("android.permission.QUERY_ALL_PACKAGES") ||
+		    source.queriesPackages.contains(targetPackageName));
 	}
 
 	private static ATLLoadedApp loadGStub(String packageName) {

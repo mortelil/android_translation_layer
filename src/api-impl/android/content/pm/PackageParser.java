@@ -1337,6 +1337,25 @@ public class PackageParser {
 				XmlUtils.skipCurrentTag(parser);
 				continue;
 
+			} else if (tagName.equals("queries")) {
+				int queriesDepth = parser.getDepth();
+				int queryType;
+				while ((queryType = parser.next()) != XmlPullParser.END_DOCUMENT &&
+				       (queryType != XmlPullParser.END_TAG || parser.getDepth() > queriesDepth)) {
+					if (queryType != XmlPullParser.START_TAG) continue;
+					if ("package".equals(parser.getName())) {
+						String name = parser.getAttributeValue("http://schemas.android.com/apk/res/android", "name");
+						if (name == null || name.isEmpty() || name.startsWith("@")) {
+							outError[0] = "<queries><package> requires a literal android:name";
+							mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
+							return null;
+						}
+						pkg.queriesPackages.add(name);
+					} else {
+						Slog.w(TAG, "Unsupported <queries> child: " + parser.getName());
+					}
+					XmlUtils.skipCurrentTag(parser);
+				}
 			} else if (tagName.equals("eat-comment")) {
 				// Just skip this tag
 				XmlUtils.skipCurrentTag(parser);
@@ -3312,6 +3331,8 @@ public class PackageParser {
 		public final ArrayList<Instrumentation> instrumentation = new ArrayList<Instrumentation>(0);
 
 		public final ArrayList<String> requestedPermissions = new ArrayList<String>();
+		/** Explicit package visibility declarations; intent/provider queries remain unsupported. */
+		public final java.util.HashSet<String> queriesPackages = new java.util.HashSet<String>();
 		public final ArrayList<Boolean> requestedPermissionsRequired = new ArrayList<Boolean>();
 
 		public ArrayList<String> protectedBroadcasts;
