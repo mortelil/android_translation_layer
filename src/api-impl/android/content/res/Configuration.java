@@ -1593,4 +1593,28 @@ public final class Configuration implements Comparable<Configuration> {
 		// HACK: return true when hardware is identifying as a watch
 		return System.getenv("ATL_IS_WATCH") != null;
 	}
+
+	/**
+	 * Return whether the screen has a wide color gamut and wide color gamut rendering
+	 * is supported by this device.
+	 *
+	 * <p>When true, it implies the screen is colorspace aware but not
+	 * necessarily color-managed. The final colors may still be changed by the
+	 * screen depending on user settings.
+	 *
+	 * @return true if the screen has a wide color gamut and wide color gamut rendering
+	 * is supported, false otherwise
+	 */
+	public boolean isScreenWideColorGamut() {
+		return (colorMode & COLOR_MODE_WIDE_COLOR_GAMUT_MASK) == COLOR_MODE_WIDE_COLOR_GAMUT_YES;
+	}
+
+	/**
+	 * Return whether the screen has a high dynamic range.
+	 *
+	 * @return true if the screen has a high dynamic range, false otherwise
+	 */
+	public boolean isScreenHdr() {
+		return (colorMode & COLOR_MODE_HDR_MASK) == COLOR_MODE_HDR_YES;
+	}
 }

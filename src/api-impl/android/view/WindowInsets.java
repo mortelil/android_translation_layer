@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2010 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.view;
 
 import android.graphics.Insets;
@@ -23,6 +39,22 @@ public class WindowInsets {
 
 	public WindowInsets replaceSystemWindowInsets(int left, int top, int right, int bottom) {
 		return this;
+	}
+
+	/**
+	 * Returns a copy of this WindowInsets with selected system window insets replaced
+	 * with new values.
+	 *
+	 * @param systemWindowInsets New system window insets. Each field is the inset in pixels
+	 *                           for that edge
+	 * @return A modified copy of this WindowInsets
+	 * @deprecated use {@code Builder#Builder(WindowInsets)} with
+	 *             {@link Builder#setSystemWindowInsets(Insets)} instead.
+	 */
+	@Deprecated
+	public WindowInsets replaceSystemWindowInsets(Rect systemWindowInsets) {
+		return replaceSystemWindowInsets(systemWindowInsets.left, systemWindowInsets.top,
+		                                 systemWindowInsets.right, systemWindowInsets.bottom);
 	}
 
 	public int getSystemWindowInsetLeft() {
@@ -57,8 +89,146 @@ public class WindowInsets {
 		return 0;
 	}
 
+	/**
+	 * Returns the system window insets in pixels.
+	 *
+	 * <p>The system window inset represents the area of a full-screen window that is
+	 * partially or fully obscured by the status bar, navigation bar, IME or other system windows.
+	 *
+	 * @return The system window insets
+	 * @deprecated Use {@link #getInsets(int)} with {@link Type#systemBars()}
+	 */
+	@Deprecated
+	public Insets getSystemWindowInsets() {
+		// AOSP reads its compatibility type mask here, which is Type.systemBars() by default
+		// (both for WindowInsets.CONSUMED and for a plain Builder).
+		return getInsets(Type.systemBars());
+	}
+
 	public Insets getInsets(int typeMask) {
 		return Insets.NONE;
+	}
+
+	/**
+	 * Returns the insets a specific set of windows can cause, denoted by the
+	 * {@code typeMask} bit mask of {@link Type}s, regardless of whether that type is
+	 * currently visible or not.
+	 *
+	 * @param typeMask Bit mask of {@link Type}s to query the insets for.
+	 * @return The insets.
+	 *
+	 * @throws IllegalArgumentException If the caller tries to query {@link Type#ime()}.
+	 */
+	public Insets getInsetsIgnoringVisibility(int typeMask) {
+		if ((typeMask & Type.IME) != 0) {
+			throw new IllegalArgumentException("Unable to query the maximum insets for IME");
+		}
+		return getInsets(typeMask);
+	}
+
+	/**
+	 * Returns true if any of the system window inset values are nonzero.
+	 *
+	 * @return true if any of the system window inset values are nonzero
+	 * @deprecated Use {@link #getInsets(int)} with {@link Type#systemBars()}
+	 * instead.
+	 */
+	@Deprecated
+	public boolean hasSystemWindowInsets() {
+		return !getSystemWindowInsets().equals(Insets.NONE);
+	}
+
+	/**
+	 * Returns the stable insets in pixels.
+	 *
+	 * <p>The stable inset represents the area of a full-screen window that <b>may</b> be
+	 * partially or fully obscured by the system UI elements. This value does not change
+	 * based on the visibility state of those elements; for example, if the status bar is
+	 * normally shown, but temporarily hidden, the stable inset will still provide the inset
+	 * associated with the status bar being shown.
+	 *
+	 * @return The stable insets
+	 * @deprecated Use {@link #getInsetsIgnoringVisibility(int)} with {@link Type#systemBars()}
+	 * instead.
+	 */
+	@Deprecated
+	public Insets getStableInsets() {
+		// AOSP reads the maximum-inset map here; Type.systemBars() can never contain IME,
+		// so getInsetsIgnoringVisibility() is the faithful equivalent of that map read.
+		return getInsetsIgnoringVisibility(Type.systemBars());
+	}
+
+	/**
+	 * Returns true if any of the stable inset values are nonzero.
+	 *
+	 * @return true if any of the stable inset values are nonzero
+	 * @deprecated Use {@link #getInsetsIgnoringVisibility(int)} with {@link Type#systemBars()}
+	 * instead.
+	 */
+	@Deprecated
+	public boolean hasStableInsets() {
+		return !getStableInsets().equals(Insets.NONE);
+	}
+
+	/**
+	 * Returns the system gesture insets.
+	 *
+	 * <p>The system gesture insets represent the area of a window where system gestures have
+	 * priority and may consume some or all touch input, e.g. due to the a system bar
+	 * occupying it, or it being reserved for touch-only gestures.
+	 *
+	 * <p>Simple taps are guaranteed to reach the window even within the system gesture insets,
+	 * as long as they are outside the {@link #getSystemWindowInsets() system window insets}.
+	 *
+	 * <p>This inset is consumed together with the {@link #getSystemWindowInsets()
+	 * system window insets} by {@link #consumeSystemWindowInsets()}.
+	 *
+	 * @see #getMandatorySystemGestureInsets
+	 * @deprecated Use {@link #getInsets(int)} with {@link Type#systemGestures()} instead.
+	 */
+	@Deprecated
+	public Insets getSystemGestureInsets() {
+		return getInsets(Type.systemGestures());
+	}
+
+	/**
+	 * Returns the mandatory system gesture insets.
+	 *
+	 * <p>The mandatory system gesture insets represent the area of a window where mandatory system
+	 * gestures have priority and may consume some or all touch input, e.g. due to the a system bar
+	 * occupying it, or it being reserved for touch-only gestures.
+	 *
+	 * <p>In contrast to {@link #getSystemGestureInsets regular system gestures}, <b>mandatory</b>
+	 * system gestures cannot be overridden by {@link View#setSystemGestureExclusionRects}.
+	 *
+	 * <p>This inset is consumed together with the {@link #getSystemWindowInsets()
+	 * system window insets} by {@link #consumeSystemWindowInsets()}.
+	 *
+	 * @see #getSystemGestureInsets
+	 * @deprecated Use {@link #getInsets(int)} with {@link Type#mandatorySystemGestures()} instead.
+	 */
+	@Deprecated
+	public Insets getMandatorySystemGestureInsets() {
+		return getInsets(Type.mandatorySystemGestures());
+	}
+
+	/**
+	 * Returns the tappable element insets.
+	 *
+	 * <p>The tappable element insets represent how much tappable elements <b>must at least</b> be
+	 * inset to remain both tappable and visually unobstructed by persistent system windows.
+	 *
+	 * <p>This may be smaller than {@link #getSystemWindowInsets()} if the system window is
+	 * largely transparent and lets through simple taps (but not necessarily more complex gestures).
+	 *
+	 * <p>This inset is consumed together with the {@link #getSystemWindowInsets()
+	 * system window insets} by {@link #consumeSystemWindowInsets()}.
+	 *
+	 * @deprecated Use {@link #getInsets(int)} with {@link Type#tappableElement()} instead.
+	 */
+	@Deprecated
+	public Insets getTappableElementInsets() {
+		return getInsets(Type.tappableElement());
 	}
 
 	public DisplayCutout getDisplayCutout() {

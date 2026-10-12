@@ -193,6 +193,8 @@ public class Notification implements Parcelable {
 
 		public Builder setSmallIcon(int icon) { return this.setSmallIcon(icon, -1); }
 
+		public Builder setSmallIcon(Icon icon) { return this; }
+
 		public Builder setTicker(CharSequence tickerText) { return this; }
 
 		public Builder addExtras(Bundle bundle) { return this; }

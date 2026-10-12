@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: GPL-3.0-only
+import android.os.Parcel;
+import android.os.ParcelUuid;
+import android.media.PlaybackParams;
+
+public class TestCompatibilityValues {
+    private static void check(boolean value, String message) {
+        if (!value) throw new AssertionError(message);
+    }
+    public static void run(android.content.Context context) {
+        ParcelUuid id = ParcelUuid.fromString("12345678-1234-5678-9abc-123456789abc");
+        Parcel parcel = Parcel.obtain();
+        id.writeToParcel(parcel, 0);
+        parcel.setDataPosition(0);
+        check(id.equals(ParcelUuid.CREATOR.createFromParcel(parcel)), "UUID parcel round trip");
+        parcel.recycle();
+        PlaybackParams params = new PlaybackParams();
+        try { params.getSpeed(); throw new AssertionError("unset speed"); }
+        catch (IllegalStateException expected) {}
+        params.allowDefaults().setSpeed(1.5f).setPitch(0.75f);
+        parcel = Parcel.obtain();
+        params.writeToParcel(parcel, 0);
+        parcel.setDataPosition(0);
+        PlaybackParams copy = PlaybackParams.CREATOR.createFromParcel(parcel);
+        check(copy.getSpeed() == 1.5f && copy.getPitch() == 0.75f, "playback parcel round trip");
+        parcel.recycle();
+        android.app.NotificationChannel channel = new android.app.NotificationChannel("test", "Test", 2);
+        channel.setImportance(4);
+        check(channel.getId().equals("test") && channel.getName().equals("Test") && channel.getImportance()==4,
+              "notification channel state");
+        check(context.getSystemService(android.content.Context.ACCOUNT_SERVICE) instanceof android.accounts.AccountManager,
+              "account service type");
+        java.util.concurrent.Executor executor = new java.util.concurrent.Executor() { public void execute(Runnable command) { command.run(); } };
+        android.os.StrictMode.OnThreadViolationListener listener = new android.os.StrictMode.OnThreadViolationListener() { public void onThreadViolation(android.os.strictmode.Violation violation) {} };
+        android.os.StrictMode.ThreadPolicy policy = new android.os.StrictMode.ThreadPolicy.Builder()
+            .penaltyListener(executor, listener).build();
+        check(policy.getOnThreadViolationExecutor()==executor && policy.getOnThreadViolationListener()==listener,
+              "policy retains callback configuration");
+        android.view.ViewGroup.LayoutParams original = new android.view.ViewGroup.LayoutParams(123, 456);
+        android.view.ViewGroup.LayoutParams copied = new android.view.ViewGroup.LayoutParams(original);
+        check(copied.width == 123 && copied.height == 456, "layout params copy");
+        check(new android.view.accessibility.CaptioningManager().getUserStyle().foregroundColor == android.graphics.Color.WHITE,
+              "default caption style");
+        System.out.println("PASS: compatibility value APIs and account service");
+    }
+}

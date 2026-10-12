@@ -10,6 +10,11 @@ public class WebView extends ViewGroup {
 
 	private WebViewClient webViewClient;
 	private WebSettings settings;
+	// AOSP: WebView keeps the current page URL and the URL it was originally requested with.
+	// The WebKitGTK backend reports both through internalLoadChanged (see below); null means
+	// "no page loaded yet", never a fabricated value.
+	private String currentUrl;
+	private String originalUrl;
 
 	public WebView(Context context) {
 		this(context, null);
@@ -41,11 +46,30 @@ public class WebView extends ViewGroup {
 
 	// to be used by native code
 	void internalLoadChanged(int loadState, String url) {
+		// WebKitGTK reports this WebKitWebView's current URI with every load event:
+		// WEBKIT_LOAD_STARTED (0) carries the URI a new main-frame load was requested with,
+		// and the following WEBKIT_LOAD_REDIRECTED (1) / WEBKIT_LOAD_COMMITTED (2) /
+		// WEBKIT_LOAD_FINISHED (3) events carry the URI the load actually reached (a redirect
+		// replaces it). Keep both, like AOSP's getUrl()/getOriginalUrl() pair.
+		if (loadState == /*WEBKIT_LOAD_STARTED*/ 0)
+			originalUrl = url;
+		currentUrl = url;
+
 		if (loadState == /*WEBKIT_LOAD_STARTED*/ 0 && webViewClient != null) {
 			webViewClient.onPageStarted(this, url);
 		} else if (loadState == /*WEBKIT_LOAD_FINISHED*/ 3 && webViewClient != null) {
 			webViewClient.onPageFinished(this, url);
 		}
+	}
+
+	/** AOSP: the URL of the current page, or null if no page has been loaded. */
+	public String getUrl() {
+		return currentUrl;
+	}
+
+	/** AOSP: the URL the current page was originally requested with (before redirects). */
+	public String getOriginalUrl() {
+		return originalUrl;
 	}
 
 	boolean internalShouldOverrideUrlLoading(String url) {

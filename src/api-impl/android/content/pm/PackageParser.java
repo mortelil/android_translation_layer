@@ -2343,6 +2343,10 @@ public class PackageParser {
 			    com.android.internal.R.styleable.AndroidManifestActivity_exported, false);
 		}
 
+		a.info.directBootAware = sa.getBoolean(
+		    com.android.internal.R.styleable.AndroidManifestActivity_directBootAware,
+		    false);
+
 		a.info.theme = sa.getResourceId(
 		    com.android.internal.R.styleable.AndroidManifestActivity_theme, 0);
 
@@ -2811,6 +2815,10 @@ public class PackageParser {
 			}
 		}
 
+		p.info.directBootAware = sa.getBoolean(
+		    com.android.internal.R.styleable.AndroidManifestProvider_directBootAware,
+		    false);
+
 		sa.recycle();
 
 		if ((owner.applicationInfo.flags & ApplicationInfo.FLAG_CANT_SAVE_STATE) != 0) {
@@ -3067,6 +3075,10 @@ public class PackageParser {
 			}
 			setExported = true;
 		}
+
+		s.info.directBootAware = sa.getBoolean(
+		    com.android.internal.R.styleable.AndroidManifestService_directBootAware,
+		    false);
 
 		sa.recycle();
 

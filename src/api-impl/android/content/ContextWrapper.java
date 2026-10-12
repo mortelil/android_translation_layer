@@ -102,6 +102,14 @@ public class ContextWrapper extends Context {
 		return this.baseContext.startService(intent);
 	}
 
+	// AOSP ContextWrapper.startForegroundService (sources/android-37.0
+	// android/content/ContextWrapper.java:874-875) delegates to the base context. ATL has no
+	// separate foreground-service state, so this follows the same routing as startService().
+	@Override
+	public ComponentName startForegroundService(Intent service) {
+		return this.baseContext.startForegroundService(service);
+	}
+
 	@Override
 	public boolean bindService(Intent intent, ServiceConnection serviceConnection, int flags) {
 		return this.baseContext.bindService(intent, serviceConnection, flags);

@@ -1,5 +1,6 @@
 package android.app;
 
+import android.accounts.AccountManager;
 import android.annotation.Nullable;
 import android.annotation.UnsupportedAppUsage;
 import android.app.SearchManager;
@@ -211,6 +212,8 @@ public final class ContextImpl extends Context {
 				return new BatteryManager();
 			case "download":
 				return new DownloadManager();
+			case "account":
+				return AccountManager.get(this);
 			default:
 				Slog.e(TAG, "!!!!!!! getSystemService: case >" + name + "< is not implemented yet");
 				return null;
@@ -266,6 +269,15 @@ public final class ContextImpl extends Context {
 			return null;
 		}
 		return targetApp.startService(intent);
+	}
+
+	// AOSP ContextImpl.startForegroundService passes foreground=true to startServiceCommon
+	// (sources/android-37.0 android/app/ContextImpl.java:2084-2087). ATL keeps no separate
+	// foreground-service state - ATLLoadedApp.startService is the single start path - so this
+	// is the same start request, not a no-op.
+	@Override
+	public ComponentName startForegroundService(Intent service) {
+		return startService(service);
 	}
 
 	@Override

@@ -61,7 +61,9 @@ static void web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_
 {
 	WrapperWidget *wrapper = WRAPPER_WIDGET(gtk_widget_get_parent(GTK_WIDGET(web_view)));
 	JNIEnv *env = get_jni_env();
-	(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.webview.internalLoadChanged, load_event, _JSTRING(webkit_web_view_get_uri(web_view)));
+	/* the engine has no URI yet -> report Java null (AOSP getUrl() semantics), never NewStringUTF(NULL) */
+	const gchar *uri = webkit_web_view_get_uri(web_view);
+	(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.webview.internalLoadChanged, load_event, uri ? _JSTRING(uri) : NULL);
 
 }
 
