@@ -127,7 +127,13 @@ public class ContentResolver {
 	}
 
 	public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder, CancellationSignal cancellationSignal) {
-		return query(uri, projection, selection, selectionArgs, sortOrder);
+		if (cancellationSignal != null) cancellationSignal.throwIfCanceled();
+		Cursor cursor = query(uri, projection, selection, selectionArgs, sortOrder);
+		if (cancellationSignal != null && cancellationSignal.isCanceled()) {
+			if (cursor != null) cursor.close();
+			cancellationSignal.throwIfCanceled();
+		}
+		return cursor;
 	}
 
 	public int delete(Uri uri, String selection, String[] selectionArgs) {

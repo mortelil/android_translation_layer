@@ -17,7 +17,7 @@ public class ContentProviderClient implements AutoCloseable {
 	}
 
 	public ContentProvider getLocalContentProvider() {
-		return contentProvider;
+		return contentProvider instanceof ATLRemoteProvider ? null : contentProvider;
 	}
 
 	public Cursor query(Uri url, String[] projection, String selection, String[] selectionArgs, String sortOrder) throws RemoteException {

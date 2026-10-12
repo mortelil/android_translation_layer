@@ -123,6 +123,7 @@ srcs = [
 	'android/content/ComponentName.java',
 	'android/content/ContentCaptureOptions.java',
 	'android/content/ContentProvider.java',
+	'android/content/ATLRemoteProvider.java',
 	'android/content/ContentProviderClient.java',
 	'android/content/ContentResolver.java',
 	'android/content/ContentUris.java',

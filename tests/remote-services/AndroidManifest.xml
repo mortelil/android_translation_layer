@@ -2,6 +2,7 @@
  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28" />
  <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="Remote service contracts">
   <activity android:name=".TestActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+  <provider android:name=".TestProvider" android:authorities="org.atl.remoteservices.provider;org.atl.remoteservices.alias" android:exported="false"/>
   <service android:name=".TestService" android:process=":worker" android:exported="false"/>
  </application>
 </manifest>

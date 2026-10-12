@@ -32,8 +32,9 @@ public abstract class ContentProvider {
 				process_name = primary.pkg.packageName;
 			if (!current.equals(process_name))
 				continue;
-			atl_providers.put(provider_parsed.info.authority,
-			                  new ATLProvider(primary, provider_parsed));
+			ATLProvider entry = new ATLProvider(primary, provider_parsed);
+			for (String authority : provider_parsed.info.authority.split(";"))
+				atl_providers.put(authority, entry);
 		}
 		// getContentProvider() initializes the content providers,
 		// we also opportunistically remove the ones that failed to load
@@ -46,6 +47,11 @@ public abstract class ContentProvider {
 	}
 
 	static ContentProvider atl_get_content_provider(String authority) {
+		ContentProvider local = atl_get_local_content_provider(authority);
+		return local != null ? local : ATLRemoteProvider.lookup(authority);
+	}
+
+	static ContentProvider atl_get_local_content_provider(String authority) {
 		ATLProvider atlProvider = atl_providers.get(authority);
 		return atlProvider == null ? null : atlProvider.getContentProvider();
 	}

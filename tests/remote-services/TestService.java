@@ -28,6 +28,9 @@ public class TestService extends Service {
 			protected boolean onTransact(int code, Parcel data, Parcel reply,
 			                             int flags) {
 				switch (code) {
+					case 10:
+						reply.writeInt(ProviderChecks.run(TestService.this));
+						return true;
 					case 1:
 						reply.writeInt(android.os.Process.myPid());
 						reply.writeString(Application.getProcessName());

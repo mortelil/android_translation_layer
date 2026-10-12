@@ -137,3 +137,41 @@ Before enabling by default or merging as general service support: finish handle
 release/reference lifetime, review failure/cancellation and ownership under stress,
 compare the remote contracts on Android, and verify an ARM build. Keep the opt-in
 flag and these explicit limitations until then.
+
+## Parent-provider reads
+
+The same connection now exposes a parent-side provider endpoint. After service
+process initialization, a child can query providers declared in its own APK
+that belong to the parent application process. Providers remain instantiated in
+the owning process, including those declared with multiple authority aliases.
+This does not route to another app, sibling process, or another launcher.
+
+Supported: legacy and Bundle query arguments, `getType`, null/empty results,
+column names, null/integer/float/string/blob values, cursor extras, and provider
+exceptions. Results are immutable snapshots capped at 512 rows, 128 columns,
+and 64 KiB; oversized results fail explicitly, never truncate. Parent cursors
+are closed on success and failure; snapshots allocate no persistent Binder
+handles. `ContentProviderClient.getLocalContentProvider()` returns null for a
+remote provider. Unknown authorities remain unavailable.
+
+Mutations and file operations explicitly throw UnsupportedOperationException.
+Snapshots do not implement live notifications or remote `respond`; `requery`
+returns false. Cancellation is checked before dispatch and after the reply;
+it does not interrupt a running parent query. There is no paged CursorWindow
+transport, startup-time provider channel, cross-package permission/grant model,
+or system-wide provider discovery. These limits are intentional first-milestone
+boundaries, not full ContentProvider compatibility.
+
+Reference: AOSP `ContentProviderNative.java` and `ContentProvider.java`,
+android-17.0.0_r1 (94b4c163b7dfe5ce3607f7bb8456f9573f7de57d), notably provider
+execution on Binder threads, query arguments, result ownership, and exceptions.
+The ATL wire protocol/snapshot implementation is new GPL-3.0-only code; no AOSP
+implementation was copied. Existing AOSP file headers are preserved.
+
+`tests/remote-services` now exercises real child-to-parent reads including
+process-local state, Binder calling PID, nested callbacks, cursor values and
+extras, aliases, null versus empty, provider exceptions, oversized results,
+cursor cleanup, cancellation before dispatch, rejected mutation, and authority
+confinement. The same probe fails against the earlier build at remote-provider
+acquisition. Optional `ATL_PROVIDER_DIAGNOSTICS=1` logs only null/completed status
+and row counts, never query arguments, URIs, settings values, or cursor contents.

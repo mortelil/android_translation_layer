@@ -94,7 +94,7 @@ public final class ATLRemoteServices {
 			return existing;
 		try {
 			final int[] launch = ATLBinderConnection.spawn(app.pkg.applicationInfo.sourceDir, name, Build.VERSION.SDK_INT, ATLLoadedApp.getPrimaryApplication().pkg.packageName, Application.getProcessName());
-			final ATLBinderConnection transport = new ATLBinderConnection(launch[0], launch[1], null);
+			final ATLBinderConnection transport = new ATLBinderConnection(launch[0], launch[1], ATLRemoteProvider.endpoint(app.pkg.packageName));
 			processes.put(key, transport);
 			knownProcesses.put(launch[1], new String[] {name, app.pkg.packageName});
 			transport.onDeath(new Runnable() { public void run() {
@@ -286,6 +286,10 @@ public final class ATLRemoteServices {
 			bindings.put(callback, connection);
 		}
 		return app.bindService(context, intent, connection, bindFlags) == null ? 0 : 1;
+	}
+	public static IBinder parentProviderBinder() {
+		if (child == null) throw new IllegalStateException("Parent provider channel is not ready during Application startup");
+		return child.remote(1);
 	}
 	/** Called by the native launcher after Application.onCreate, instead of launching an Activity. */
 	public static void runChild() {

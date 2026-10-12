@@ -81,6 +81,12 @@ public class TestActivity extends Activity {
 		check(stats.readInt() == android.os.Process.myPid(), "caller PID");
 		check(stats.readInt() == 1 && stats.readInt() == 1, "onCreate/onBind once");
 		stats.recycle();
+		TestProvider.marker = 73;
+		Parcel provider = call(service, 10, Parcel.obtain());
+		check(provider.readInt() == 73, "remote provider contracts");
+		provider.recycle();
+		check(TestProvider.closes == 4, "parent cursors closed including oversized snapshots");
+		check(TestProvider.calls == 7, "pre-cancel and unsupported mutations do not reach provider");
 		// Started + bound: removing one of two clients must not destroy the
 		// service.
 		startService(serviceIntent());
