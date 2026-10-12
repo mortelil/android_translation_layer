@@ -46,12 +46,13 @@ static void settings_changed_cb(XdpSettings *xdp_settings, gchar *namestpace, gc
 		if (!configuration) {
 			configuration = _GET_STATIC_OBJ_FIELD(handle_cache.context.class, "sys_config", "Landroid/content/res/Configuration;");
 		}
-		if (color_sheme == 1) // Prefer dark appearance
-			_SET_INT_FIELD(configuration, "uiMode", /*UI_MODE_NIGHT_YES*/ 0x20);
-		else if (color_sheme == 2) // Prefer light appearance
-			_SET_INT_FIELD(configuration, "uiMode", /*UI_MODE_NIGHT_NO*/ 0x10);
-		else // No preference
-			_SET_INT_FIELD(configuration, "uiMode", /*UI_MODE_NIGHT_UNDEFINED*/ 0x00);
+		// Portal "no preference" is not Android NIGHT_UNDEFINED. The latter
+		// means "leave unchanged" in a configuration delta and cannot be a
+		// concrete system mode (AppCompat can otherwise recurse forever).
+		int ui_mode = _GET_INT_FIELD(configuration, "uiMode");
+		ui_mode = (ui_mode & ~0x30) | (color_sheme == 1 ? 0x20 : 0x10);
+		if (!(ui_mode & 0x0f)) ui_mode |= 0x01; // UI_MODE_TYPE_NORMAL
+		_SET_INT_FIELD(configuration, "uiMode", ui_mode);
 	}
 }
 
@@ -60,6 +61,16 @@ static XdpSettings *xdp_settings = NULL;
 
 JNIEXPORT void JNICALL Java_android_content_Context_native_1updateConfig(JNIEnv *env, jclass this, jobject config)
 {
+	// A missing/unavailable portal still needs a concrete Android uiMode.
+	gboolean dark = FALSE;
+	GtkSettings *settings = gtk_settings_get_default();
+	if (settings)
+		g_object_get(settings, "gtk-application-prefer-dark-theme", &dark, NULL);
+	int ui_mode = _GET_INT_FIELD(config, "uiMode");
+	ui_mode = (ui_mode & ~0x30) | (dark ? 0x20 : 0x10);
+	if (!(ui_mode & 0x0f)) ui_mode |= 0x01;
+	_SET_INT_FIELD(config, "uiMode", ui_mode);
+
 	GdkDisplay *display = gdk_display_get_default();
 	GdkMonitor *monitor = g_list_model_get_item(gdk_display_get_monitors(display), 0);
 	monitor_changed_cb(NULL, monitor, config);
