@@ -436,26 +436,34 @@ static int map_meta_state(GdkModifierType state)
 static gboolean on_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, WrapperWidget *wrapper)
 {
 	JNIEnv *env = get_jni_env();
+	int unicode = gdk_keyval_to_unicode(keyval);
 
 	jobject key_event = (*env)->NewObject(env, handle_cache.key_event.class, handle_cache.key_event.constructor, (jlong)0, (jlong)0, ACTION_DOWN, map_key_code(keyval), 0, map_meta_state(state));
-	_SET_INT_FIELD(key_event, "unicodeValue", gdk_keyval_to_unicode(keyval));
+	_SET_INT_FIELD(key_event, "unicodeValue", unicode);
 	_SET_INT_FIELD(key_event, "mSource", 0x101); /* SOURCE_KEYBOARD */
 	gboolean ret = (*env)->CallBooleanMethod(env, wrapper->jobj, handle_cache.view.dispatchKeyEvent, key_event);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
+	if (getenv("ATL_DEBUG_INPUT"))
+		g_printerr("ATL key: down keyval=%u keycode=%u unicode=%u meta=0x%x handled=%d\n",
+		           keyval, keycode, unicode, (unsigned)state, ret);
 	return ret;
 }
 
 static gboolean on_key_released(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, WrapperWidget *wrapper)
 {
 	JNIEnv *env = get_jni_env();
+	int unicode = gdk_keyval_to_unicode(keyval);
 
 	jobject key_event = (*env)->NewObject(env, handle_cache.key_event.class, handle_cache.key_event.constructor, (jlong)0, (jlong)0, ACTION_UP, map_key_code(keyval), 0, map_meta_state(state));
-	_SET_INT_FIELD(key_event, "unicodeValue", gdk_keyval_to_unicode(keyval));
+	_SET_INT_FIELD(key_event, "unicodeValue", unicode);
 	_SET_INT_FIELD(key_event, "mSource", 0x101); /* SOURCE_KEYBOARD */
 	gboolean ret = (*env)->CallBooleanMethod(env, wrapper->jobj, handle_cache.view.dispatchKeyEvent, key_event);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
+	if (getenv("ATL_DEBUG_INPUT"))
+		g_printerr("ATL key: up keyval=%u keycode=%u unicode=%u meta=0x%x handled=%d\n",
+		           keyval, keycode, unicode, (unsigned)state, ret);
 	return ret;
 }
 
@@ -472,6 +480,40 @@ static void root_changed_cb(WrapperWidget *wrapper, GParamSpec *pspec, gpointer 
 		(*env)->ExceptionDescribe(env);
 	if (!root)
 		currently_unmapping = NULL;
+}
+
+GtkEventControllerKey *wrapper_widget_ensure_key_controller(GtkWidget *wrapper)
+{
+	if (!WRAPPER_IS_WIDGET(wrapper))
+		return NULL;
+
+	/* InputMethodManager may already have attached its IM context to a controller on
+	 * this widget (see android_view_inputmethod_InputMethodManager.c), so reuse an
+	 * existing one instead of letting every key press be delivered twice. */
+	GListModel *controllers = gtk_widget_observe_controllers(wrapper);
+	GtkEventControllerKey *key_controller = NULL;
+	for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
+		GObject *controller = g_list_model_get_item(controllers, i);
+		if (GTK_IS_EVENT_CONTROLLER_KEY(controller)) {
+			key_controller = GTK_EVENT_CONTROLLER_KEY(controller);
+			break;
+		}
+		g_object_unref(controller);
+	}
+	g_object_unref(controllers);
+
+	if (key_controller == NULL) {
+		key_controller = GTK_EVENT_CONTROLLER_KEY(gtk_event_controller_key_new());
+		g_signal_connect(key_controller, "key-pressed", G_CALLBACK(on_key_pressed), wrapper);
+		g_signal_connect(key_controller, "key-released", G_CALLBACK(on_key_released), wrapper);
+		gtk_widget_add_controller(wrapper, GTK_EVENT_CONTROLLER(key_controller));
+		g_object_ref(key_controller); // return an owned reference like get_item above
+	}
+
+	/* GTK only delivers key events to the focused widget or its ancestors, and a widget
+	 * has to be focusable to be focused at all, so app views accept host keys. */
+	gtk_widget_set_focusable(wrapper, TRUE);
+	return key_controller;
 }
 
 void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject jobj)
@@ -515,11 +557,8 @@ void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject job
 	jmethodID dispatch_key_event_method = _METHOD(_CLASS(jobj), "dispatchKeyEvent", "(Landroid/view/KeyEvent;)Z");
 	jmethodID on_key_down_method = _METHOD(_CLASS(jobj), "onKeyDown", "(ILandroid/view/KeyEvent;)Z");
 	if (dispatch_key_event_method != handle_cache.view.dispatchKeyEvent || on_key_down_method != handle_cache.view.onKeyDown) {
-		GtkEventController *controller = GTK_EVENT_CONTROLLER(gtk_event_controller_key_new());
-		g_signal_connect(controller, "key-pressed", G_CALLBACK(on_key_pressed), wrapper);
-		g_signal_connect(controller, "key-released", G_CALLBACK(on_key_released), wrapper);
-		gtk_widget_add_controller(GTK_WIDGET(wrapper), controller);
-		gtk_widget_set_focusable(GTK_WIDGET(wrapper), TRUE);
+		GtkEventControllerKey *keys = wrapper_widget_ensure_key_controller(GTK_WIDGET(wrapper));
+		g_object_unref(keys);
 	}
 	g_signal_connect(wrapper, "notify::root", G_CALLBACK(root_changed_cb), NULL);
 }

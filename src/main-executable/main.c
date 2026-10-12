@@ -88,8 +88,18 @@ char *construct_classpath(char *prefix, char **cp_array, size_t len)
 // NATIVE_ARCH definition above.
 #define NATIVE_ARCH_ARG "-Datl.native.arch=" NATIVE_ARCH
 
+// Android heap profile ATL emulates: dalvik.vm.heapgrowthlimit is the heap cap
+// an application gets by default, dalvik.vm.heapsize the maximum an application
+// that asks for a large heap (ApplicationInfo.FLAG_LARGE_HEAP) may grow to.
+// Host ART does not read dalvik.vm.* itself, so the launcher passes both numbers
+// to ART (-XX:HeapGrowthLimit/-Xmx) and hands the same numbers to the Java side
+// (ActivityManager.getMemoryClass()/getLargeMemoryClass()), which is then able to
+// report the heap the platform actually runs with.
+#define HEAP_GROWTH_LIMIT_MB 256
+#define HEAP_SIZE_MB         512
+
 // number of options always set at fixed indices 0..N_FIXED_OPTIONS-1 below
-#define N_FIXED_OPTIONS 6
+#define N_FIXED_OPTIONS 10
 
 JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_apk, char *test_runner_jar, char *api_impl_natives_dir, char *app_lib_dir, char *sdk_int, char **extra_jvm_options)
 {
@@ -106,6 +116,20 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 
 	char jdwp_option_string[sizeof(JDWP_ARG) + 5] = JDWP_ARG;          // 5 chars for port number, NULL byte is counted by sizeof
 	char sdk_int_option_string[sizeof(SDK_INT_ARG) + 2] = SDK_INT_ARG; // 2 chars for SDK_INT, NULL byte is counted by sizeof
+
+	// heap profile, see HEAP_GROWTH_LIMIT_MB/HEAP_SIZE_MB
+	char heap_growth_limit_option[32];    // "-XX:HeapGrowthLimit=256m"
+	char heap_size_option[32];            // "-Xmx512m"
+	char heap_growth_limit_mb_option[48]; // "-Datl.heap.growthlimit.mb=256"
+	char heap_size_mb_option[48];         // "-Datl.heap.heapsize.mb=512"
+
+	snprintf(heap_growth_limit_option, sizeof(heap_growth_limit_option),
+	         "-XX:HeapGrowthLimit=%dm", HEAP_GROWTH_LIMIT_MB);
+	snprintf(heap_size_option, sizeof(heap_size_option), "-Xmx%dm", HEAP_SIZE_MB);
+	snprintf(heap_growth_limit_mb_option, sizeof(heap_growth_limit_mb_option),
+	         "-Datl.heap.growthlimit.mb=%d", HEAP_GROWTH_LIMIT_MB);
+	snprintf(heap_size_mb_option, sizeof(heap_size_mb_option),
+	         "-Datl.heap.heapsize.mb=%d", HEAP_SIZE_MB);
 
 	const char *jdwp_port = getenv("JDWP_LISTEN");
 
@@ -130,6 +154,11 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 	options[3].optionString = construct_classpath("-Datl.app.library.path=", (char *[]){api_impl_natives_dir, app_lib_dir}, 2);
 	options[4].optionString = "-Xcheck:jni";
 	options[5].optionString = NATIVE_ARCH_ARG;
+	// fixed heap profile options, see HEAP_GROWTH_LIMIT_MB/HEAP_SIZE_MB
+	options[6].optionString = heap_growth_limit_option;
+	options[7].optionString = heap_size_option;
+	options[8].optionString = heap_growth_limit_mb_option;
+	options[9].optionString = heap_size_mb_option;
 	if (jdwp_port) {
 		strncat(jdwp_option_string, jdwp_port, 5); // 5 chars is enough for a port number, and won't overflow our array
 		options[option_counter++].optionString = "-XjdwpProvider:internal";
@@ -548,8 +577,20 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	prepare_main_looper(env);
 
 	/* extract native libraries from apk*/
-	if (!getenv("ATL_SKIP_NATIVES_EXTRACTION"))
+	if (!getenv("ATL_SKIP_NATIVES_EXTRACTION")) {
 		extract_from_apk("lib/" NATIVE_ARCH "/", "lib/");
+		/* Android extracts native libraries into ApplicationInfo.nativeLibraryDir,
+		 * a directory that NativeLibraryHelper.createNativeLibrarySubdir creates
+		 * with mode 0755, so an application may execute a binary it ships in
+		 * lib/<abi>/ (ReVanced Manager runs its bundled aapt2 that way). ATL
+		 * extracts them with the default 0644 and does not rewrite a file that is
+		 * newer than the apk, so set the platform's mode on the whole directory,
+		 * which also repairs files an earlier extraction left without the
+		 * execute bits. */
+		char *native_library_dir = g_build_filename(get_app_data_dir(), "lib", NULL);
+		chmod_tree(native_library_dir, 0755);
+		g_free(native_library_dir);
+	}
 
 	// construct Application
 	application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,

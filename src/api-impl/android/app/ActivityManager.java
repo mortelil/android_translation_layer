@@ -9,6 +9,10 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
+import android.util.Slog;
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -65,12 +69,13 @@ public class ActivityManager {
 	}
 
 	public static class MemoryInfo implements Parcelable {
-		/* For now, just always report there's 10GB free RAM */
-		public long availMem = 10000;
+		/* AOSP leaves these at 0 and getMemoryInfo() fills them in; ATL used to
+		 * pretend there were always 10000 bytes of memory. */
+		public long availMem;
 
-		public long totalMem = 10000;
+		public long totalMem;
 
-		public long threshold = 200;
+		public long threshold;
 
 		public boolean lowMemory = false;
 
@@ -106,15 +111,79 @@ public class ActivityManager {
 	}
 
 	public void getMemoryInfo(MemoryInfo outInfo) {
-		outInfo = new MemoryInfo();
+		/* AOSP fills the caller's object from the kernel: availMem/totalMem are what
+		 * /proc/meminfo reports, threshold is the level of availMem at which the
+		 * system considers itself low on memory, and lowMemory tells whether it is
+		 * below it right now. ATL has no lowmemorykiller, so the threshold is the
+		 * host kernel's own low-memory watermark (vm.min_free_kbytes); a device
+		 * reports the framework's threshold. */
+		long memTotal = -1, memAvailable = -1, memFree = 0, cached = 0, buffers = 0;
+
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream("/proc/meminfo")))) {
+			String line;
+			while ((line = reader.readLine()) != null) {
+				int colon = line.indexOf(':');
+				if (colon < 0)
+					continue;
+
+				String field = line.substring(0, colon);
+				String[] value = line.substring(colon + 1).trim().split("\\s+");
+				if (value.length == 0)
+					continue;
+
+				long bytes = Long.parseLong(value[0]) * 1024; // /proc/meminfo counts kB
+				if (field.equals("MemTotal"))
+					memTotal = bytes;
+				else if (field.equals("MemAvailable"))
+					memAvailable = bytes;
+				else if (field.equals("MemFree"))
+					memFree = bytes;
+				else if (field.equals("Cached"))
+					cached = bytes;
+				else if (field.equals("Buffers"))
+					buffers = bytes;
+			}
+		} catch (Exception e) {
+			Slog.w("ATL", "cannot read /proc/meminfo: " + e);
+		}
+
+		if (memAvailable < 0) // kernels before 3.14 do not report MemAvailable
+			memAvailable = memFree + cached + buffers;
+
+		outInfo.totalMem = Math.max(memTotal, 0);
+		outInfo.availMem = Math.max(memAvailable, 0);
+		outInfo.threshold = readMinFreeBytes();
+		outInfo.lowMemory = outInfo.availMem < outInfo.threshold;
+	}
+
+	/** The host kernel's low-memory watermark in bytes, or 0 if it cannot be read. */
+	private static long readMinFreeBytes() {
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream("/proc/sys/vm/min_free_kbytes")))) {
+			String line = reader.readLine();
+			if (line != null)
+				return Long.parseLong(line.trim()) * 1024;
+		} catch (Exception e) {
+			Slog.w("ATL", "cannot read /proc/sys/vm/min_free_kbytes: " + e);
+		}
+		return 0;
 	}
 
 	public ConfigurationInfo getDeviceConfigurationInfo() {
 		return new ConfigurationInfo();
 	}
 
-	public int getMemoryClass() { return 20; }      // suggested heap size in MB
-	public int getLargeMemoryClass() { return 60; } // value chosen arbitrarily
+	// AOSP answers these from the device heap properties (getMemoryClass() =
+	// dalvik.vm.heapgrowthlimit, getLargeMemoryClass() = dalvik.vm.heapsize, the
+	// maximum an application with ApplicationInfo.FLAG_LARGE_HEAP may grow to).
+	// Host ART does not read dalvik.vm.*, so the launcher configures ART with the
+	// emulated profile and passes the same numbers as -D properties: these report
+	// the heap the application is really running with.
+	public int getMemoryClass() {
+		return Integer.parseInt(System.getProperty("atl.heap.growthlimit.mb", "256"));
+	}
+	public int getLargeMemoryClass() {
+		return Integer.parseInt(System.getProperty("atl.heap.heapsize.mb", "512"));
+	}
 
 	public static void getMyMemoryState(RunningAppProcessInfo outInfo) {}
 

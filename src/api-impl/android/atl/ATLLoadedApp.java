@@ -6,6 +6,7 @@ import android.app.Application;
 import android.app.ContextImpl;
 import android.app.Service;
 import android.content.*;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageParser;
 import android.content.res.AssetManager;
@@ -19,6 +20,7 @@ import android.util.DisplayMetrics;
 import android.util.Slog;
 import dalvik.system.BaseDexClassLoader;
 import dalvik.system.PathClassLoader;
+import dalvik.system.VMRuntime;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -194,6 +196,16 @@ public final class ATLLoadedApp {
 		synchronized (this.init_lock) {
 			if (application != null)
 				return application;
+			// The platform lets an application that asks for a large heap grow past
+			// the default per-app cap (AOSP does this in
+			// ActivityThread.handleBindApplication by calling
+			// VMRuntime.getRuntime().clearGrowthLimit() for FLAG_LARGE_HEAP), so it
+			// may use the maximum the launcher passed to ART as -Xmx instead of
+			// stopping at -XX:HeapGrowthLimit. Must happen before the application
+			// class runs, exactly as on the platform.
+			if ((pkg.applicationInfo.flags & ApplicationInfo.FLAG_LARGE_HEAP) != 0) {
+				VMRuntime.getRuntime().clearGrowthLimit();
+			}
 			if (applicationClassName != null) {
 				Class<? extends Application> cls =
 				    this.loadClass(pkg.applicationInfo.className)

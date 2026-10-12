@@ -233,6 +233,21 @@ int32_t ANativeWindow_setBuffersTransform(ANativeWindow *window, int32_t transfo
 	return -1;
 }
 
+/**
+ * Set the data space of future buffers posted to the window.
+ *
+ * The value has nowhere to take effect: ATL presents the window through a
+ * GTK/Wayland surface rather than a BufferQueue, which is why
+ * {@link ANativeWindow_setBuffersGeometry} and
+ * {@link ANativeWindow_setBuffersTransform} above report failure. Return the NDK negative error result because no data-space change is applied.
+ */
+int32_t ANativeWindow_setBuffersDataSpace(ANativeWindow *window, int32_t dataSpace)
+{
+	(void)window;
+	(void)dataSpace;
+	return -ENOSYS;
+}
+
 void wl_registry_global_handler(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version)
 {
 	struct wl_subcompositor **subcompositor = data;

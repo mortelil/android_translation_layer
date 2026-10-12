@@ -1,7 +1,10 @@
 package android.atl;
 
 import android.annotation.Nullable;
+import android.content.Context;
 import android.content.pm.PackageParser;
+import android.content.res.AssetManager;
+import android.content.res.Resources;
 import android.util.DisplayMetrics;
 import android.util.Slog;
 import java.io.File;
@@ -15,6 +18,8 @@ public final class ATLLoadedAppManager {
 	private static final HashMap<String, ATLLoadedApp> loaded_apps = new HashMap<>();
 	private static final HashMap<String, PackageParser.Package> loaded_packages = new HashMap<>();
 	private static final Object load_lock = new Object();
+	/** Apps resolved for {@link Context#createPackageContext} without their code. */
+	private static final HashMap<String, ATLLoadedApp> package_only_apps = new HashMap<>();
 	private static final HashSet<String> always_visible_packages = new HashSet<>();
 	private static final HashSet<String> always_allow_query_all_packages = new HashSet<>();
 
@@ -66,6 +71,50 @@ public final class ATLLoadedAppManager {
 			return app;
 		}
 		return loadApplication(packageName);
+	}
+
+	/**
+	 * Resolves a package that the primary application is allowed to see into an ATLLoadedApp
+	 * that carries the package's manifest data and its own Resources/AssetManager, without
+	 * loading that package's dex or native code: resolving it only parses its manifest
+	 * ({@link #loadPackage}). ATL cannot attach a class loader for one other APK only, so the
+	 * code of another package comes from {@link #getAppFromPackageName} — reached by
+	 * ContextImpl.createPackageContext when the caller sets {@link Context#CONTEXT_INCLUDE_CODE},
+	 * and already used by ATL's own PackageManager resource accessors. A package that ATL has
+	 * loaded that way is returned as it is, one object per package.
+	 *
+	 * @return null when the package is not installed, or not visible to the primary
+	 *         application. ContextImpl.createPackageContext turns that into a
+	 *         PackageManager.NameNotFoundException, like AOSP does.
+	 */
+	@Nullable
+	public static ATLLoadedApp getPackageOnlyAppFromPackageName(String packageName) {
+		ATLLoadedApp app = peekAppFromPackageName(packageName);
+		if (app != null) {
+			return app;
+		}
+		synchronized (load_lock) {
+			app = package_only_apps.get(packageName);
+			if (app != null) {
+				return app;
+			}
+			// getPackageFromPackageName enforces package visibility and returns the manifest
+			// data of the installed package (or of the play-services stub) without loading code.
+			PackageParser.Package pkg = getPackageFromPackageName(packageName);
+			if (pkg == null) {
+				return null;
+			}
+			// A package with an APK of its own gets its own resources; the synthetic
+			// play-services stub has none and shares the system ones.
+			File installed_apk = new File(ATLPaths.installed_apks_dir, packageName + ".apk");
+			Resources resources = installed_apk.isFile()
+			    ? new Resources(new AssetManager(installed_apk.getPath()), new DisplayMetrics(),
+			                    Context.sys_config, ClassLoader.getSystemClassLoader())
+			    : Resources.getSystem();
+			app = new ATLLoadedApp(resources, ClassLoader.getSystemClassLoader(), pkg);
+			package_only_apps.put(packageName, app);
+			return app;
+		}
 	}
 
 	private static PackageParser.Package loadPackage(String packageName) {

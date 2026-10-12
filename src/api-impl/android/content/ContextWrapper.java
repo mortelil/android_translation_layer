@@ -2,12 +2,14 @@ package android.content;
 
 import android.atl.ATLLoadedApp;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.view.Display;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 
 public class ContextWrapper extends Context {
 	protected Context baseContext;
@@ -115,6 +117,14 @@ public class ContextWrapper extends Context {
 		return this.baseContext.bindService(intent, serviceConnection, flags);
 	}
 
+	// AOSP ContextWrapper.bindService(Intent, int, Executor, ServiceConnection)
+	// (android-14.0.0_r1 ContextWrapper.java): delegate to the base context.
+	@Override
+	public boolean bindService(Intent intent, int flags, Executor executor,
+	                           ServiceConnection serviceConnection) {
+		return this.baseContext.bindService(intent, flags, executor, serviceConnection);
+	}
+
 	@Override
 	public void unbindService(ServiceConnection serviceConnection) {
 		this.baseContext.unbindService(serviceConnection);
@@ -141,7 +151,8 @@ public class ContextWrapper extends Context {
 	}
 
 	@Override
-	public Context createPackageContext(String packageName, int flags) {
+	public Context createPackageContext(String packageName, int flags)
+	    throws PackageManager.NameNotFoundException {
 		return this.baseContext.createPackageContext(packageName, flags);
 	}
 

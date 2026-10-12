@@ -1,7 +1,14 @@
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <dlfcn.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <string.h>
 
+#include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
 #include "src/api-impl-jni/defines.h"
@@ -64,6 +71,39 @@ void extract_from_apk(const char *path, const char *target)
 {
 	JNIEnv *env = get_jni_env();
 	(*env)->CallStaticVoidMethod(env, handle_cache.asset_manager.class, handle_cache.asset_manager.extractFromAPK, _JSTRING(apk_path), _JSTRING(path), _JSTRING(target));
+}
+
+/* Operate on opened objects, never follow an app-created symlink (including
+ * one swapped in while walking). Only regular files and directories are chmod'd. */
+static int chmod_entry(int parent, const char *name, int mode)
+{
+    int fd = openat(parent, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) {
+        if (errno == ELOOP || errno == ENOENT) return 0;
+        return 1;
+    }
+    struct stat st;
+    if (fstat(fd, &st) != 0) { close(fd); return 1; }
+    int failures = 0;
+    if (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode)) failures += fchmod(fd, mode) != 0;
+    if (S_ISDIR(st.st_mode)) {
+        DIR *dir = fdopendir(fd);
+        if (!dir) { close(fd); return failures + 1; }
+        struct dirent *entry;
+        while ((entry = readdir(dir))) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+            failures += chmod_entry(dirfd(dir), entry->d_name, mode);
+        }
+        closedir(dir);
+    } else close(fd);
+    return failures;
+}
+
+int chmod_tree(const char *path, int mode)
+{
+    int failures = chmod_entry(AT_FDCWD, path, mode);
+    if (failures) fprintf(stderr, "warning: %d native-library permission updates failed\n", failures);
+    return failures;
 }
 
 /* logging with fallback to stderr */

@@ -40,14 +40,97 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawBitmap__JJIIIIIIII
 		gtk_snapshot_pop(snapshot);
 }
 
-JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jlong paint_ptr)
+/* Linear-gradient shaders. android.graphics.LinearGradient keeps its parameters in Java (see
+ * LinearGradient.java), because GSK is handed the draw parameters at draw time; read them back here
+ * to build the corresponding GSK gradient. Only linear gradients are expressible: any other Shader
+ * subclass keeps the previous behaviour (the paint's flat colour). */
+static jclass linear_gradient_class = NULL;
+static jfieldID linear_gradient_x0, linear_gradient_y0, linear_gradient_x1, linear_gradient_y1;
+static jfieldID linear_gradient_colors, linear_gradient_positions;
+
+static gboolean atl_linear_gradient_init(JNIEnv *env)
 {
-	GdkSnapshot *snapshot = (GdkSnapshot *)_PTR(snapshot_ptr);
+	if (linear_gradient_class != NULL)
+		return TRUE;
+	jclass cls = (*env)->FindClass(env, "android/graphics/LinearGradient");
+	if (cls == NULL)
+		return FALSE;
+	linear_gradient_class = (*env)->NewGlobalRef(env, cls);
+	linear_gradient_x0 = (*env)->GetFieldID(env, cls, "x0", "F");
+	linear_gradient_y0 = (*env)->GetFieldID(env, cls, "y0", "F");
+	linear_gradient_x1 = (*env)->GetFieldID(env, cls, "x1", "F");
+	linear_gradient_y1 = (*env)->GetFieldID(env, cls, "y1", "F");
+	linear_gradient_colors = (*env)->GetFieldID(env, cls, "colors", "[I");
+	linear_gradient_positions = (*env)->GetFieldID(env, cls, "positions", "[F");
+	(*env)->DeleteLocalRef(env, cls);
+	return linear_gradient_class != NULL && linear_gradient_colors != NULL;
+}
+
+/* Returns FALSE if the paint carries no shader GSK can express. */
+static gboolean atl_snapshot_append_shader(JNIEnv *env, GtkSnapshot *snapshot, jobject shader, gboolean repeating, const GdkRGBA *paint_color, const graphene_rect_t *bounds)
+{
+	if (shader == NULL || !atl_linear_gradient_init(env))
+		return FALSE;
+	if (!(*env)->IsInstanceOf(env, shader, linear_gradient_class))
+		return FALSE;
+
+	jfloat x0 = (*env)->GetFloatField(env, shader, linear_gradient_x0);
+	jfloat y0 = (*env)->GetFloatField(env, shader, linear_gradient_y0);
+	jfloat x1 = (*env)->GetFloatField(env, shader, linear_gradient_x1);
+	jfloat y1 = (*env)->GetFloatField(env, shader, linear_gradient_y1);
+	jintArray colors = (*env)->GetObjectField(env, shader, linear_gradient_colors);
+	jfloatArray positions = (*env)->GetObjectField(env, shader, linear_gradient_positions);
+	if (colors == NULL)
+		return FALSE;
+	jsize n_stops = (*env)->GetArrayLength(env, colors);
+	if (n_stops < 2)
+		return FALSE;
+
+	jint *color_ints = (*env)->GetIntArrayElements(env, colors, NULL);
+	jfloat *color_positions = positions != NULL ? (*env)->GetFloatArrayElements(env, positions, NULL) : NULL;
+	if (!color_ints || (positions != NULL && !color_positions)) {
+        if (color_ints) (*env)->ReleaseIntArrayElements(env, colors, color_ints, JNI_ABORT);
+        return FALSE;
+    }
+    GskColorStop *stops = g_new0(GskColorStop, n_stops);
+	float last_offset = 0.f;
+	for (jsize i = 0; i < n_stops; i++) {
+		jint argb = color_ints[i];
+		float offset = color_positions != NULL ? color_positions[i] : (float)i / (float)(n_stops - 1);
+		/* Skia requires monotonically increasing offsets and clamps the ones that step back. */
+		offset = CLAMP(offset, 0.f, 1.f);
+		if (offset < last_offset)
+			offset = last_offset;
+		last_offset = offset;
+		stops[i].offset = offset;
+		stops[i].color.red = ((argb >> 16) & 0xFF) / 255.f;
+		stops[i].color.green = ((argb >> 8) & 0xFF) / 255.f;
+		stops[i].color.blue = ((argb >> 0) & 0xFF) / 255.f;
+		/* The paint's alpha modulates the whole draw, gradient colours included. */
+		stops[i].color.alpha = (((argb >> 24) & 0xFF) / 255.f) * paint_color->alpha;
+	}
+	graphene_point_t start = GRAPHENE_POINT_INIT(x0, y0);
+	graphene_point_t end = GRAPHENE_POINT_INIT(x1, y1);
+	if (repeating)
+		gtk_snapshot_append_repeating_linear_gradient(snapshot, bounds, &start, &end, stops, n_stops);
+	else
+		gtk_snapshot_append_linear_gradient(snapshot, bounds, &start, &end, stops, n_stops);
+	g_free(stops);
+	(*env)->ReleaseIntArrayElements(env, colors, color_ints, JNI_ABORT);
+	if (color_positions != NULL)
+		(*env)->ReleaseFloatArrayElements(env, positions, color_positions, JNI_ABORT);
+	return TRUE;
+}
+
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jlong paint_ptr, jobject shader, jboolean repeating)
+{
+	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	graphene_rect_t bounds = GRAPHENE_RECT_INIT(left, top, right - left, bottom - top);
 	if (paint->use_color_filter)
 		gtk_snapshot_push_color_matrix(snapshot, &paint->color_matrix, &paint->color_offset);
-	gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
+	if (!atl_snapshot_append_shader(env, snapshot, shader, repeating, &paint->color, &bounds))
+		gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
 	if (paint->use_color_filter)
 		gtk_snapshot_pop(snapshot);
 }
@@ -222,6 +305,14 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1clipRect(JNIEnv *env, 
 {
 	GdkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	gtk_snapshot_push_clip(snapshot, &GRAPHENE_RECT_INIT(left, top, right - left, bottom - top));
+}
+
+/* Composites everything drawn until the matching pop with the given opacity, i.e. the group
+ * semantics android.graphics.Canvas.saveLayer()/saveLayerAlpha() ask for. */
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1pushOpacity(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat alpha)
+{
+	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
+	gtk_snapshot_push_opacity(snapshot, CLAMP(alpha, 0.0f, 1.0f));
 }
 
 JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1pop(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jint count)

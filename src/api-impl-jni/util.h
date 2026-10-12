@@ -15,6 +15,7 @@ JNIEnv *get_jni_env(void);
 const char *attribute_set_get_string(JNIEnv *env, jobject attrs, char *attribute, char *schema);
 int attribute_set_get_int(JNIEnv *env, jobject attrs, char *attribute, char *schema, int default_value);
 void extract_from_apk(const char *path, const char *target);
+int chmod_tree(const char *path, int mode);
 char *get_app_data_dir();
 
 void prepare_main_looper(JNIEnv *env);

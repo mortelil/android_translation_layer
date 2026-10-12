@@ -10,6 +10,7 @@ import android.atl.ATLLoadedAppManager;
 import android.bluetooth.BluetoothManager;
 import android.content.*;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.PackageParser;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -40,6 +41,7 @@ import android.view.inputmethod.InputMethodManager;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.Executor;
 
 public final class ContextImpl extends Context {
 	private static final int ATL_FLAG_NO_CODE = 0x00000001;
@@ -239,7 +241,7 @@ public final class ContextImpl extends Context {
 	@Override
 	public ClassLoader getClassLoader() {
 		if ((this.atl_flags & ATL_FLAG_NO_CODE) != 0) {
-			return null;
+			return ClassLoader.getSystemClassLoader();
 		}
 		return this.atl_loaded_app.class_loader;
 	}
@@ -327,8 +329,58 @@ public final class ContextImpl extends Context {
 
 	@Override
 	public void unbindService(ServiceConnection serviceConnection) {
-		atl_loaded_app.unbindService(this, serviceConnection);
+		ExecutorConnection dispatch;
+        synchronized (executorConnections) {
+            dispatch = executorConnections.remove(serviceConnection);
+            if (dispatch != null) dispatch.active = false;
+        }
+        atl_loaded_app.unbindService(this, dispatch != null ? dispatch : serviceConnection);
 	}
+
+    private final java.util.IdentityHashMap<ServiceConnection, ExecutorConnection> executorConnections =
+        new java.util.IdentityHashMap<>();
+
+    private final class ExecutorConnection implements ServiceConnection {
+        final ServiceConnection target;
+        final Executor executor;
+        volatile boolean active = true;
+        ExecutorConnection(ServiceConnection target, Executor executor) {
+            this.target = target;
+            this.executor = executor;
+        }
+        void dispatch(final Runnable action) {
+            executor.execute(new Runnable() {
+                public void run() { if (active) action.run(); }
+            });
+        }
+        public void onServiceConnected(final ComponentName name, final IBinder binder) {
+            dispatch(new Runnable() { public void run() { target.onServiceConnected(name, binder); } });
+        }
+        public void onServiceDisconnected(final ComponentName name) {
+            dispatch(new Runnable() { public void run() { target.onServiceDisconnected(name); } });
+        }
+        public void onNullBinding(final ComponentName name) {
+            dispatch(new Runnable() { public void run() { target.onNullBinding(name); } });
+        }
+        public void onBindingDied(final ComponentName name) {
+            dispatch(new Runnable() { public void run() { target.onBindingDied(name); } });
+        }
+    }
+
+    @Override
+    public boolean bindService(Intent intent, int flags, Executor executor, ServiceConnection connection) {
+        if (executor == null || connection == null) throw new NullPointerException();
+        ExecutorConnection dispatch;
+        synchronized (executorConnections) {
+            dispatch = executorConnections.get(connection);
+            if (dispatch == null) {
+                dispatch = new ExecutorConnection(connection, executor);
+                executorConnections.put(connection, dispatch);
+            }
+        }
+        // Store before binding: a direct executor may reentrantly unbind from its callback.
+        return bindService(intent, dispatch, flags);
+    }
 
 	@Override
 	public void startActivity(Intent intent) {
@@ -424,37 +476,46 @@ public final class ContextImpl extends Context {
 		});
 	}
 
+	/**
+	 * AOSP semantics: a context for another installed, caller-visible package, carrying that
+	 * package's own Resources/AssetManager and its PackageInfo.
+	 *
+	 * What ATL carries and what it does not: with {@link Context#CONTEXT_INCLUDE_CODE} the package
+	 * is loaded like an application (heavier than AOSP's per-APK class loader, and it only works
+	 * for packages ATL can load); without that flag the returned context has none of that
+	 * package's code — {@link Context#getClassLoader} returns the system class loader there. CONTEXT_IGNORE_SECURITY is a
+	 * no-op in ATL's single-user model, and CONTEXT_RESTRICTED only sets
+	 * {@link Context#isRestricted}, because ATL's Resources have no restricted mode. The context
+	 * carries the package's own Resources/AssetManager and PackageInfo, but not its native
+	 * libraries or split APKs. Package visibility is enforced by ATLLoadedAppManager; a package
+	 * that is not installed, or not visible, throws
+	 * {@link PackageManager.NameNotFoundException}, as in AOSP.
+	 */
 	@Override
-	public Context createPackageContext(String packageName, int flags) {
+	public Context createPackageContext(String packageName, int flags)
+	    throws PackageManager.NameNotFoundException {
+		ATLLoadedApp loadedApplication;
 		if (packageName.equals(atl_loaded_app.pkg.packageName)) {
-			return this;
+			loadedApplication = atl_loaded_app;
+		} else if (packageName.equals("android")) {
+			loadedApplication = ATLLoadedApp.getSystemApplication();
+		} else {
+			loadedApplication = (flags & Context.CONTEXT_INCLUDE_CODE) != 0
+			    ? ATLLoadedAppManager.getAppFromPackageName(packageName)
+			    : ATLLoadedAppManager.getPackageOnlyAppFromPackageName(packageName);
 		}
-		ATLLoadedApp primaryApplication = ATLLoadedApp.getPrimaryApplication();
-		if (primaryApplication.pkg.packageName.equals(packageName)) {
-			return primaryApplication.getApplication();
+		if (loadedApplication == null) {
+			throw new PackageManager.NameNotFoundException(packageName);
 		}
-		if (packageName.equals("android")) {
-			// Shortcut for system application
-			ATLLoadedApp system = ATLLoadedApp.getSystemApplication();
-			return new ContextImpl(Resources.getSystem(), system,
-			                       Resources.selectDefaultTheme(0, Build.VERSION.SDK_INT));
+		int atl_flags = 0;
+		if ((flags & Context.CONTEXT_INCLUDE_CODE) == 0) {
+			atl_flags |= ATL_FLAG_NO_CODE;
 		}
-		ATLLoadedApp loadedApplication = ATLLoadedAppManager.getAppFromPackageName(packageName);
-		if (loadedApplication != null) {
-			int atl_flags = 0;
-			if ((flags & Context.CONTEXT_INCLUDE_CODE) == 0) {
-				atl_flags |= ATL_FLAG_NO_CODE;
-			}
-			if ((flags & Context.CONTEXT_RESTRICTED) != 0) {
-				atl_flags |= ATL_FLAG_RESTRICTED;
-			}
-			return new ContextImpl(loadedApplication.createDefaultResources(),
-			                       loadedApplication, loadedApplication.pkg.applicationInfo.theme,
-			                       atl_flags);
+		if ((flags & Context.CONTEXT_RESTRICTED) != 0) {
+			atl_flags |= ATL_FLAG_RESTRICTED;
 		}
-		// Return the application context as a fallback
-		Log.e(TAG, "!!!!!!! createPackageContext: case >" + packageName + "< is not implemented yet");
-		return primaryApplication.getApplication();
+		return new ContextImpl(loadedApplication.createDefaultResources(), loadedApplication,
+		                       loadedApplication.pkg.applicationInfo.theme, atl_flags);
 	}
 
 	@Override

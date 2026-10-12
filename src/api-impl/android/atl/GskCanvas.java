@@ -59,6 +59,39 @@ public class GskCanvas extends DisplayListCanvas {
 		return state_stack.size();
 	}
 
+	/** Records one GSK snapshot push at the current save level, so restore() pops it again. */
+	private void recordPush() {
+		int save_count = getSaveCount();
+		if (push_history == null)
+			push_history = new int[save_count + 1];
+		else if (push_history.length <= save_count)
+			push_history = Arrays.copyOf(push_history, save_count + 1);
+		push_history[save_count]++;
+	}
+
+	/**
+	 * Android allocates an offscreen layer for saveLayer()/saveLayerAlpha(), draws the layer's
+	 * content into it clipped to its bounds, and composites the buffer with the layer's alpha when
+	 * the matching restore() is called. GSK keeps the group in the snapshot instead of an explicit
+	 * buffer, but its opacity node composites it identically: clip(bounds) -> opacity(alpha) ->
+	 * content.
+	 * Limitation: the layer paint's color filter, shader and xfermode cannot be applied to the
+	 * composited group through the snapshot API, so only its alpha is honoured.
+	 */
+	@Override
+	public int saveLayerImpl(float left, float top, float right, float bottom, int alpha) {
+		int save_count = save();
+		/* CLIP_TO_LAYER_SAVE_FLAG is unconditional since API P: layer content cannot leave the
+		 * layer bounds. */
+		native_clipRect(snapshot, left, top, right, bottom);
+		recordPush();
+		if (alpha < 255) {
+			native_pushOpacity(snapshot, (float)alpha / 255.0f);
+			recordPush();
+		}
+		return save_count;
+	}
+
 	@Override
 	public void translate(float dx, float dy) {
 		native_translate(snapshot, dx, dy);
@@ -93,24 +126,14 @@ public class GskCanvas extends DisplayListCanvas {
 	@Override
 	public boolean clipRect(float left, float top, float right, float bottom) {
 		native_clipRect(snapshot, left, top, right, bottom);
-		int save_count = getSaveCount();
-		if (push_history == null)
-			push_history = new int[save_count + 1];
-		else if (push_history.length <= save_count)
-			push_history = Arrays.copyOf(push_history, save_count + 1);
-		push_history[save_count]++;
+		recordPush();
 		return right > left && bottom > top;
 	}
 
 	@Override
 	public boolean clipPath(Path path) {
 		native_clipPath(snapshot, path.getGskPath());
-		int save_count = getSaveCount();
-		if (push_history == null)
-			push_history = new int[save_count + 1];
-		else if (push_history.length <= save_count)
-			push_history = Arrays.copyOf(push_history, save_count + 1);
-		push_history[save_count]++;
+		recordPush();
 		RectF bounds = new RectF();
 		path.computeBounds(bounds, true);
 		return !bounds.isEmpty();
@@ -128,12 +151,7 @@ public class GskCanvas extends DisplayListCanvas {
 	public boolean clipOutPath(Path path) {
 		if (path == null) throw new NullPointerException("path");
 		native_clipOutPath(snapshot, path.getGskPath(), path.getFillType().ordinal());
-		int save_count = getSaveCount();
-		if (push_history == null)
-			push_history = new int[save_count + 1];
-		else if (push_history.length <= save_count)
-			push_history = Arrays.copyOf(push_history, save_count + 1);
-		push_history[save_count]++;
+		recordPush();
 		// Like getClipBounds, clip-emptiness queries are currently conservative.
 		// The GSK mask itself applies the complete path subtraction when rendering.
 		return true;
@@ -150,7 +168,19 @@ public class GskCanvas extends DisplayListCanvas {
 		// TODO: implement xfermode using gtk_snapshot_push_composite in GTK >= 4.22
 		if (paint != null && paint.getXfermode() != null)
 			return;
-		native_drawRect(snapshot, left, top, right, bottom, paint != null ? paint.paint : default_paint.paint);
+		Shader shader = paint != null ? paint.getShader() : null;
+		boolean repeating = false;
+		if (shader instanceof LinearGradient) {
+			Shader.TileMode tile_mode = ((LinearGradient) shader).tile_mode;
+			if (tile_mode == Shader.TileMode.REPEAT) {
+				repeating = true;
+			} else if (tile_mode != Shader.TileMode.CLAMP) {
+				/* GSK has no mirroring gradient node, and AOSP's Skia mirrors around the start/end
+				 * segment; report the unsupported mode instead of silently drawing the wrong thing. */
+				android.util.Log.w("GskCanvas", "LinearGradient " + tile_mode + " tile mode is unsupported by GSK, drawing it clamped");
+			}
+		}
+		native_drawRect(snapshot, left, top, right, bottom, paint != null ? paint.paint : default_paint.paint, shader, repeating);
 	}
 
 	@Override
@@ -196,7 +226,7 @@ public class GskCanvas extends DisplayListCanvas {
 
 	protected native void native_drawBitmap(long snapshot, long texture, int x, int y, int width, int height, long paint);
 	protected native void native_drawBitmap(long snapshot, long texture, int x, int y, int width, int height, int src_x, int src_y, int src_width, int src_height, long paint);
-	protected native void native_drawRect(long snapshot, float left, float top, float right, float bottom, long paint);
+	protected native void native_drawRect(long snapshot, float left, float top, float right, float bottom, long paint, Shader shader, boolean repeating);
 	protected native void native_drawPath(long snapshot, long path, long paint);
 	protected native void native_translate(long snapshot, float dx, float dy);
 	protected native void native_rotate(long snapshot, float degrees);
@@ -209,6 +239,7 @@ public class GskCanvas extends DisplayListCanvas {
 	protected native void native_scale(long snapshot, float sx, float sy);
 	protected native void native_concat(long snapshot, long matrix);
 	protected native void native_clipRect(long snapshot, float left, float top, float right, float bottom);
+	protected native void native_pushOpacity(long snapshot, float alpha);
 	protected native void native_clipPath(long snapshot, long path);
 	protected native void native_clipOutPath(long snapshot, long path, int fillType);
 	protected native void native_pop(long snapshot, int pop_count);

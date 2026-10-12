@@ -269,6 +269,21 @@ EGLBoolean bionic_eglDestroyImageKHR(EGLDisplay dpy, EGLImage image)
 	return eglDestroyImage(dpy, image);
 }
 
+/*
+ * EGL_ANDROID_get_native_client_buffer (API 29) is not exported by the libEGL
+ * Mesa provides, which is the libEGL.so ATL links against, so the host extension
+ * must not receive ATL-private buffers. ATL's AHardwareBuffer is malloc memory that cannot be
+ * imported by a GPU driver, so the
+ * documented NULL "no client buffer" result is returned rather than a fabricated
+ * buffer that would fail later during eglCreateImageKHR.
+ */
+EGLClientBuffer bionic_eglGetNativeClientBufferANDROID(const struct AHardwareBuffer *buffer)
+{
+	/* ATL buffers are not host gralloc objects, even if Mesa exposes this symbol. */
+	(void)buffer;
+	return NULL;
+}
+
 EGLSurface bionic_eglCreateWindowSurface(EGLDisplay display, EGLConfig config, struct ANativeWindow *native_window, EGLint const *attrib_list)
 {
 	// better than crashing (TODO: check if apps try to use the NULL value anyway)

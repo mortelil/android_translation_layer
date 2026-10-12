@@ -214,12 +214,33 @@ public final class Bitmap implements Parcelable {
 	}
 
 	public void getPixels(int[] pixels, int offset, int stride, int x, int y, int width, int height) {
+		if (width == 0 || height == 0)
+			return;
+		checkPixelsAccess(x, y, width, height, offset, stride, pixels);
 		native_get_pixels(getTexture(), pixels, offset, stride, x, y, width, height);
+	}
+
+	// Same argument validation as AOSP Bitmap.checkPixelsAccess: the native
+	// side reads the rectangle from the texture and writes it to the caller's
+	// array, so both must be checked before the call.
+	private void checkPixelsAccess(int x, int y, int width, int height, int offset, int stride, int[] pixels) {
+		if (width < 0 || height < 0)
+			throw new IllegalArgumentException("width and height must be >= 0");
+		if (x < 0 || (long)x + width > getWidth())
+			throw new IllegalArgumentException("x + width must be <= bitmap.width()");
+		if (y < 0 || (long)y + height > getHeight())
+			throw new IllegalArgumentException("y + height must be <= bitmap.height()");
+		if (Math.abs((long)stride) < width)
+			throw new IllegalArgumentException("abs(stride) must be >= width");
+		long lastScanline = offset + (height - 1L) * stride;
+		if (offset < 0 || ((long)offset + width > pixels.length)
+				|| lastScanline < 0 || (lastScanline + width > pixels.length))
+			throw new ArrayIndexOutOfBoundsException();
 	}
 
 	public int getPixel(int x, int y) {
 		int[] pixels = new int[1];
-		native_get_pixels(getTexture(), pixels, 0, 1, x, y, 1, 1);
+		getPixels(pixels, 0, 1, x, y, 1, 1);
 		return pixels[0];
 	}
 
@@ -290,12 +311,19 @@ public final class Bitmap implements Parcelable {
 	}
 
 	public void setPixels(int[] pixels, int offset, int stride, int x, int y, int width, int height) {
-		native_set_pixels(getSnapshot(), pixels, offset, stride, x, y, width, height);
+		if (recycled || !mutable) throw new IllegalStateException("bitmap is not writable");
+        if (width == 0 || height == 0) return;
+        checkPixelsAccess(x, y, width, height, offset, stride, pixels);
+        long replacement = native_set_pixels(getTexture(), pixels, offset, stride, x, y, width, height);
+        if (replacement != 0) {
+            native_recycle(texture, 0);
+            texture = replacement;
+        }
 	}
 
 	public void setPixel(int x, int y, int color) {
 		int[] pixels = new int[] {color};
-		native_set_pixels(getSnapshot(), pixels, 0, 1, x, y, 1, 1);
+		setPixels(pixels, 0, 1, x, y, 1, 1);
 	}
 
 	public void reconfigure(int width, int height, Bitmap.Config config) {}
@@ -327,5 +355,5 @@ public final class Bitmap implements Parcelable {
 	private static native void native_get_pixels(long texture, int[] pixels, int offset, int stride, int x, int y, int width, int height);
 	private static native void native_copy_to_buffer(long texture, Buffer buffer, int memory_format, int stride);
 	private static native byte[] native_save_to_png(long texture);
-	private static native void native_set_pixels(long snapshot, int[] pixels, int offset, int stride, int x, int y, int width, int height);
+	private static native long native_set_pixels(long texture, int[] pixels, int offset, int stride, int x, int y, int width, int height);
 }

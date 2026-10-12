@@ -49,6 +49,14 @@ JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeClip
 
 /*
  * Class:     android_view_RenderNode
+ * Method:    nativeOpacity
+ * Signature: (JF)J
+ */
+JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeOpacity
+  (JNIEnv *, jobject, jlong, jfloat);
+
+/*
+ * Class:     android_view_RenderNode
  * Method:    nativeUnref
  * Signature: (J)V
  */
