@@ -524,7 +524,11 @@ public final class ContextImpl extends Context {
 		config.setTo(getResources().getConfiguration());
 		if (config_override != null)
 			config.updateFrom(config_override);
-		return this.atl_loaded_app.createContext(null, config, getTheme());
+		// Resource selection lives in native AssetManager state, so sharing the
+		// parent's manager would silently change its qualifiers as well.
+		Resources overridden = new Resources(getAssets().createConfigurationCopy(),
+		    getResources().getDisplayMetrics(), config, getClassLoader());
+		return new ContextImpl(overridden, this.atl_loaded_app, getTheme(), this.atl_flags);
 	}
 
 	@Override

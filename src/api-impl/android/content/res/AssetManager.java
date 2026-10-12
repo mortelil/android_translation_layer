@@ -141,6 +141,15 @@ public final class AssetManager {
 		}
 	}
 
+	/** ATL internal: same APK order, independent native resource configuration. */
+	public synchronized AssetManager createConfigurationCopy() {
+		AssetManager copy = new AssetManager(false);
+		copy.asset_paths = new ArrayList<String>(asset_paths);
+		Object[] paths = copy.asset_paths.toArray();
+		copy.native_setApkAssets(paths, paths.length);
+		return copy;
+	}
+
 	private static void ensureSystemAssets() {
 		synchronized (sSync) {
 			if (sSystem == null) {
