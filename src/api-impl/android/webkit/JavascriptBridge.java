@@ -100,6 +100,8 @@ final class JavascriptBridge {
                 throw new IllegalArgumentException("object returns unsupported");
             return new JSONObject().put("value", result == null ? JSONObject.NULL : result).toString();
         } catch (Exception failure) {
+            if (System.getenv("ATL_WEBVIEW_DIAGNOSTICS") != null)
+                System.err.println("ATL WebView: JavaScript bridge invocation failed (details omitted)");
             return "{\"error\":\"Java bridge invocation failed or unsupported signature\"}";
         }
     }
