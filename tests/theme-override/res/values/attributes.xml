@@ -1,0 +1,6 @@
+<resources>
+ <attr name="inheritedLabel" format="reference|string" />
+ <attr name="inheritedFlag" format="boolean" />
+ <attr name="frameworkIcon" format="reference" />
+ <style name="InheritedStyle"><item name="inheritedLabel">@string/appearance</item><item name="inheritedFlag">true</item><item name="frameworkIcon">@android:drawable/ic_menu_more</item></style>
+</resources>

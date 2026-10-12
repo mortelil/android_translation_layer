@@ -1,15 +1,20 @@
-# Theme configuration overrides
+# Configuration override and inherited theme regression
 
-Inside atl_dev: `sh tests/theme-override/build.sh BUILD OUTPUT`.
-Run OUTPUT/theme-override.apk with scripts/mobile/run.sh, ATL_BUILD_DIR and
-private ANDROID_APP_DATA_DIR. Require THEME_OVERRIDE_PASS and exit 0.
-Uses aapt2 because this container's aapt crashes compiling qualified resources.
+Run `build.sh BUILD_DIR OUTPUT_DIR` inside Alpine, then launch the generated
+`theme-override.apk` with the same ATL build in a disposable profile.
+Expected exit status: 0, with `THEME_OVERRIDE_PASS` in stdout.
 
-Checks defensive copying; rejection of duplicate/late overrides; actual
-values-night selection; independent parent/sibling lookups; matching assets
-and resources. Baseline fails with NoSuchMethodError; candidate passes.
+Tests cover immutable override input, override ordering, parent/sibling resource
+isolation, inherited application booleans and string references, night-qualified
+resource selection, and an application attribute pointing to a framework icon.
 
-Methods adapted from AOSP ContextThemeWrapper.java, android-17.0.0_r1,
-94b4c163b7dfe5ce3607f7bb8456f9573f7de57d (Apache-2.0). ATL supplies independent
-native asset configuration with the same ordered paths. General resource
-lifecycle, locale lists and live configuration propagation remain separate.
+Configuration copies must share the native ApkAssets objects: AOSP Theme::SetTo
+identifies shared resources by object identity, not by pathname. AssetManager
+configuration state itself must remain independent.
+
+The framework-icon check additionally requires the art_standalone
+`fix/theme-copy-shared-assets` dependency patch. Alpine's
+libandroidfw 0_git20251009-r2 drops that reference even with shared assets.
+For local build-tree testing, place the patched `libandroidfw.so` in the ATL
+build directory (the mobile runner puts it first in LD_LIBRARY_PATH).
+Rebuilding ATL alone does not apply the dependency fix.

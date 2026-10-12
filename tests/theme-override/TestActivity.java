@@ -22,6 +22,20 @@ public class TestActivity extends Activity {
         super.onCreate(state);
         int id = getResources().getIdentifier("appearance", "string", getPackageName());
         String original = getString(id);
+        int style = getResources().getIdentifier("InheritedStyle", "style", getPackageName());
+        int label = getResources().getIdentifier("inheritedLabel", "attr", getPackageName());
+        int flag = getResources().getIdentifier("inheritedFlag", "attr", getPackageName());
+        getTheme().applyStyle(style, true);
+        ContextThemeWrapper overridden = new ContextThemeWrapper(this, 0);
+        overridden.applyOverrideConfiguration(mode(this, Configuration.UI_MODE_NIGHT_YES));
+        android.util.TypedValue value = new android.util.TypedValue();
+        if (!overridden.getTheme().resolveAttribute(flag, value, true) || value.data == 0)
+            throw new AssertionError("Inherited app boolean theme attribute lost");
+        if (!overridden.getTheme().resolveAttribute(label, value, true) || !"dark".contentEquals(value.string))
+            throw new AssertionError("Inherited app reference theme attribute lost or wrong qualifiers");
+        int icon = getResources().getIdentifier("frameworkIcon", "attr", getPackageName());
+        if (!overridden.getTheme().resolveAttribute(icon, value, true))
+            throw new AssertionError("Inherited framework drawable reference lost");
         Configuration config = mode(this, Configuration.UI_MODE_NIGHT_YES);
         ContextThemeWrapper dark = new ContextThemeWrapper(this, 0);
         dark.applyOverrideConfiguration(config);

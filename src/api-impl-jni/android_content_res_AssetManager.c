@@ -166,6 +166,40 @@ JNIEXPORT void JNICALL Java_android_content_res_AssetManager_native_1setApkAsset
 	}
 	if (actual_count > 0)
 		AssetManager_setApkAssets(asset_manager, apk_assets, actual_count, true, true);
+	jlongArray handles = (*env)->NewLongArray(env, actual_count);
+	if (!handles)
+		return;
+	for (int i = 0; i < actual_count; ++i) {
+		jlong handle = _INTPTR(apk_assets[i]);
+		(*env)->SetLongArrayRegion(env, handles, i, 1, &handle);
+	}
+	_SET_OBJ_FIELD(this, "mApkAssetsHandles", "[J", handles);
+	(*env)->DeleteLocalRef(env, handles);
+}
+
+JNIEXPORT void JNICALL Java_android_content_res_AssetManager_native_1copyApkAssets(JNIEnv *env, jobject this, jobject source)
+{
+	// AOSP Theme::SetTo identifies shared resources by ApkAssets object identity.
+	// Reloading the same file produces a different object and loses app attrs.
+	jlongArray handles = _GET_OBJ_FIELD(source, "mApkAssetsHandles", "[J");
+	if (!handles)
+		return;
+	jsize count = (*env)->GetArrayLength(env, handles);
+	jlong *values = (*env)->GetLongArrayElements(env, handles, NULL);
+	if (!values)
+		return;
+	const struct ApkAssets **assets = g_new(const struct ApkAssets *, count);
+	for (int i = 0; i < count; ++i)
+		assets[i] = _PTR(values[i]);
+	struct AssetManager *asset_manager = _PTR(_GET_LONG_FIELD(this, "mObject"));
+	{
+		AM_SCOPEDLOCK(asset_manager)
+		AssetManager_setApkAssets(asset_manager, assets, count, true, true);
+	}
+	(*env)->ReleaseLongArrayElements(env, handles, values, JNI_ABORT);
+	g_free(assets);
+	_SET_OBJ_FIELD(this, "mApkAssetsHandles", "[J", handles);
+	(*env)->DeleteLocalRef(env, handles);
 }
 
 JNIEXPORT jint JNICALL Java_android_content_res_AssetManager_loadResourceValue(JNIEnv *env, jobject this, jint ident, jshort density, jobject outValue, jboolean resolve)

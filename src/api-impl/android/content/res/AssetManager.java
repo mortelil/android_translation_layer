@@ -92,6 +92,10 @@ public final class AssetManager {
 
 	// For communication with native code.
 	private long mObject;
+	// Immutable native ApkAssets handles for this manager's current asset set.
+	private long[] mApkAssetsHandles;
+	// Retain the original manager for configuration copies sharing its assets.
+	private AssetManager mConfigurationSource;
 	private int mNObject; // used by the NDK
 
 	private StringBlock mStringBlocks[] = null;
@@ -145,8 +149,8 @@ public final class AssetManager {
 	public synchronized AssetManager createConfigurationCopy() {
 		AssetManager copy = new AssetManager(false);
 		copy.asset_paths = new ArrayList<String>(asset_paths);
-		Object[] paths = copy.asset_paths.toArray();
-		copy.native_setApkAssets(paths, paths.length);
+		copy.mConfigurationSource = this;
+		copy.native_copyApkAssets(this);
 		return copy;
 	}
 
@@ -837,5 +841,6 @@ public final class AssetManager {
 		}
 	}
 
+	private native void native_copyApkAssets(AssetManager source);
 	private native final void native_setApkAssets(/*String*/ Object[] paths, int num_assets);
 }

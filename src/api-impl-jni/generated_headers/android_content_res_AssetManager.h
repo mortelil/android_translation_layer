@@ -381,6 +381,14 @@ JNIEXPORT void JNICALL Java_android_content_res_AssetManager_init
 
 /*
  * Class:     android_content_res_AssetManager
+ * Method:    native_copyApkAssets
+ * Signature: (Landroid/content/res/AssetManager;)V
+ */
+JNIEXPORT void JNICALL Java_android_content_res_AssetManager_native_1copyApkAssets
+  (JNIEnv *, jobject, jobject);
+
+/*
+ * Class:     android_content_res_AssetManager
  * Method:    native_setApkAssets
  * Signature: ([Ljava/lang/Object;I)V
  */
