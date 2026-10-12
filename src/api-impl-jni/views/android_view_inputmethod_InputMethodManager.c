@@ -18,6 +18,11 @@ static GtkEventControllerKey *key_controller;
 
 static void commit_cb(GtkIMContext *context, gchar *str, gpointer user_data)
 {
+	if (!connection) {
+		if (getenv("ATL_DEBUG_INPUT"))
+			g_printerr("ATL input: commit dropped, no InputConnection\n");
+		return;
+	}
 	JNIEnv *env = get_jni_env();
 	(*env)->CallBooleanMethod(env, connection, commitText, _JSTRING(str), 1);
 	if ((*env)->ExceptionCheck(env))
@@ -26,6 +31,8 @@ static void commit_cb(GtkIMContext *context, gchar *str, gpointer user_data)
 
 static void retrieve_surrounding_cb(GtkIMContext *context, gpointer user_data)
 {
+	if (!connection)
+		return;
 	JNIEnv *env = get_jni_env();
 	jobject before = (*env)->CallObjectMethod(env, connection, getTextBeforeCursor, 100, 0);
 	if ((*env)->ExceptionCheck(env))
@@ -49,6 +56,11 @@ static void retrieve_surrounding_cb(GtkIMContext *context, gpointer user_data)
 
 static void delete_surrounding_cb(GtkIMContext *context, gint offset, gint n_chars, gpointer user_data)
 {
+	if (!connection) {
+		if (getenv("ATL_DEBUG_INPUT"))
+			g_printerr("ATL input: delete-surrounding dropped, no InputConnection\n");
+		return;
+	}
 	JNIEnv *env = get_jni_env();
 	(*env)->CallBooleanMethod(env, connection, deleteSurroundingText, -offset, offset + n_chars);
 	if ((*env)->ExceptionCheck(env))
@@ -169,22 +181,19 @@ JNIEXPORT jboolean JNICALL Java_android_view_inputmethod_InputMethodManager_nati
 		gtk_event_controller_key_set_im_context(key_controller, NULL);
 		g_clear_object(&key_controller);
 	}
-	GListModel *controllers = gtk_widget_observe_controllers(widget);
-	for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
-		GObject *controller = g_list_model_get_item(controllers, i);
-		if (GTK_IS_EVENT_CONTROLLER_KEY(controller)) {
-			key_controller = GTK_EVENT_CONTROLLER_KEY(controller);
-			gtk_event_controller_key_set_im_context(key_controller, context);
-			break;
-		}
-		g_object_unref(controller);
-	}
-	g_object_unref(controllers);
+	key_controller = wrapper_widget_ensure_key_controller(widget);
+	if (key_controller)
+		gtk_event_controller_key_set_im_context(key_controller, context);
 	if (getenv("ATL_DEBUG_INPUT"))
-		g_printerr("ATL input: widget=%s focused=%d mapped=%d key-controller=%d context=%s\n",
+		g_printerr("ATL input: widget=%s focused=%d mapped=%d key-controller=%d connection=%d context=%s\n",
 		           G_OBJECT_TYPE_NAME(widget), gtk_widget_has_focus(widget),
-		           gtk_widget_get_mapped(widget), key_controller != NULL,
+		           gtk_widget_get_mapped(widget), key_controller != NULL, new_connection != NULL,
 		           G_OBJECT_TYPE_NAME(context));
+	/* InputMethodManager has no notion of "which widget is being edited" beyond the view
+	 * that asked for soft input, and the IM context only sees key events while that
+	 * view's widget owns GTK focus. */
+	if (!gtk_widget_has_focus(widget))
+		gtk_widget_grab_focus(widget);
 	if (new_connection) {
 		set_input_type(context, input_type);
 		if (connection)

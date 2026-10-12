@@ -581,3 +581,216 @@ void *AMediaExtractor_new(void)
 {
 	return NULL;
 }
+
+/*
+ * Format keys added after the set above. The string values are the platform
+ * values from AOSP frameworks/av/media/ndk/NdkMediaFormat.cpp
+ * (android-14.0.0_r1): they are the keys the platform looks format entries up
+ * by, so a wrong string silently changes behaviour.
+ * Do not change the value of constants.
+ */
+const char *AMEDIAFORMAT_KEY_BITRATE_MODE = "bitrate-mode";
+const char *AMEDIAFORMAT_KEY_COLOR_RANGE = "color-range";
+const char *AMEDIAFORMAT_KEY_COLOR_STANDARD = "color-standard";
+const char *AMEDIAFORMAT_KEY_COLOR_TRANSFER = "color-transfer";
+const char *AMEDIAFORMAT_KEY_LATENCY = "latency";
+const char *AMEDIAFORMAT_KEY_PCM_ENCODING = "pcm-encoding";
+const char *AMEDIAFORMAT_KEY_ROTATION = "rotation-degrees";
+
+/**
+ * Copy the contents of one format into another.
+ *
+ * AOSP rejects a null source or destination with AMEDIA_ERROR_INVALID_PARAMETER
+ * and otherwise clears the destination and extends it with the source entries.
+ * ATL has no format object (AMediaFormat_new() above returns NULL), so the
+ * non-null case is not reachable; it must not be reported as success.
+ */
+media_status_t AMediaFormat_copy(AMediaFormat *to, AMediaFormat *from)
+{
+	if (!to || !from)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/*
+ * Async notification callbacks. The struct layout (four function pointers) is
+ * part of the NDK ABI and is passed by value.
+ */
+typedef void (*AMediaCodecOnAsyncInputAvailable)(
+    AMediaCodec *, void *, int32_t);
+typedef void (*AMediaCodecOnAsyncOutputAvailable)(
+    AMediaCodec *, void *, int32_t, AMediaCodecBufferInfo *);
+typedef void (*AMediaCodecOnAsyncFormatChanged)(AMediaCodec *, void *, AMediaFormat *);
+typedef void (*AMediaCodecOnAsyncError)(
+    AMediaCodec *, void *, media_status_t, int32_t, const char *);
+typedef struct AMediaCodecOnAsyncNotifyCallback {
+	AMediaCodecOnAsyncInputAvailable onAsyncInputAvailable;
+	AMediaCodecOnAsyncOutputAvailable onAsyncOutputAvailable;
+	AMediaCodecOnAsyncFormatChanged onAsyncFormatChanged;
+	AMediaCodecOnAsyncError onAsyncError;
+} AMediaCodecOnAsyncNotifyCallback;
+
+/**
+ * Get the component name. AOSP returns a heap-allocated name through out_name
+ * that the caller must free with AMediaCodec_releaseName.
+ *
+ * ATL's AMediaCodec is never created (AMediaCodec_createCodecByName and friends
+ * above return NULL), so there is no component name to report: fabricating one
+ * would make the caller act on a codec that does not exist.
+ */
+media_status_t AMediaCodec_getName(AMediaCodec *codec, char **out_name)
+{
+	if (!out_name)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	*out_name = NULL;
+	if (!codec)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Free the memory pointed to by name, which was returned by AMediaCodec_getName.
+ */
+void AMediaCodec_releaseName(AMediaCodec *codec, char *name)
+{
+	free(name);
+}
+
+/**
+ * Set an asynchronous callback for actionable AMediaCodec events.
+ * ATL's codec is a stub without an event source, so async mode cannot be
+ * enabled; claiming AMEDIA_OK would leave the caller waiting for callbacks that
+ * can never arrive.
+ */
+media_status_t AMediaCodec_setAsyncNotifyCallback(
+    AMediaCodec *codec, AMediaCodecOnAsyncNotifyCallback callback, void *userdata)
+{
+	if (!codec)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/*
+ * Image reader / image (media/NdkImageReader.h, media/NdkImage.h; API 24, with
+ * AImageReader_newWithUsage and AImage_getHardwareBuffer added in API 26).
+ */
+struct AImageReader;
+typedef struct AImageReader AImageReader;
+struct AImage;
+typedef struct AImage AImage;
+typedef struct AImageCropRect {
+	int32_t left;
+	int32_t top;
+	int32_t right;
+	int32_t bottom;
+} AImageCropRect;
+struct AHardwareBuffer;
+typedef struct AHardwareBuffer AHardwareBuffer;
+
+typedef void (*AImageReader_ImageCallback)(void *context, AImageReader *reader);
+typedef struct AImageReader_ImageListener {
+	void *context;
+	AImageReader_ImageCallback onImageAvailable;
+} AImageReader_ImageListener;
+
+/**
+ * Create a new image reader. AOSP validates the arguments and then allocates a
+ * producer/consumer queue backed by the graphics stack, which ATL does not have;
+ * it reports the documented invalid-argument error and a null reader otherwise.
+ */
+media_status_t AImageReader_newWithUsage(
+    int32_t width, int32_t height, int32_t format, uint64_t usage, int32_t maxImages,
+    AImageReader **reader)
+{
+	if (!reader)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	*reader = NULL;
+	if (width <= 0 || height <= 0 || format <= 0 || !usage || maxImages <= 0)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Delete an image reader. No reader can be created (see above), so there is
+ * nothing to release; AOSP's delete is also a no-op for a null reader.
+ */
+void AImageReader_delete(AImageReader *reader) {}
+
+/**
+ * Get the ANativeWindow used to produce images for this reader.
+ * No reader can be created (see above), so no window exists.
+ */
+media_status_t AImageReader_getWindow(AImageReader *reader, ANativeWindow **window)
+{
+	if (!window)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	*window = NULL;
+	if (!reader)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Acquire the next image from the reader's queue. No reader can be created (see
+ * above), so no image can ever be dequeued.
+ */
+media_status_t AImageReader_acquireNextImage(AImageReader *reader, AImage **image)
+{
+	if (!image)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	*image = NULL;
+	if (!reader)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Set the onImageAvailable listener of this image reader. No reader can be
+ * created and no images are ever produced (see above), so the listener can
+ * never be invoked; return an explicit media error.
+ */
+media_status_t AImageReader_setImageListener(AImageReader *reader, AImageReader_ImageListener *listener) {
+	return !reader ? AMEDIA_ERROR_INVALID_PARAMETER : AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Delete an image. No image can be acquired (see above), so there is nothing to
+ * release; AOSP's delete is also a no-op for a null image.
+ */
+void AImage_delete(AImage *image) {}
+
+/**
+ * Get the crop rectangle of an image. AOSP reports a null image or out-parameter
+ * as AMEDIA_ERROR_INVALID_PARAMETER.
+ */
+media_status_t AImage_getCropRect(const AImage *image, AImageCropRect *rect)
+{
+	if (!image || !rect)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Get the AHardwareBuffer backing an image. No image can be acquired (see
+ * above), so there is no buffer to hand out.
+ */
+media_status_t AImage_getHardwareBuffer(const AImage *image, AHardwareBuffer **buffer)
+{
+	if (!buffer)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	*buffer = NULL;
+	if (!image)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Get the capture timestamp of an image in nanoseconds. AOSP reports a null
+ * image or out-parameter as AMEDIA_ERROR_INVALID_PARAMETER.
+ */
+media_status_t AImage_getTimestamp(const AImage *image, int64_t *timestampNs)
+{
+	if (!image || !timestampNs)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}

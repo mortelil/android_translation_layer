@@ -6,6 +6,7 @@ public class TestActivity extends android.app.Activity {
 		try {
 			TestStackTrace.run();
 			TestCompatibilityValues.run(this);
+			TestUsabilityRepairs.run(this);
 			TestTypeface.run(this);
 			TestKeySpec.run();
 			TestSigningInfo.run();

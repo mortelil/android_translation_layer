@@ -39,6 +39,7 @@ public class RenderNode {
 	private native long nativePatchNode(long node, long old_child, long new_child);
 	private native long nativeTransform(long node, float scaleX, float scaleY, float translationX, float translationY, float rotation, float pivotX, float pivotY);
 	private native long nativeClip(long node, float left, float top, float right, float bottom);
+	private native long nativeOpacity(long node, float alpha);
 	private native void nativeUnref(long node);
 	private native long nativeAddStubNode(long snapshot);
 	private native long nativeCreateEmpyNode();
@@ -211,6 +212,10 @@ public class RenderNode {
 
 	public boolean setAlpha(float alpha) {
 		boolean changed = this.alpha != alpha;
+		if (changed && transformed_node != 0) {
+			nativeUnref(transformed_node);
+			transformed_node = 0;
+		}
 		this.alpha = alpha;
 		return changed;
 	}
@@ -265,7 +270,7 @@ public class RenderNode {
 	}
 
 	public boolean setOutline(Outline outline) {
-		boolean changed = Objects.equals(this.outline, outline);
+		boolean changed = !Objects.equals(this.outline, outline);
 		if (changed && transformed_node != 0) {
 			nativeUnref(transformed_node);
 			transformed_node = 0;
@@ -293,6 +298,10 @@ public class RenderNode {
 				outline.getRect(bounds);
 				transformed_node = nativeClip(transformed_node, bounds.left, bounds.top, bounds.right, bounds.bottom);
 			}
+			/* Android applies the render node's alpha when the layer is composited; without this the
+			 * layer's content is drawn fully opaque (translucent scrims/shadows become solid black). */
+			if (alpha != 1.0f)
+				transformed_node = nativeOpacity(transformed_node, alpha);
 		}
 		return transformed_node;
 	}

@@ -47,6 +47,19 @@ public class Color {
 		return color;
 	}
 
+	/**
+	 * Convert a color long to a color int, following AOSP Color.toArgb(long).
+	 * Only the sRGB color space is implemented: an sRGB color long (color space id 0, which is what
+	 * Color.pack(...) produces for every sRGB value) packs the ARGB int in its upper 32 bits, so no
+	 * color space conversion is needed. Extended color spaces require the ColorSpace machinery ATL
+	 * does not implement; they are rejected instead of being silently converted.
+	 */
+	public static int toArgb(long color) {
+		if ((color & 0x3fL) == 0L)
+			return (int) (color >> 32);
+		throw new IllegalArgumentException("unsupported color space in color long 0x" + Long.toHexString(color));
+	}
+
 	public static int argb(int alpha, int red, int green, int blue) {
 		return (alpha << 24) | (red << 16) | (green << 8) | (blue << 0);
 	}

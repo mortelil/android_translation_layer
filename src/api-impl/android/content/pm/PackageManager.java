@@ -2455,7 +2455,14 @@ public class PackageManager {
 	 * @see #GET_RESOLVED_FILTER
 	 */
 	public ResolveInfo resolveService(Intent intent, int flags) {
-		return null;
+		// AOSP's PackageManagerService.resolveService() is the same search that
+		// queryIntentServices() performs, reduced to the best match: it is the
+		// entry point through which a caller (e.g. microG's Chimera
+		// ServiceProvider) discovers the component that implements an action, so
+		// it must return the component that bindService()/startService() would
+		// end up using.
+		List<ResolveInfo> services = queryIntentServices(intent, flags);
+		return services.isEmpty() ? null : services.get(0);
 	}
 
 	/**
@@ -2475,25 +2482,64 @@ public class PackageManager {
 	 */
 	public List<ResolveInfo> queryIntentServices(Intent intent,
 	                                             int flags) {
-		List<ResolveInfo> list = new ArrayList<ResolveInfo>(1);
 		String packageName;
 		PackageParser.Package pkg = null;
-		if ((packageName = intent.getPackage()) != null) {
+		if ((packageName = intent.getComponent() != null ? intent.getComponent().getPackageName() : intent.getPackage()) != null) {
 			pkg = ATLLoadedAppManager.getPackageFromPackageName(packageName);
+			if (pkg == null) return new ArrayList<ResolveInfo>();
 		}
 		if (pkg == null) {
 			pkg = ATLLoadedApp.getPrimaryApplication().pkg;
 		}
+		ComponentName component = intent.getComponent();
+		final String action = intent.getAction();
+		// Explicit components resolve by name; every other request matches the
+		// <intent-filter> actions. The matches are ordered best-first by the priority
+		// of their best matching filter - the order resolveService() relies on to pick
+		// its single result. ATL reports one entry per service (AOSP's IntentResolver
+		// emits one per matching filter); the first entry is the same either way.
+		Map<Integer, List<Service>> by_priority = new TreeMap<Integer, List<Service>>(Collections.<Integer>reverseOrder());
 		for (Service s : pkg.services) {
-			for (ServiceIntentInfo intentinfo : s.intents) {
-				if (s.getComponentName().equals(intent.getComponent()) || intentinfo.matchAction(intent.getAction())) {
-					ResolveInfo ri = new ResolveInfo();
-					ri.serviceInfo = s.info;
-					list.add(ri);
+			int priority = Integer.MIN_VALUE;
+			if (s.intents != null) {
+				for (ServiceIntentInfo intentinfo : s.intents) {
+					if (intentinfo.matchAction(action) && intentinfo.priority > priority)
+						priority = intentinfo.priority;
 				}
 			}
+			if (component != null) {
+				// An explicit component is resolved without consulting its filters; it
+				// still carries the priority of a matching filter, if it has one
+				// (AOSP's ResolveInfo default is 0).
+				if (!component.equals(s.getComponentName()))
+					continue;
+				putByPriority(by_priority, priority == Integer.MIN_VALUE ? 0 : priority, s);
+				continue;
+			}
+			if (priority != Integer.MIN_VALUE)
+				putByPriority(by_priority, priority, s);
 		}
+		List<ResolveInfo> list = new ArrayList<ResolveInfo>(pkg.services.size());
+		for (Map.Entry<Integer, List<Service>> entry : by_priority.entrySet()) {
+			for (Service s : entry.getValue()) {
+				ResolveInfo ri = new ResolveInfo();
+				ri.serviceInfo = s.info;
+				ri.priority = entry.getKey();
+				list.add(ri);
+			}
+		}
+		if ("1".equals(System.getenv("ATL_DEBUG_PKG")))
+			Slog.w(TAG, "queryIntentServices " + intent + " in " + pkg.packageName + " -> " + list);
 		return list;
+	}
+
+	private static void putByPriority(Map<Integer, List<Service>> by_priority, int priority, Service s) {
+		List<Service> services = by_priority.get(priority);
+		if (services == null) {
+			services = new ArrayList<Service>(1);
+			by_priority.put(priority, services);
+		}
+		services.add(s);
 	}
 
 	/**
@@ -2516,7 +2562,7 @@ public class PackageManager {
 	 */
 	public List<ResolveInfo> queryIntentServicesAsUser(Intent intent,
 	                                                   int flags, int userId) {
-		return null;
+		return queryIntentServices(intent, flags);
 	}
 
 	/**

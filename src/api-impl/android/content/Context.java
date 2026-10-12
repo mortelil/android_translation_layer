@@ -74,6 +74,7 @@ import java.security.Security;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 public abstract class Context {
 	public static final String ACCOUNT_SERVICE = "account";
@@ -84,7 +85,7 @@ public abstract class Context {
 	public static final String AUDIO_SERVICE = "audio";
 	public static final String CLIPBOARD_SERVICE = "clipboard";
 	public static final String DISPLAY_SERVICE = "display";
-	public static final String INPUT_METHOD_SERVICE = "input";
+	public static final String INPUT_METHOD_SERVICE = "input_method";
 	public static final String LOCATION_SERVICE = "location";
 	public static final String MEDIA_ROUTER_SERVICE = "media_router";
 	public static final String POWER_SERVICE = "power";
@@ -426,6 +427,20 @@ public abstract class Context {
 
 	public abstract boolean bindService(final Intent intent, final ServiceConnection serviceConnection, int flags);
 
+	/**
+	 * Same as {@link #bindService(Intent, ServiceConnection, int)} with an executor to
+	 * control the {@link ServiceConnection} callbacks. AOSP
+	 * {@code Context.bindService(Intent, int, Executor, ServiceConnection)}
+	 * (android-14.0.0_r1 Context.java) declares this overload
+	 * non-abstract with a body that must be overridden by a subclass; the
+	 * delegating override lives in {@link ContextWrapper} and the working one in
+	 * {@code android.app.ContextImpl}.
+	 */
+	public boolean bindService(final Intent intent, int flags, final Executor executor,
+	                           final ServiceConnection serviceConnection) {
+		throw new RuntimeException("Not implemented. Must override in a subclass.");
+	}
+
 	/* For use from native code */
 	static Activity resolveActivityInternal(Intent intent) throws ReflectiveOperationException {
 		String className = null;
@@ -532,7 +547,8 @@ public abstract class Context {
 	public static final int CONTEXT_IGNORE_SECURITY = 0x00000002;
 	public static final int CONTEXT_RESTRICTED = 0x00000004;
 
-	public abstract Context createPackageContext(String packageName, int flags);
+	public abstract Context createPackageContext(String packageName, int flags)
+	    throws PackageManager.NameNotFoundException;
 
 	public void grantUriPermission(String dummy, Uri dummy2, int dummy3) {
 		System.out.println("grantUriPermission(" + dummy + ", " + dummy2 + ", " + dummy3 + ") called");

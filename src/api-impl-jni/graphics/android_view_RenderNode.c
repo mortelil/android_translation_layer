@@ -99,6 +99,16 @@ JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeClip(JNIEnv *env, job
 	return _INTPTR(clipped_node);
 }
 
+/* Wraps the node so that its whole subtree is composited with the layer's alpha,
+ * matching how Android applies RenderNode.setAlpha() when the layer is drawn. */
+JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeOpacity(JNIEnv *env, jobject this, jlong node_ptr, jfloat alpha)
+{
+	GskRenderNode *node = _PTR(node_ptr);
+	GskRenderNode *opacity_node = gsk_opacity_node_new(node, CLAMP(alpha, 0.0f, 1.0f));
+	gsk_render_node_unref(node);
+	return _INTPTR(opacity_node);
+}
+
 JNIEXPORT void JNICALL Java_android_view_RenderNode_nativeUnref(JNIEnv *env, jobject this, jlong node_ptr)
 {
 	if (node_ptr != 0)

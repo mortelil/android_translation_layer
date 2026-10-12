@@ -1,6 +1,7 @@
 package android.view.inputmethod;
 
 import android.os.IBinder;
+import android.util.Log;
 import android.view.View;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,7 +13,21 @@ public class InputMethodManager {
 
 	private ArrayList<InputMethodInfo> input_method_list = new ArrayList<InputMethodInfo>();
 
+	/**
+	 * Set ATL_DEBUG_INPUT to trace how host key/IME input is routed to app views,
+	 * together with the "ATL input:"/"ATL key:" lines printed by the native side.
+	 */
+	private static void debugLog(String message) {
+		if (System.getenv("ATL_DEBUG_INPUT") != null)
+			Log.w("ATL-input", message);
+	}
+
+	private static String name(View view) {
+		return view == null ? "null" : view.getClass().getName();
+	}
+
 	public boolean hideSoftInputFromWindow(IBinder windowToken, int flags) {
+		debugLog("hideSoftInputFromWindow: view=" + name(activeView));
 		nativeHideSoftInput(im_context);
 		activeView = null;
 		return false;
@@ -20,15 +35,23 @@ public class InputMethodManager {
 
 	public boolean showSoftInput(View view, int flags) {
 		if (view == activeView) {
-			return nativeShowSoftInput(im_context, view.widget, null, 0);
+			boolean shown = nativeShowSoftInput(im_context, view.widget, null, 0);
+			debugLog("showSoftInput: view=" + name(view) + " (already active) flags=0x"
+			         + Integer.toHexString(flags) + " -> " + shown);
+			return shown;
 		}
 		EditorInfo outAttrs = new EditorInfo();
 		InputConnection ic = view.onCreateInputConnection(outAttrs);
-		if (ic != null) {
-			activeView = view;
-			return nativeShowSoftInput(im_context, view.widget, ic, outAttrs.inputType);
+		if (ic == null) {
+			debugLog("showSoftInput: view=" + name(view) + " flags=0x" + Integer.toHexString(flags)
+			         + " -> false, onCreateInputConnection returned null");
+			return false;
 		}
-		return false;
+		activeView = view;
+		boolean shown = nativeShowSoftInput(im_context, view.widget, ic, outAttrs.inputType);
+		debugLog("showSoftInput: view=" + name(view) + " flags=0x" + Integer.toHexString(flags)
+		         + " inputType=0x" + Integer.toHexString(outAttrs.inputType) + " -> " + shown);
+		return shown;
 	}
 
 	public boolean isFullscreenMode() { return false; }
@@ -50,17 +73,25 @@ public class InputMethodManager {
 	}
 
 	public void restartInput(View view) {
-		if (view != activeView)
+		if (view == null)
 			return;
-		// Flutter uses one View for several Dart text fields. A new client
-		// therefore needs a fresh InputConnection even when the View is unchanged.
+		// AOSP restarts input for the view that is passed in: Flutter uses one View for
+		// several Dart text fields, and Compose reports each newly focused text field by
+		// calling restartInput with a fresh InputConnection. Restarting input must
+		// therefore not be dropped just because this view was not seen by showSoftInput.
 		EditorInfo outAttrs = new EditorInfo();
 		InputConnection ic = view.onCreateInputConnection(outAttrs);
 		if (ic != null) {
+			activeView = view;
 			nativeShowSoftInput(im_context, view.widget, ic, outAttrs.inputType);
-		} else {
+			debugLog("restartInput: view=" + name(view) + " inputType=0x"
+			         + Integer.toHexString(outAttrs.inputType));
+		} else if (view == activeView) {
 			nativeHideSoftInput(im_context);
 			activeView = null;
+			debugLog("restartInput: view=" + name(view) + " -> no InputConnection, soft input hidden");
+		} else {
+			debugLog("restartInput: view=" + name(view) + " -> no InputConnection, nothing to restart");
 		}
 	}
 

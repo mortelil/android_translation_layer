@@ -9,7 +9,14 @@ public class Canvas {
 	public static enum EdgeType {
 		BW;
 	}
-	public static final int HAS_ALPHA_LAYER_SAVE_FLAG = (1 << 2);
+	public static final int CLIP_SAVE_FLAG = 0x02;
+	/** @deprecated This flag is ignored, use the flagless saveLayer(RectF, Paint) instead. */
+	public static final int HAS_ALPHA_LAYER_SAVE_FLAG = 0x04;
+	/** @deprecated This flag is ignored, use the flagless saveLayer(RectF, Paint) instead. */
+	public static final int FULL_COLOR_LAYER_SAVE_FLAG = 0x08;
+	/** @deprecated This flag is ignored, use the flagless saveLayer(RectF, Paint) instead. */
+	public static final int CLIP_TO_LAYER_SAVE_FLAG = 0x10;
+	public static final int ALL_SAVE_FLAG = 0x1F;
 
 	private Bitmap bitmap;
 	private GskCanvas gsk_canvas;
@@ -551,16 +558,68 @@ public class Canvas {
 		Log.w("Canvas", "STUB: drawARGB(" + a + ", " + r + ", " + g + ", " + b + ")");
 	}
 
-	public int saveLayer(RectF bounds, Paint paint, int flags) {
+	/* Since API P only ALL_SAVE_FLAG is accepted. Older target SDKs keep the
+	 * historical ignored-flags behavior (AOSP Canvas.checkValidSaveFlags). */
+	private static void checkValidSaveFlags(int saveFlags) {
+		if (saveFlags != ALL_SAVE_FLAG &&
+		    android.atl.ATLLoadedApp.getPrimaryApplication().pkg.applicationInfo.targetSdkVersion >= 28)
+			throw new IllegalArgumentException("Invalid Layer Save Flag - only ALL_SAVE_FLAGS is allowed");
+	}
+
+	/**
+	 * Pushes a composited layer for the given bounds onto the canvas. Drawing is directed into the
+	 * layer, bounded by its bounds, and the layer is composited with alpha (0..255) when the
+	 * matching restore() is called.
+	 */
+	public int saveLayerImpl(float left, float top, float right, float bottom, int alpha) {
+		if (bitmap != null) {
+			synchronized (bitmap) {
+				gsk_canvas.snapshot = bitmap.getSnapshot();
+				return gsk_canvas.saveLayerImpl(left, top, right, bottom, alpha);
+			}
+		}
 		return save();
+	}
+
+	public int saveLayer(RectF bounds, Paint paint, int saveFlags) {
+		if (bounds == null)
+			bounds = new RectF(getClipBounds());
+		checkValidSaveFlags(saveFlags);
+		return saveLayer(bounds.left, bounds.top, bounds.right, bounds.bottom, paint, ALL_SAVE_FLAG);
 	}
 
 	public int saveLayer(RectF bounds, Paint paint) {
-		return save();
+		return saveLayer(bounds, paint, ALL_SAVE_FLAG);
+	}
+
+	public int saveLayer(float left, float top, float right, float bottom, Paint paint, int saveFlags) {
+		checkValidSaveFlags(saveFlags);
+		return saveLayerImpl(left, top, right, bottom, paint != null ? paint.getAlpha() : 255);
 	}
 
 	public int saveLayer(float left, float top, float right, float bottom, Paint paint) {
-		return save();
+		return saveLayer(left, top, right, bottom, paint, ALL_SAVE_FLAG);
+	}
+
+	public int saveLayerAlpha(RectF bounds, int alpha, int saveFlags) {
+		if (bounds == null)
+			bounds = new RectF(getClipBounds());
+		checkValidSaveFlags(saveFlags);
+		return saveLayerAlpha(bounds.left, bounds.top, bounds.right, bounds.bottom, alpha, ALL_SAVE_FLAG);
+	}
+
+	public int saveLayerAlpha(RectF bounds, int alpha) {
+		return saveLayerAlpha(bounds, alpha, ALL_SAVE_FLAG);
+	}
+
+	public int saveLayerAlpha(float left, float top, float right, float bottom, int alpha, int saveFlags) {
+		checkValidSaveFlags(saveFlags);
+		alpha = Math.min(255, Math.max(0, alpha));
+		return saveLayerImpl(left, top, right, bottom, alpha);
+	}
+
+	public int saveLayerAlpha(float left, float top, float right, float bottom, int alpha) {
+		return saveLayerAlpha(left, top, right, bottom, alpha, ALL_SAVE_FLAG);
 	}
 
 	public void drawOval(RectF oval, Paint paint) {

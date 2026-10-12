@@ -17,6 +17,10 @@ int main(void) {
 	assert(AHardwareBuffer_lock(b,0x100,-1,NULL,&p)==-EINVAL && p==NULL);
 	assert(AHardwareBuffer_lock(b,3,1,NULL,&p)==-ENOSYS);
 	AHardwareBuffer_Desc actual; AHardwareBuffer_describe(b,&actual); assert(actual.stride==16);
+	AHardwareBuffer_Planes planes;
+	assert(!AHardwareBuffer_lockPlanes(b,3,-1,NULL,&planes));
+	assert(planes.planeCount==1 && planes.planes[0].data==q && planes.planes[0].rowStride==16);
+	assert(!AHardwareBuffer_unlock(b,NULL));
 	AHardwareBuffer_release(b);
 	d.usage |= 0x100; assert(!AHardwareBuffer_isSupported(&d));
 	assert(AHardwareBuffer_allocate(&d,&b)==-EINVAL && b==NULL);

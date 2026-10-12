@@ -33,7 +33,22 @@ public class Binder implements IBinder {
 	}
 
 	@Override
-	public boolean transact(int code, Parcel data, Parcel reply, int flags) { return false; }
+	public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+        if (data != null) data.setDataPosition(0);
+        boolean result = onTransact(code, data, reply, flags);
+        if (reply != null) reply.setDataPosition(0);
+        return result;
+    }
+
+    // AOSP frameworks/base android-14.0.0_r1 local Binder contract.
+    // No cross-process transactions, remote identity, dump or shell commands.
+    protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
+        if (code == 0x5f4e5446 && reply != null) {
+            reply.writeString(getInterfaceDescriptor());
+            return true;
+        }
+        return false;
+    }
 
 	// ATL currently implements only in-process Binder calls, with no remote transaction identity.
 	public static int getCallingUid() { return Process.myUid(); }

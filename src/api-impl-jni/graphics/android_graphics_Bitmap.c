@@ -119,16 +119,27 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Bitmap_native_1ref_1texture(JNIEnv
 	return _INTPTR(g_object_ref(GDK_TEXTURE(_PTR(texture_ptr))));
 }
 
-JNIEXPORT void JNICALL Java_android_graphics_Bitmap_native_1get_1pixels(JNIEnv *env, jclass class, jlong texture_ptr, jintArray pixels, jint offset, jint stride, jint x, jint y, jint width, jint height)
+/* Java pixels are logical ARGB ints; GDK bytes are unpremultiplied RGBA.
+ * Convert channels explicitly (also correct on big-endian hosts). */
+JNIEXPORT void JNICALL Java_android_graphics_Bitmap_native_1get_1pixels(JNIEnv *env, jclass clazz, jlong texture_ptr, jintArray pixels, jint offset, jint stride, jint x, jint y, jint width, jint height)
 {
-	GdkTexture *texture = GDK_TEXTURE(_PTR(texture_ptr));
-	if (x != 0 || y != 0 || width != gdk_texture_get_width(texture) || height != gdk_texture_get_height(texture)) {
-		printf("Bitmap.readPixels: partial read not supported\n");
-		exit(1);
-	}
-	jint *array = (*env)->GetIntArrayElements(env, pixels, NULL);
-	gdk_texture_download(texture, (guchar *)(array + offset), stride * 4);
-	(*env)->ReleaseIntArrayElements(env, pixels, array, 0);
+    GdkTexture *texture = GDK_TEXTURE(_PTR(texture_ptr));
+    jint *array = (*env)->GetIntArrayElements(env, pixels, NULL);
+    if (!array) return;
+    gsize row_bytes = (gsize)gdk_texture_get_width(texture) * 4;
+    guchar *full = g_malloc(row_bytes * gdk_texture_get_height(texture));
+    GdkTextureDownloader *downloader = gdk_texture_downloader_new(texture);
+    gdk_texture_downloader_set_format(downloader, GDK_MEMORY_R8G8B8A8);
+    gdk_texture_downloader_download_into(downloader, full, row_bytes);
+    for (gint row = 0; row < height; row++) {
+        const guchar *src = full + (y + row) * row_bytes + (gsize)x * 4;
+        jint *dst = array + offset + (int64_t)row * stride;
+        for (gint col = 0; col < width; col++, src += 4)
+            dst[col] = ((uint32_t)src[3] << 24) | ((uint32_t)src[0] << 16) | (src[1] << 8) | src[2];
+    }
+    gdk_texture_downloader_free(downloader);
+    g_free(full);
+    (*env)->ReleaseIntArrayElements(env, pixels, array, 0);
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Bitmap_native_1copy_1to_1buffer(JNIEnv *env, jclass class, jlong texture_ptr, jobject buffer, jint memory_format, jint stride)
@@ -144,6 +155,7 @@ JNIEXPORT void JNICALL Java_android_graphics_Bitmap_native_1copy_1to_1buffer(JNI
 	gdk_texture_downloader_free(downloader);
 }
 
+
 JNIEXPORT jbyteArray JNICALL Java_android_graphics_Bitmap_native_1save_1to_1png(JNIEnv *env, jclass class, jlong texture_ptr)
 {
 	GdkTexture *texture = GDK_TEXTURE(_PTR(texture_ptr));
@@ -156,16 +168,29 @@ JNIEXPORT jbyteArray JNICALL Java_android_graphics_Bitmap_native_1save_1to_1png(
 	return result;
 }
 
-JNIEXPORT void JNICALL Java_android_graphics_Bitmap_native_1set_1pixels(JNIEnv *env, jclass class, jlong snapshot_ptr, jintArray pixels, jint offset, jint stride, jint x, jint y, jint width, jint height)
+JNIEXPORT jlong JNICALL Java_android_graphics_Bitmap_native_1set_1pixels(JNIEnv *env, jclass clazz, jlong texture_ptr, jintArray pixels, jint offset, jint stride, jint x, jint y, jint width, jint height)
 {
-	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
-	gpointer data = g_malloc0(height * stride * 4);
-	jint *array = (*env)->GetIntArrayElements(env, pixels, NULL);
-	memcpy(data, array + offset, height * stride * 4);
-	(*env)->ReleaseIntArrayElements(env, pixels, array, 0);
-	GBytes *bytes = g_bytes_new_take(data, height * stride * 4);
-	GdkTexture *texture = gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, stride * 4);
-	g_bytes_unref(bytes);
-	gtk_snapshot_append_texture(snapshot, texture, &GRAPHENE_RECT_INIT(x, y, width, height));
-	g_object_unref(texture);
+    GdkTexture *old = GDK_TEXTURE(_PTR(texture_ptr));
+    jint *array = (*env)->GetIntArrayElements(env, pixels, NULL);
+    if (!array) return 0;
+    gint tw = gdk_texture_get_width(old), th = gdk_texture_get_height(old);
+    gsize row_bytes = (gsize)tw * 4;
+    guchar *data = g_malloc(row_bytes * th);
+    GdkTextureDownloader *downloader = gdk_texture_downloader_new(old);
+    gdk_texture_downloader_set_format(downloader, GDK_MEMORY_R8G8B8A8);
+    gdk_texture_downloader_download_into(downloader, data, row_bytes);
+    gdk_texture_downloader_free(downloader);
+    for (gint row = 0; row < height; row++) {
+        guchar *dst = data + (y + row) * row_bytes + (gsize)x * 4;
+        const jint *src = array + offset + (int64_t)row * stride;
+        for (gint col = 0; col < width; col++, dst += 4) {
+            uint32_t argb = src[col];
+            dst[0] = argb >> 16; dst[1] = argb >> 8; dst[2] = argb; dst[3] = argb >> 24;
+        }
+    }
+    (*env)->ReleaseIntArrayElements(env, pixels, array, JNI_ABORT);
+    GBytes *bytes = g_bytes_new_take(data, row_bytes * th);
+    GdkTexture *texture = gdk_memory_texture_new(tw, th, GDK_MEMORY_R8G8B8A8, bytes, row_bytes);
+    g_bytes_unref(bytes);
+    return _INTPTR(texture);
 }

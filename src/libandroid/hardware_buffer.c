@@ -65,6 +65,29 @@ int AHardwareBuffer_lock(AHardwareBuffer *b, uint64_t usage, int32_t fence,
 	*out = b->data;
 	return 0;
 }
+/*
+ * Multi-plane lock (API 29). ATL's AHardwareBuffer is a single-plane CPU
+ * allocation, which is exactly one plane, so the plane view of the locked region
+ * is reported; the lock itself performs the same validation and exclusivity
+ * accounting as AHardwareBuffer_lock, including its error numbers.
+ */
+int AHardwareBuffer_lockPlanes(AHardwareBuffer *b, uint64_t usage, int32_t fence,
+			const ATLBufferRect *r, AHardwareBuffer_Planes *out) {
+	if (!out) return -EINVAL;
+	out->planeCount = 0;
+	void *data = NULL;
+	int result = AHardwareBuffer_lock(b, usage, fence, r, &data);
+	if (result) return result;
+	uint32_t pixelStride = b->desc.format == 1 ? 4 : 1;
+	uint32_t rowStride = b->desc.format == 1 ? (uint32_t)b->desc.width * 4 : (uint32_t)b->desc.width;
+	unsigned char *plane = data;
+	/* Like lock(), plane data addresses the buffer origin, not the dirty rect. */
+	out->planeCount = 1;
+	out->planes[0].data = plane;
+	out->planes[0].pixelStride = pixelStride;
+	out->planes[0].rowStride = rowStride;
+	return 0;
+}
 int AHardwareBuffer_unlock(AHardwareBuffer *b, int32_t *fence) {
 	if (!b) return -EINVAL;
 	if (b->desc.format == 1 && !atomic_exchange(&b->image_locked, 0)) return -EINVAL;
