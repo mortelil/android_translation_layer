@@ -556,6 +556,16 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 			this.weight = weight;
 		}
 
+		/**
+		 * Copy constructor. Clones the width and height values of the source.
+		 *
+		 * @param source The layout params to copy from.
+		 */
+		public LayoutParams(LayoutParams source) {
+			this.width = source.width;
+			this.height = source.height;
+		}
+
 		public LayoutParams(Context context, AttributeSet attrs) {
 			TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.ViewGroup_Layout);
 			setBaseAttributes(a, R.styleable.ViewGroup_Layout_layout_width, R.styleable.ViewGroup_Layout_layout_height);

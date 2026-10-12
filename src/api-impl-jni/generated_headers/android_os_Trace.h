@@ -56,10 +56,10 @@ JNIEXPORT jlong JNICALL Java_android_os_Trace_nativeGetEnabledTags
 /*
  * Class:     android_os_Trace
  * Method:    nativeTraceCounter
- * Signature: (JLjava/lang/String;I)V
+ * Signature: (JLjava/lang/String;J)V
  */
 JNIEXPORT void JNICALL Java_android_os_Trace_nativeTraceCounter
-  (JNIEnv *, jclass, jlong, jstring, jint);
+  (JNIEnv *, jclass, jlong, jstring, jlong);
 
 /*
  * Class:     android_os_Trace

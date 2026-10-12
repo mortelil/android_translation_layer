@@ -62,6 +62,13 @@ public class ComponentInfo extends PackageItemInfo {
 	 */
 	public boolean exported = false;
 
+	/**
+	 * Indicates if this component is aware of direct boot lifecycle, and can be
+	 * safely run before the user has entered their credentials (such as a lock
+	 * pattern or PIN).
+	 */
+	public boolean directBootAware = false;
+
 	public ComponentInfo() {
 	}
 
@@ -72,6 +79,7 @@ public class ComponentInfo extends PackageItemInfo {
 		descriptionRes = orig.descriptionRes;
 		enabled = orig.enabled;
 		exported = orig.exported;
+		directBootAware = orig.directBootAware;
 	}
 
 	@Override
@@ -132,7 +140,8 @@ public class ComponentInfo extends PackageItemInfo {
 
 	protected void dumpFront(Printer pw, String prefix) {
 		super.dumpFront(pw, prefix);
-		pw.println(prefix + "enabled=" + enabled + " exported=" + exported + " processName=" + processName);
+		pw.println(prefix + "enabled=" + enabled + " exported=" + exported
+		           + " directBootAware=" + directBootAware + " processName=" + processName);
 		if (descriptionRes != 0) {
 			pw.println(prefix + "description=" + descriptionRes);
 		}

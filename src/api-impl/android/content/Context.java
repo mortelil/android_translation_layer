@@ -76,6 +76,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class Context {
+	public static final String ACCOUNT_SERVICE = "account";
 	private final static String TAG = "Context";
 
 	public static final int MODE_PRIVATE = 0;
@@ -381,6 +382,15 @@ public abstract class Context {
 	public abstract ClassLoader getClassLoader();
 
 	public abstract ComponentName startService(Intent intent);
+
+	/**
+	 * Like {@link #startService(Intent)}, but with the implicit promise that the service
+	 * calls {@link android.app.Service#startForeground} once it begins running. AOSP declares
+	 * this abstract and lets {@code ContextImpl} implement it by handing a foreground flag to
+	 * ActivityManager; ATL has no separate foreground-service state (every start goes through
+	 * {@code ATLLoadedApp.startService}), so our implementation is the same start request.
+	 */
+	public abstract ComponentName startForegroundService(Intent service);
 
 	// TODO: do these both work? make them look more alike
 	public FileInputStream openFileInput(String name) throws FileNotFoundException {

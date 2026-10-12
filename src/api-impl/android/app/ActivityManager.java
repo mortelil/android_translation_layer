@@ -17,20 +17,26 @@ import java.util.Map;
 
 public class ActivityManager {
 
+	/** AOSP {@code ActivityManager.RunningAppProcessInfo}: the fields a caller in this
+	 *  process needs to find itself, above all the packages the process runs (microG
+	 *  resolves the calling package with {@code pkgList}). */
 	public static class RunningAppProcessInfo {
 		public int importance;
 		public int pid;
 		public int uid;
 		public String processName;
+		public String[] pkgList;
 
 		public RunningAppProcessInfo(String processName, int pid, String[] pkgList) {
 			this.processName = processName;
 			this.pid = pid;
+			this.pkgList = pkgList;
 		}
 
-		private RunningAppProcessInfo(int pid, String processName) {
+		private RunningAppProcessInfo(int pid, String processName, String[] pkgList) {
 			this.pid = pid;
 			this.processName = processName;
+			this.pkgList = pkgList;
 		}
 	}
 
@@ -39,9 +45,16 @@ public class ActivityManager {
 		public TaskDescription(String name, Bitmap icon, int color) {}
 	}
 
+	/**
+	 * The one process ATL runs: this one, which hosts every loaded package, so the
+	 * calling process reports its own pid and the packages loaded into it. Android
+	 * packs one package name per process entry, and the caller's own package is what
+	 * a caller asking for its identity must find here.
+	 */
 	public List<RunningAppProcessInfo> getRunningAppProcesses() {
-		return Arrays.asList(new RunningAppProcessInfo(Process.myPid(),
-		                                               ATLLoadedApp.getPrimaryApplication().pkg.packageName));
+		String packageName = ATLLoadedApp.getPrimaryApplication().pkg.packageName;
+		return Arrays.asList(
+		    new RunningAppProcessInfo(Process.myPid(), packageName, new String[] {packageName}));
 	}
 
 	public boolean isLowRamDevice() { return false; }
