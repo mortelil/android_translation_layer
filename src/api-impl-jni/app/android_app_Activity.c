@@ -198,7 +198,7 @@ void activity_start(JNIEnv *env, jobject activity_object)
 	activity_current = NULL;
 	/* Called both from GTK and Java nativeStartActivity. Return pending to the
 	 * caller; only the outer native-owned entrypoint may declare it uncaught. */
-	(*env)->CallVoidMethod(env, activity_object, handle_cache.activity.onCreate, NULL);
+	(*env)->CallVoidMethod(env, activity_object, handle_cache.activity.performCreate, NULL);
 	if ((*env)->ExceptionCheck(env))
 		return;
 

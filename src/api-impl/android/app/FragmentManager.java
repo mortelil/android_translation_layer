@@ -83,6 +83,7 @@ public class FragmentManager {
 			throw new IllegalStateException("Fragment already added: " + fragment);
 		}
 		activity.fragments.add(fragment);
+		activity.moveFragmentToCreationState(fragment);
 	}
 
 	void removeFragment(Fragment fragment) {
