@@ -6,7 +6,7 @@ import android.webkit.WebView;
 
 public class CookieManager {
 	private static final CookieManager INSTANCE = new CookieManager();
-	private boolean accept = true;
+	private volatile boolean accept = true;
 
 	public static CookieManager getInstance() {
 		// HACK: disable NewPipe's WebView based PoToken generator for now
@@ -52,14 +52,15 @@ public class CookieManager {
 	public native boolean hasCookies();
 
 	public void setCookie(String url, String value) { setCookie(url, value, null); }
-	public synchronized void setCookie(String url, String value, ValueCallback<Boolean> callback) {
+	public void setCookie(String url, String value, ValueCallback<Boolean> callback) {
 		Handler handler = callbackHandler(callback);
 		boolean result = accept && url != null && value != null && nativeSet(url, value);
 		complete(handler, callback, result);
 	}
 
-	public synchronized void setAcceptCookie(boolean accept) { this.accept = accept; }
-	public synchronized boolean acceptCookie() { return accept; }
+	public void setAcceptCookie(boolean accept) { nativeAccept(accept); this.accept = accept; }
+	public boolean acceptCookie() { return accept; }
+	private static native void nativeAccept(boolean accept);
 	private static native boolean nativeSet(String url, String value);
 	private static native boolean nativeRemove(int mode);
 	private static native void nativeFlush();

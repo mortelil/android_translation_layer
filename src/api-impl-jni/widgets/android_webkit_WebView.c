@@ -6,6 +6,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../WebViewSession.h"
 
 #include "../AssetInputStream.h"
 #include "WrapperWidget.h"
@@ -59,12 +60,35 @@ static void asset_uri_scheme_request_cb(WebKitURISchemeRequest *request, gpointe
 
 static void web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, gpointer user_data)
 {
+	if (getenv("ATL_WEBVIEW_DIAGNOSTICS"))
+        g_printerr("ATL WebView: load event %d (URL omitted)\n", load_event);
 	WrapperWidget *wrapper = WRAPPER_WIDGET(gtk_widget_get_parent(GTK_WIDGET(web_view)));
 	JNIEnv *env = get_jni_env();
 	/* the engine has no URI yet -> report Java null (AOSP getUrl() semantics), never NewStringUTF(NULL) */
 	const gchar *uri = webkit_web_view_get_uri(web_view);
 	(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.webview.internalLoadChanged, load_event, uri ? _JSTRING(uri) : NULL);
 
+}
+
+/* Opt-in progress only: never log URIs, headers, page text or error messages. */
+static void resource_finished(WebKitWebResource *resource, gpointer unused)
+{
+    WebKitURIResponse *response = webkit_web_resource_get_response(resource);
+    g_printerr("ATL WebView: resource finished (HTTP %u)\n",
+               response ? webkit_uri_response_get_status_code(response) : 0);
+}
+
+static void resource_failed(WebKitWebResource *resource, GError *error, gpointer unused)
+{
+    g_printerr("ATL WebView: resource failed (code %d; details omitted)\n", error->code);
+}
+
+static void resource_started(WebKitWebView *view, WebKitWebResource *resource,
+                             WebKitURIRequest *request, gpointer unused)
+{
+    g_printerr("ATL WebView: resource started (URL omitted)\n");
+    g_signal_connect(resource, "finished", G_CALLBACK(resource_finished), NULL);
+    g_signal_connect(resource, "failed", G_CALLBACK(resource_failed), NULL);
 }
 
 static gboolean web_view_load_failed(WebKitWebView *view, WebKitLoadEvent event,
@@ -112,12 +136,19 @@ JNIEXPORT jlong JNICALL Java_android_webkit_WebView_native_1constructor(JNIEnv *
 	if (!getenv("ATL_UGLY_ENABLE_WEBVIEW"))
 		return Java_android_view_View_native_1constructor(env, this, context, attrs);
 
-	GtkWidget *wrapper = g_object_ref(wrapper_widget_new());
-	GtkWidget *webview = webkit_web_view_new();
+	WebKitNetworkSession *session = atl_webview_session();
+    if (!session) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), "Cannot create private WebView session");
+        return 0;
+    }
+    GtkWidget *wrapper = g_object_ref(wrapper_widget_new());
+	GtkWidget *webview = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", session, NULL);
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), webview);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
 	wrapper_widget_register_invalidation_listener(WRAPPER_WIDGET(wrapper));
 	webkit_web_context_register_uri_scheme(webkit_web_view_get_context(WEBKIT_WEB_VIEW(webview)), "android-asset", asset_uri_scheme_request_cb, NULL, NULL);
+	if (getenv("ATL_WEBVIEW_DIAGNOSTICS"))
+        g_signal_connect(webview, "resource-load-started", G_CALLBACK(resource_started), NULL);
 	g_signal_connect(G_OBJECT(webview), "load-changed", G_CALLBACK(web_view_load_changed), NULL);
 	g_signal_connect(G_OBJECT(webview), "load-failed", G_CALLBACK(web_view_load_failed), NULL);
 	g_signal_connect(G_OBJECT(webview), "web-process-terminated", G_CALLBACK(web_process_terminated), NULL);

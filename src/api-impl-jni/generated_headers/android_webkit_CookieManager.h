@@ -25,6 +25,14 @@ JNIEXPORT jboolean JNICALL Java_android_webkit_CookieManager_hasCookies
 
 /*
  * Class:     android_webkit_CookieManager
+ * Method:    nativeAccept
+ * Signature: (Z)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_CookieManager_nativeAccept
+  (JNIEnv *, jclass, jboolean);
+
+/*
+ * Class:     android_webkit_CookieManager
  * Method:    nativeSet
  * Signature: (Ljava/lang/String;Ljava/lang/String;)Z
  */
