@@ -285,7 +285,10 @@ public abstract class Context {
 
 	public File getCacheDir() {
 		if (cache_dir == null) {
-			cache_dir = new File("/tmp/atl_cache/" + getPackageName());
+			// Keep cache in the selected app profile, like files and code_cache.
+			// Native libraries extracted here must also be inside the linker
+			// search boundary for this app; a shared /tmp cache is outside it.
+			cache_dir = new File(getDataDirFile(), "cache");
 		}
 		if (!cache_dir.exists()) {
 			if (!cache_dir.mkdirs()) {
