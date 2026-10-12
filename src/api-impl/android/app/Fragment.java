@@ -7,6 +7,24 @@ import android.os.Bundle;
 public class Fragment {
 
 	Activity activity;
+	private boolean created;
+	private boolean activityCreated;
+
+	void performCreate(Bundle state) {
+		if (!created) {
+			created = true;
+			onCreate(state);
+		}
+	}
+
+	void performActivityCreated(Bundle state) {
+		performCreate(state);
+		if (!activityCreated) {
+			activityCreated = true;
+			onActivityCreated(state);
+		}
+	}
+
 
 	/*
 	 * Tag lookup adapted from AOSP platform/frameworks/base, tag
@@ -38,6 +56,9 @@ public class Fragment {
 	}
 
 	public void onCreate(Bundle savedInstanceState) {
+	}
+
+	public void onActivityCreated(Bundle savedInstanceState) {
 	}
 
 	public void onStart() {

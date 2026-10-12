@@ -3,7 +3,7 @@
 struct handle_cache {
 	struct {
 		jclass class;
-		jmethodID onCreate;
+		jmethodID performCreate;
 		jmethodID onPostCreate;
 		jmethodID performStart;
 		jmethodID performResume;

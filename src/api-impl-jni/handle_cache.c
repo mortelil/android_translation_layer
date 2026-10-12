@@ -7,7 +7,7 @@ void set_up_handle_cache(JNIEnv *env)
 	handle_cache.activity.class = _REF((*env)->FindClass(env, "android/app/Activity"));
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
-	handle_cache.activity.onCreate = _METHOD(handle_cache.activity.class, "onCreate", "(Landroid/os/Bundle;)V");
+	handle_cache.activity.performCreate = _METHOD(handle_cache.activity.class, "performCreate", "(Landroid/os/Bundle;)V");
 	handle_cache.activity.onPostCreate = _METHOD(handle_cache.activity.class, "onPostCreate", "(Landroid/os/Bundle;)V");
 	handle_cache.activity.performStart = _METHOD(handle_cache.activity.class, "performStart", "()V");
 	handle_cache.activity.onWindowFocusChanged = _METHOD(handle_cache.activity.class, "onWindowFocusChanged", "(Z)V");

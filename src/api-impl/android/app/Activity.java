@@ -101,6 +101,27 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		return internalCreateActivity(className, native_window, uri != null ? new Intent("android.intent.action.VIEW", uri) : new Intent());
 	}
 
+	private final FragmentManager fragmentManager = new FragmentManager(this);
+	private boolean fragmentsCreated;
+	private boolean fragmentsActivityCreated;
+	private Bundle fragmentCreationState;
+
+	void moveFragmentToCreationState(Fragment fragment) {
+		if (fragmentsCreated) fragment.performCreate(fragmentCreationState);
+		if (fragmentsActivityCreated) fragment.performActivityCreated(fragmentCreationState);
+	}
+
+	// AOSP Activity.performCreate dispatches activity-created only after the
+	// application's entire onCreate override has completed.
+	final void performCreate(Bundle state) {
+		onCreate(state);
+		fragmentManager.executePendingTransactions();
+		fragmentsActivityCreated = true;
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			fragment.performActivityCreated(state);
+		}
+	}
+
 	public Activity() {
 		super(null);
 	}
@@ -148,8 +169,10 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	protected void onCreate(Bundle savedInstanceState) {
 		Slog.i(TAG, "- onCreate - yay!");
 
-		for (Fragment fragment : fragments) {
-			fragment.onCreate(savedInstanceState);
+		fragmentCreationState = savedInstanceState;
+		fragmentsCreated = true;
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			fragment.performCreate(savedInstanceState);
 		}
 
 		// AOSP Activity.onCreate (android-17.0.0_r1 Activity.java:1915) dispatches
@@ -454,7 +477,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	}
 
 	public FragmentManager getFragmentManager() {
-		return new FragmentManager(this);
+		return fragmentManager;
 	}
 
 	public LayoutInflater getLayoutInflater() {
