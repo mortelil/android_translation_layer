@@ -101,6 +101,10 @@ android/multinetwork.h. Original OMP AOSP source/license notes are retained.
 
 ### Held: native Choreographer
 
+Follow-up: the rejected OMP implementation remains excluded. A new per-Looper
+implementation is described in [native-choreographer.md](native-choreographer.md).
+The paragraph below records the original A/B integration decision.
+
 OMP's global GLib idle callbacks are neither per-Looper callbacks nor vsync
 scheduling. Returning NULL from an exported replacement also stalled the tested
 Flutter startup. The complete new native Choreographer export is therefore held;
