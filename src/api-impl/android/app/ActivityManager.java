@@ -49,16 +49,9 @@ public class ActivityManager {
 		public TaskDescription(String name, Bitmap icon, int color) {}
 	}
 
-	/**
-	 * The one process ATL runs: this one, which hosts every loaded package, so the
-	 * calling process reports its own pid and the packages loaded into it. Android
-	 * packs one package name per process entry, and the caller's own package is what
-	 * a caller asking for its identity must find here.
-	 */
+	/** Running processes in this ATL launcher session. */
 	public List<RunningAppProcessInfo> getRunningAppProcesses() {
-		String packageName = ATLLoadedApp.getPrimaryApplication().pkg.packageName;
-		return Arrays.asList(
-		    new RunningAppProcessInfo(Process.myPid(), packageName, new String[] {packageName}));
+		return android.atl.ATLRemoteServices.runningProcesses();
 	}
 
 	public boolean isLowRamDevice() { return false; }

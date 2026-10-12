@@ -249,7 +249,10 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
 	public void unregisterOnProvideAssistDataListener(OnProvideAssistDataListener callback) {
 	}
 	public static String getProcessName() {
-		// note: we currently don't set the process name
-		return ATLLoadedApp.getPrimaryApplication().pkg.packageName;
+		String name = System.getenv("ATL_SERVICE_PROCESS");
+		if (name != null)
+			return name;
+		android.content.pm.ApplicationInfo info = ATLLoadedApp.getPrimaryApplication().pkg.applicationInfo;
+		return info.processName != null ? info.processName : info.packageName;
 	}
 }

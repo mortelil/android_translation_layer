@@ -25,13 +25,13 @@ public abstract class ContentProvider {
 		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
 		for (PackageParser.Provider provider_parsed : primary.pkg.providers) {
 			String process_name = provider_parsed.info.processName;
-			if (process_name != null && process_name.contains(":")) {
-				/* NOTE: even if it doesn't contain `:`, if it's not null we probably
-				 * need to check what it's requesting; `:` means it wants us to spawn
-				 * a new process, which we currently don't support */
-				System.out.println("not creating provider " + provider_parsed.className + ", it wants to be started in a new process (" + process_name + ")");
+			String current = android.app.Application.getProcessName();
+			if (process_name == null)
+				process_name = primary.pkg.applicationInfo.processName;
+			if (process_name == null)
+				process_name = primary.pkg.packageName;
+			if (!current.equals(process_name))
 				continue;
-			}
 			atl_providers.put(provider_parsed.info.authority,
 			                  new ATLProvider(primary, provider_parsed));
 		}

@@ -619,6 +619,16 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	if ((*env)->ExceptionCheck(env))
 		atl_jni_handle_uncaught_exception(env, "Application.onCreate");
 
+	if (getenv("ATL_SERVICE_FD")) {
+		jclass remote = (*env)->FindClass(env, "android/atl/ATLRemoteServices");
+		(*env)->CallStaticVoidMethod(env, remote, _STATIC_METHOD(remote, "runChild", "()V"));
+		if ((*env)->ExceptionCheck(env))
+			atl_jni_handle_uncaught_exception(env, "Service process startup");
+		/* Keep the GLib main looper alive without presenting an Activity/window. */
+		g_application_hold(G_APPLICATION(app));
+		return;
+	}
+
 	if (d->apk_instrumentation_class) {
 		if (d->apk_main_activity_class) {
 			fprintf(stderr, "error: both --instrument and --launch-activity supplied, exiting\n");

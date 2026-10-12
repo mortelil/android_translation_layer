@@ -278,7 +278,7 @@ public final class ATLLoadedApp {
 		if (component != null) {
 			for (PackageParser.Service service : pkg.services) {
 				if (component.getClassName().equals(service.className)) {
-					requireLocalService(service);
+					ATLRemoteServices.remoteProcess(this, new ComponentName(pkg.packageName, service.className));
 					return component;
 				}
 			}
@@ -290,7 +290,7 @@ public final class ATLLoadedApp {
 				continue;
 			for (PackageParser.IntentInfo intentInfo : service.intents) {
 				if (intentInfo.matchAction(intent.getAction()) && intentInfo.priority > priority) {
-					requireLocalService(service);
+					ATLRemoteServices.remoteProcess(this, new ComponentName(pkg.packageName, service.className));
 					component = new ComponentName(pkg.packageName, service.className);
 					priority = intentInfo.priority;
 					break;
@@ -300,15 +300,6 @@ public final class ATLLoadedApp {
 		return component;
 	}
 
-	private void requireLocalService(PackageParser.Service service) {
-		String process = service.info.processName;
-		String appProcess = pkg.applicationInfo.processName;
-		if (appProcess == null) appProcess = pkg.packageName;
-		if ((process != null && !process.equals(appProcess)) ||
-		    (service.info.flags & android.content.pm.ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
-			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
-		}
-	}
 
 	/**
 	 * Brings the service for {@code record} up on the calling thread (the main
@@ -346,6 +337,9 @@ public final class ATLLoadedApp {
 			Slog.w(TAG, "startService: no matching service found for intent: " + intent);
 			return null;
 		}
+		String process = ATLRemoteServices.remoteProcess(this, component);
+		if (process != null)
+			return ATLRemoteServices.command(this, process, intent, component, true) ? component : null;
 		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateStart(component);
 		final int startId = record.lastStartId;
 
@@ -452,6 +446,9 @@ public final class ATLLoadedApp {
 			Slog.w(TAG, "bindService: no matching service found for intent: " + intent);
 			return null;
 		}
+		String process = ATLRemoteServices.remoteProcess(this, component);
+		if (process != null)
+			return ATLRemoteServices.bind(this, process, bindContext, intent, component, serviceConnection, flags);
 		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component);
 		final ATLServiceRegistry.BoundClient client =
 		    service_registry.registerBinding(record, serviceConnection, intent, bindContext);
@@ -509,6 +506,8 @@ public final class ATLLoadedApp {
 	 * ordinary unbind.
 	 */
 	public void unbindService(Context context, ServiceConnection serviceConnection) {
+		if (ATLRemoteServices.unbind(context, serviceConnection))
+			return;
 		for (ATLServiceRegistry.UnbindResult result : service_registry.unbind(context, serviceConnection))
 			postUnbindWork(result.record, result.intents, result.destroy);
 	}
@@ -576,6 +575,11 @@ public final class ATLLoadedApp {
 			Slog.w(TAG, "stopService: no component in intent: " + intent);
 			return false;
 		}
+		String process = "1".equals(System.getenv("ATL_ENABLE_REMOTE_SERVICES"))
+		                   ? ATLRemoteServices.remoteProcess(this, component)
+		                   : null;
+		if (process != null)
+			return ATLRemoteServices.command(this, process, intent, component, false);
 		final ATLServiceRegistry.StopResult result = service_registry.stop(component);
 		if (!result.running)
 			return false;
