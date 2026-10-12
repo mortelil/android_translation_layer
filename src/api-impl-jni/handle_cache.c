@@ -9,9 +9,9 @@ void set_up_handle_cache(JNIEnv *env)
 		(*env)->ExceptionDescribe(env);
 	handle_cache.activity.onCreate = _METHOD(handle_cache.activity.class, "onCreate", "(Landroid/os/Bundle;)V");
 	handle_cache.activity.onPostCreate = _METHOD(handle_cache.activity.class, "onPostCreate", "(Landroid/os/Bundle;)V");
-	handle_cache.activity.onStart = _METHOD(handle_cache.activity.class, "onStart", "()V");
+	handle_cache.activity.performStart = _METHOD(handle_cache.activity.class, "performStart", "()V");
 	handle_cache.activity.onWindowFocusChanged = _METHOD(handle_cache.activity.class, "onWindowFocusChanged", "(Z)V");
-	handle_cache.activity.onResume = _METHOD(handle_cache.activity.class, "onResume", "()V");
+	handle_cache.activity.performResume = _METHOD(handle_cache.activity.class, "performResume", "()V");
 	handle_cache.activity.onPostResume = _METHOD(handle_cache.activity.class, "onPostResume", "()V");
 	handle_cache.activity.onDestroy = _METHOD(handle_cache.activity.class, "onDestroy", "()V");
 	handle_cache.activity.onStop = _METHOD(handle_cache.activity.class, "onStop", "()V");

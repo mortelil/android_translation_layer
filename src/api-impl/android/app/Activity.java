@@ -168,14 +168,28 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		Slog.i(TAG, "- onStart - yay!");
 		window.setTitle(title);
 
-		for (Fragment fragment : fragments) {
-			fragment.onStart();
-		}
-
 		// AOSP Activity.onStart (android-17.0.0_r1 Activity.java:2208).
 		getApplication().dispatchActivityStarted(this);
 
 		return;
+	}
+
+	// AOSP Activity.performStart/performResume (android-17.0.0_r1,
+	// 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d) dispatch upward fragment
+	// transitions AFTER the complete application override returns. Dispatching
+	// in super.onStart/onResume re-enters lifecycle observers too early.
+	final void performStart() {
+		onStart();
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			fragment.onStart();
+		}
+	}
+
+	final void performResume() {
+		onResume();
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			fragment.onResume();
+		}
 	}
 
 	protected void onRestart() {
@@ -189,10 +203,6 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 		// AOSP Activity.onResume (android-17.0.0_r1 Activity.java:2284) dispatches first.
 		getApplication().dispatchActivityResumed(this);
-
-		for (Fragment fragment : fragments) {
-			fragment.onResume();
-		}
 
 		paused = false;
 		return;
