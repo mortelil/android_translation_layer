@@ -64,7 +64,7 @@ static void activity_focus(JNIEnv *env, jobject activity)
 	if (_GET_BOOL_FIELD(activity, "finishing"))
 		return;
 
-	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onStart);
+	(*env)->CallVoidMethod(env, activity, handle_cache.activity.performStart);
 	if ((*env)->ExceptionCheck(env))
 		return;
 	if (_GET_BOOL_FIELD(activity, "finishing"))
@@ -74,7 +74,7 @@ static void activity_focus(JNIEnv *env, jobject activity)
 	GtkStack *stack = GTK_STACK(atl_window_get_content(window));
 	gtk_stack_set_visible_child(stack, decor_view);
 
-	(*env)->CallVoidMethod(env, activity, handle_cache.activity.onResume);
+	(*env)->CallVoidMethod(env, activity, handle_cache.activity.performResume);
 	if ((*env)->ExceptionCheck(env))
 		return;
 	if (_GET_BOOL_FIELD(activity, "finishing"))

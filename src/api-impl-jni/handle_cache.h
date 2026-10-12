@@ -5,8 +5,8 @@ struct handle_cache {
 		jclass class;
 		jmethodID onCreate;
 		jmethodID onPostCreate;
-		jmethodID onStart;
-		jmethodID onResume;
+		jmethodID performStart;
+		jmethodID performResume;
 		jmethodID onPostResume;
 		jmethodID onWindowFocusChanged;
 		jmethodID onDestroy;
