@@ -67,6 +67,22 @@ static void web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_
 
 }
 
+static gboolean web_view_load_failed(WebKitWebView *view, WebKitLoadEvent event,
+                                    const gchar *uri, GError *error, gpointer data)
+{
+	(void)view; (void)event; (void)uri; (void)data;
+	/* URLs and error messages can contain account identifiers or login tokens. */
+	g_printerr("ATL WebView: page load failed (domain %s, code %d; URL/details redacted)\n",
+	           g_quark_to_string(error->domain), error->code);
+	return FALSE;
+}
+
+static void web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationReason reason, gpointer data)
+{
+	(void)view; (void)data;
+	g_printerr("ATL WebView: web process terminated (reason %d)\n", reason);
+}
+
 static gboolean decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *decision, WebKitPolicyDecisionType type, WrapperWidget *wrapper)
 {
 	if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) {
@@ -103,6 +119,8 @@ JNIEXPORT jlong JNICALL Java_android_webkit_WebView_native_1constructor(JNIEnv *
 	wrapper_widget_register_invalidation_listener(WRAPPER_WIDGET(wrapper));
 	webkit_web_context_register_uri_scheme(webkit_web_view_get_context(WEBKIT_WEB_VIEW(webview)), "android-asset", asset_uri_scheme_request_cb, NULL, NULL);
 	g_signal_connect(G_OBJECT(webview), "load-changed", G_CALLBACK(web_view_load_changed), NULL);
+	g_signal_connect(G_OBJECT(webview), "load-failed", G_CALLBACK(web_view_load_failed), NULL);
+	g_signal_connect(G_OBJECT(webview), "web-process-terminated", G_CALLBACK(web_process_terminated), NULL);
 	g_signal_connect(webview, "decide-policy", G_CALLBACK(decide_policy), wrapper);
 	/* Android WebSettings defaults differ from WebKitGTK's defaults. */
 	WebKitSettings *settings = webkit_web_view_get_settings(WEBKIT_WEB_VIEW(webview));

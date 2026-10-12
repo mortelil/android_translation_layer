@@ -15,6 +15,13 @@ public class WebView extends ViewGroup {
 	// "no page loaded yet", never a fabricated value.
 	private String currentUrl;
 	private String originalUrl;
+	private JavascriptBridge javascriptBridge;
+	private boolean destroyed;
+	private void checkJavascriptThread() {
+		if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper())
+			throw new IllegalStateException("WebView JavaScript API must run on the UI thread");
+		if (destroyed) throw new IllegalStateException("WebView destroyed");
+	}
 
 	public WebView(Context context) {
 		this(context, null);
@@ -84,21 +91,24 @@ public class WebView extends ViewGroup {
 	public void setInitialScale(int scaleInPercent) {}
 
 	public void addJavascriptInterface(Object object, String name) {
-		// HACK: directly call onRenderingDone for OctoDroid, as the javascript interface is not implemented yet
-		if (object.getClass().getName().startsWith("com.gh4a") && "NativeClient".equals(name)) {
-			try {
-				object.getClass().getMethod("onRenderingDone").invoke(object);
-			} catch (ReflectiveOperationException e) {
-				e.printStackTrace();
-			}
-		}
+		checkJavascriptThread();
+		if (object == null) return;
+		if (name == null) throw new IllegalArgumentException("name is null");
+		if (javascriptBridge == null) javascriptBridge = new JavascriptBridge();
+		native_setJavascriptBridge(widget, javascriptBridge, javascriptBridge.update(name, object));
 	}
 
 	public void setWebChromeClient(WebChromeClient dummy) {}
 
 	public void removeAllViews() {}
 
-	public void destroy() {}
+	public void destroy() {
+		if (destroyed) return;
+		checkJavascriptThread();
+		destroyed = true;
+		if (javascriptBridge != null) javascriptBridge.destroy();
+		native_destroyJavascript(widget);
+	}
 
 	public void loadDataWithBaseURL(String baseUrl, String data, String mimeType, String encoding, String historyUrl) {
 		if ("base64".equals(encoding)) {
@@ -114,7 +124,7 @@ public class WebView extends ViewGroup {
 
 	public void loadUrl(String url) {
 		if (url.startsWith("javascript:")) {
-			System.out.println("loadUrl: " + url + " - not implemented yet");
+			evaluateJavascript(url.substring(11), null);
 			return;
 		}
 		// webkit doesn't allow overwriting the file:// uri scheme. So we replace it with the android-asset:// scheme
@@ -143,7 +153,18 @@ public class WebView extends ViewGroup {
 		loadDataWithBaseURL("about:blank", data, mimeType, encoding, "about:blank");
 	}
 
-	public void evaluateJavascript(String script, ValueCallback resultCallback) {}
+	public void evaluateJavascript(String script, ValueCallback<String> resultCallback) {
+		checkJavascriptThread();
+		if (script == null) throw new IllegalArgumentException("script is null");
+		ValueCallback<String> delivery = resultCallback == null ? null : new ValueCallback<String>() {
+			@Override public void onReceiveValue(final String value) {
+				new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+					@Override public void run() { resultCallback.onReceiveValue(value); }
+				});
+			}
+		};
+		native_evaluateJavascript(widget, script, delivery);
+	}
 
 	public static void setWebContentsDebuggingEnabled(boolean enabled) {}
 
@@ -162,10 +183,17 @@ public class WebView extends ViewGroup {
 		return new Object();
 	}
 
-	public void removeJavascriptInterface(String name) {}
+	public void removeJavascriptInterface(String name) {
+		checkJavascriptThread();
+		if (javascriptBridge != null)
+			native_setJavascriptBridge(widget, javascriptBridge, javascriptBridge.update(name, null));
+	}
 
 	@Override
 	protected native long native_constructor(Context context, AttributeSet attrs);
 	private native void native_loadDataWithBaseURL(long widget, String baseUrl, String data, String mimeType, String encoding);
 	private native void native_loadUrl(long widget, String url);
+	private native void native_evaluateJavascript(long widget, String script, ValueCallback<String> callback);
+	private native void native_setJavascriptBridge(long widget, JavascriptBridge bridge, String script);
+	private native void native_destroyJavascript(long widget);
 }
