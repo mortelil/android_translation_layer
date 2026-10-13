@@ -98,6 +98,7 @@ subdir('protocol')
 libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                   	'src/api-impl-jni/android_app_NativeActivity.c',
                                                                   	'src/api-impl-jni/android_content_res_AssetManager.c',
+                                                                    'src/api-impl-jni/apk_assets_cache.c',
                                                                   	'src/api-impl-jni/android_opengl_GLES20.c',
                                                                   	'src/api-impl-jni/android_opengl_GLUtils.c',
                                                                   	'src/api-impl-jni/android_os_Environment.c',
