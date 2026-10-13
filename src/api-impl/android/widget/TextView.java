@@ -45,7 +45,7 @@ public class TextView extends View {
 	private int gravity = Gravity.CENTER;
 
 	public TextView(Context context, AttributeSet attrs) {
-		this(context, attrs, 0);
+		this(context, attrs, com.android.internal.R.attr.textViewStyle);
 	}
 
 	public TextView(Context context) {
@@ -59,7 +59,9 @@ public class TextView extends View {
 	public TextView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
 		super(context, attrs, defStyleAttr, defStyleRes);
 
-		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.TextView, defStyleAttr, 0);
+		// AOSP TextView starts with 15px, then applies appearance and direct style.
+		setTextSize(TypedValue.COMPLEX_UNIT_PX, 15);
+		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.TextView, defStyleAttr, defStyleRes);
 		try {
 			setHighlightColor(a.getColor(com.android.internal.R.styleable.TextView_textColorHighlight, highlightColor));
 			ColorStateList hintStyle = a.getColorStateList(com.android.internal.R.styleable.TextView_textColorHint);
@@ -78,7 +80,7 @@ public class TextView extends View {
 					setTextColor(aa.getColorStateList(com.android.internal.R.styleable.TextAppearance_textColor));
 				}
 				if (aa.hasValue(com.android.internal.R.styleable.TextAppearance_textSize)) {
-					setTextSize(TypedValue.COMPLEX_UNIT_PX, aa.getDimension(com.android.internal.R.styleable.TextAppearance_textSize, 10));
+					setTextSize(TypedValue.COMPLEX_UNIT_PX, aa.getDimensionPixelSize(com.android.internal.R.styleable.TextAppearance_textSize, 15));
 				}
 				aa.recycle();
 			}
@@ -86,7 +88,7 @@ public class TextView extends View {
 				setTextColor(a.getColorStateList(com.android.internal.R.styleable.TextView_textColor));
 			}
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textSize)) {
-				setTextSize(TypedValue.COMPLEX_UNIT_PX, a.getDimension(com.android.internal.R.styleable.TextView_textSize, 10));
+				setTextSize(TypedValue.COMPLEX_UNIT_PX, a.getDimensionPixelSize(com.android.internal.R.styleable.TextView_textSize, 15));
 			}
 
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textStyle)) {

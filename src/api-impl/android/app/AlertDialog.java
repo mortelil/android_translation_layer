@@ -1,6 +1,5 @@
 package android.app;
 
-import android.atl.ATLLoadedApp;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.view.View;
@@ -21,13 +20,13 @@ public class AlertDialog extends Dialog implements DialogInterface {
 
 	public AlertDialog(Context context, int themeResId) {
 		super(context, themeResId);
-		Context themeless = ATLLoadedApp.getSystemApplication().createContext(null, null, 0);
+		Context viewContext = getContext();
 		// three buttons: positive, negative, neutral
-		buttons = new Button[] {new Button(themeless), new Button(themeless), new Button(themeless)};
+		buttons = new Button[] {new Button(viewContext), new Button(viewContext), new Button(viewContext)};
 		buttons[0].setVisibility(View.GONE);
 		buttons[1].setVisibility(View.GONE);
 		buttons[2].setVisibility(View.GONE);
-		messageView = new TextView(themeless);
+		messageView = new TextView(viewContext);
 		messageView.setId(android.R.id.message);
 		messageView.setVisibility(View.GONE);
 		getWindow().setContentView(messageView);

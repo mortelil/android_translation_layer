@@ -1,0 +1,6 @@
+<resources>
+<style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:textViewStyle">@style/Text</item><item name="android:buttonStyle">@style/Btn</item></style>
+<style name="Text"><item name="android:textSize">24sp</item><item name="android:textColor">#ff202020</item></style>
+<style name="Btn" parent="android:style/Widget.Material.Button"><item name="android:textSize">28sp</item></style>
+<style name="Fallback"><item name="android:textSize">32sp</item></style>
+</resources>

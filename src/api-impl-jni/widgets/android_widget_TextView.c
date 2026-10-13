@@ -44,6 +44,7 @@ static void text_css_provider_free(gpointer data)
 static void set_text_css(JNIEnv *env, jlong ptr, const char *key, const char *css)
 {
 	GtkWidget *widget = _PTR(ptr);
+	if (GTK_IS_BUTTON(widget)) widget = gtk_button_get_child(GTK_BUTTON(widget));
 	if (GTK_IS_BOX(widget)) widget = GTK_WIDGET(box_get_label(env, widget));
 	if (!GTK_IS_TEXT(widget) && !GTK_IS_LABEL(widget)) return;
 	// Selection/placeholder are child CSS nodes: a provider on the parent style
