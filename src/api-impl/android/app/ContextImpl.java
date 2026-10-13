@@ -528,6 +528,7 @@ public final class ContextImpl extends Context {
 		// parent's manager would silently change its qualifiers as well.
 		Resources overridden = new Resources(getAssets().createConfigurationCopy(),
 		    getResources().getDisplayMetrics(), config, getClassLoader());
+		overridden.inheritWindowGeometry(getResources(), config_override);
 		return new ContextImpl(overridden, this.atl_loaded_app, getTheme(), this.atl_flags);
 	}
 

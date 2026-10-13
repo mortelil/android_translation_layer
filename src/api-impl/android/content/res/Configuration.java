@@ -17,6 +17,7 @@
 package android.content.res;
 
 import android.content.pm.ActivityInfo;
+import android.util.DisplayMetrics;
 // import android.text.TextUtils;
 import android.os.LocaleList;
 import android.view.View;
@@ -341,6 +342,27 @@ public final class Configuration implements Comparable<Configuration> {
 		}
 		return curLayout;
 	}
+
+	/** Window geometry in dp; adapted from AOSP ResourcesManager
+	 * android-15.0.0_r1 applyDisplayMetricsToConfiguration. @hide */
+	public void applyDisplayMetrics(DisplayMetrics dm) {
+		densityDpi = dm.densityDpi;
+		screenWidthDp = (int) (dm.widthPixels / dm.density + 0.5f);
+		screenHeightDp = (int) (dm.heightPixels / dm.density + 0.5f);
+		int sl = resetScreenLayout(screenLayout);
+		if (dm.widthPixels > dm.heightPixels) {
+			orientation = ORIENTATION_LANDSCAPE;
+			screenLayout = reduceScreenLayout(sl, screenWidthDp, screenHeightDp);
+		} else {
+			orientation = ORIENTATION_PORTRAIT;
+			screenLayout = reduceScreenLayout(sl, screenHeightDp, screenWidthDp);
+		}
+		smallestScreenWidthDp = Math.min(screenWidthDp, screenHeightDp);
+		compatScreenWidthDp = screenWidthDp;
+		compatScreenHeightDp = screenHeightDp;
+		compatSmallestScreenWidthDp = smallestScreenWidthDp;
+	}
+
 
 	/**
 	 * Check if the Configuration's current {@link #screenLayout} is at

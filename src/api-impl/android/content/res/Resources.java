@@ -141,6 +141,53 @@ public class Resources {
 
 	/*package*/ final AssetManager mAssets;
 	private final Configuration mConfiguration = new Configuration();
+	// Only app/window resources participate. Standalone Resources retain their
+	// caller-supplied metrics. Configuration-context overrides remain explicit.
+	private static final java.util.ArrayList<WeakReference<Resources>> sWindowResources = new java.util.ArrayList<>();
+	private boolean mWindowTracked;
+	private Configuration mWindowOverride;
+
+	/** Register default app resources for host-window geometry updates. @hide */
+	public void trackWindowGeometry() {
+		synchronized (sWindowResources) {
+			if (!mWindowTracked) {
+				mWindowTracked = true;
+				sWindowResources.add(new WeakReference<Resources>(this));
+			}
+		}
+	}
+
+	/** Preserve nested configuration-context overrides across resizes. @hide */
+	public void inheritWindowGeometry(Resources parent, Configuration delta) {
+		if (!parent.mWindowTracked) return;
+		mWindowOverride = parent.mWindowOverride == null ? new Configuration() : new Configuration(parent.mWindowOverride);
+		if (delta != null) mWindowOverride.updateFrom(delta);
+		trackWindowGeometry();
+	}
+
+	/** Update geometry without replacing locale, night mode or font overrides. @hide */
+	public static void updateWindowGeometry(int width, int height) {
+		java.util.ArrayList<Resources> live = new java.util.ArrayList<>();
+		synchronized (sWindowResources) {
+			for (int i=sWindowResources.size()-1;i>=0;i--) {
+				Resources r=sWindowResources.get(i).get();
+				if (r==null) sWindowResources.remove(i); else live.add(r);
+			}
+		}
+		for (Resources r:live) {
+			synchronized (r.mAccessLock) {
+				DisplayMetrics dm = new DisplayMetrics();
+				dm.setTo(r.mMetrics);
+				dm.widthPixels = dm.noncompatWidthPixels = width;
+				dm.heightPixels = dm.noncompatHeightPixels = height;
+				Configuration config = new Configuration(r.mConfiguration);
+				config.applyDisplayMetrics(dm);
+				if (r.mWindowOverride != null) config.updateFrom(r.mWindowOverride);
+				r.updateConfiguration(config, dm);
+			}
+		}
+	}
+
 	/*package*/ final DisplayMetrics mMetrics = new DisplayMetrics();
 	private PluralRules mPluralRule;
 

@@ -31,8 +31,18 @@ public final class Display {
 	// FIXME: what do we return here?
 	// we don't want to hardcode this stuff, but at the same time the apps can cache it
 	public void getMetrics(DisplayMetrics outMetrics) {
-		outMetrics.widthPixels = this.window_width;
-		outMetrics.heightPixels = this.window_height;
+		outMetrics.setToDefaults();
+		outMetrics.widthPixels = outMetrics.noncompatWidthPixels = window_width;
+		outMetrics.heightPixels = outMetrics.noncompatHeightPixels = window_height;
+	}
+
+	/** Platform window allocation, in Android pixels. @hide */
+	public static void setWindowSize(int width, int height) {
+		if (width <= 0 || height <= 0 || (width == window_width && height == window_height)) return;
+		window_width = width;
+		window_height = height;
+		android.content.Context.sys_config.applyDisplayMetrics(new DisplayMetrics());
+		android.content.res.Resources.updateWindowGeometry(width, height);
 	}
 
 	public void getRealMetrics(DisplayMetrics outMetrics) {
