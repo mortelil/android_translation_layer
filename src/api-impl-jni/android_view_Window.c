@@ -56,8 +56,18 @@ static void scale_root_allocate(GtkWidget *widget, int width, int height, int ba
 	                    gsk_transform_scale(NULL, 1.0 / root->scale, 1.0 / root->scale));
 }
 
+/* AOSP ViewRootImpl.performTraversals() dispatches the window's OnPreDraw
+ * listeners before drawing and skips the draw when one cancels it. The whole
+ * window content is presented through this root, so dispatching here runs
+ * before any of the hierarchy is snapshotted. */
+extern gboolean atl_view_tree_observer_dispatch_pre_draw(GtkWidget *window);
+
 static void scale_root_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 {
+	GtkRoot *root = gtk_widget_get_root(widget);
+
+	if (root && !atl_view_tree_observer_dispatch_pre_draw(GTK_WIDGET(root)))
+		return;
 	gtk_widget_snapshot_child(widget, ((ATLScaleRoot *)widget)->child, snapshot);
 }
 

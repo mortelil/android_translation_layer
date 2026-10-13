@@ -52,8 +52,6 @@ public final class ViewTreeObserver {
 	private boolean mAlive = true;
 
 	// accessed from native code
-	private long onPreDraw_signal_handle = 0;
-
 	private long window;
 
 	/**
@@ -566,10 +564,6 @@ public final class ViewTreeObserver {
 		}
 
 		mOnPreDrawListeners.add(listener);
-
-		// FIXME haxx
-
-		listener.onPreDraw();
 	}
 
 	/**

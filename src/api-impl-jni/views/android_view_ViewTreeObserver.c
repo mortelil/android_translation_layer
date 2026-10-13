@@ -69,14 +69,64 @@ static void on_global_layout_unmap(GtkWidget *window, GlobalLayoutRegistration *
 	disconnect_global_layout_clock(registration);
 }
 
-static void on_pre_draw_callback(GdkFrameClock *clock, jobject view_tree_observer)
+/* AOSP ViewRootImpl.performTraversals() calls
+ * mAttachInfo.mTreeObserver.dispatchOnPreDraw() before drawing the frame and
+ * skips the draw ("Try again", scheduleTraversals()) when a listener returns
+ * false (android-17.0.0_r1, 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).
+ * The equivalent boundary in ATL is the root snapshot: the whole window
+ * content is presented through one ATLScaleRoot, so the observer is
+ * dispatched from atl_scale_root_snapshot() (android_view_Window.c) before
+ * any of the hierarchy is snapshotted. Like the global-layout registration,
+ * the observer is owned by the GtkWindow, so window teardown releases the JNI
+ * ref; all operations run on the UI thread, as on Android. */
+static const char *pre_draw_key = "atl-predraw-observer";
+
+static void free_pre_draw_observer(gpointer data)
 {
 	JNIEnv *env = get_jni_env();
-	(*env)->CallBooleanMethod(env, view_tree_observer, handle_cache.view_tree_observer.dispatchOnPreDraw);
+	(*env)->DeleteGlobalRef(env, (jobject)data);
+}
+
+static gboolean pre_draw_queue_draw_idle(gpointer data)
+{
+	gtk_widget_queue_draw(GTK_WIDGET(data));
+	g_object_unref(data);
+	return G_SOURCE_REMOVE;
+}
+
+/* Queue a redraw for a future event-loop pass. A pre-draw listener runs inside
+ * the GtkSnapshot pass, where queueing a draw re-entrantly is not allowed;
+ * this mirrors wrapper_widget_queue_draw(). */
+static void queue_pre_draw_frame(GtkWidget *window)
+{
+	g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, pre_draw_queue_draw_idle, g_object_ref(window), NULL);
+}
+
+/* Dispatch the window's OnPreDraw listeners; returns FALSE when a listener
+ * cancelled the draw, in which case the caller must not present the content of
+ * this frame. */
+gboolean atl_view_tree_observer_dispatch_pre_draw(GtkWidget *window)
+{
+	jobject observer = g_object_get_data(G_OBJECT(window), pre_draw_key);
+	if (!observer) return TRUE;
+
+	JNIEnv *env = get_jni_env();
+	/* A listener may remove the last registration, freeing the window data and
+	 * the global ref while we are calling into Java. */
+	jobject local = (*env)->NewLocalRef(env, observer);
+	jboolean cancel = (*env)->CallBooleanMethod(env, local, handle_cache.view_tree_observer.dispatchOnPreDraw);
 	if ((*env)->ExceptionCheck(env)) {
 		(*env)->ExceptionDescribe(env);
 		(*env)->ExceptionClear(env);
 	}
+	(*env)->DeleteLocalRef(env, local);
+
+	if (cancel) {
+		/* AOSP: do not draw this frame, schedule another traversal. */
+		queue_pre_draw_frame(window);
+		return FALSE;
+	}
+	return TRUE;
 }
 
 extern GtkWidget *window;
@@ -111,24 +161,16 @@ JNIEXPORT void JNICALL Java_android_view_ViewTreeObserver_native_1set_1have_1pre
 	GtkWidget *window = _PTR(_GET_LONG_FIELD(this, "window"));
 
 	if (!window) {
-		fprintf(stderr, "Java_android_view_ViewTreeObserver_native_1set_1have_1predraw_1listeners: no window\n");
 		return;
 	}
 
-	gulong signal_handle = _GET_LONG_FIELD(this, "onPreDraw_signal_handle");
-	GdkFrameClock *clock = gtk_widget_get_frame_clock(window);
-
-	if (have_listeners && !signal_handle) {
-		/* Unlike AOSP, our hook gets invoked after all widgets have been drawn. */
-		/* Switching to ::layout would fix the timing, but we would miss frames where no layout was requested. */
-		/* TODO: Hook into the DecorView snapshot function to get in before widget drawing. */
-		signal_handle = g_signal_connect(G_OBJECT(clock), "paint", G_CALLBACK(on_pre_draw_callback), _REF(this)); // FIXME: cleanup callback for _UNREF
-		_SET_LONG_FIELD(this, "onPreDraw_signal_handle", signal_handle);
-	} else if (!have_listeners && signal_handle) {
-		g_signal_handler_disconnect(G_OBJECT(clock), signal_handle);
-		_SET_LONG_FIELD(this, "onPreDraw_signal_handle", 0);
-	} else {
-		fprintf(stderr, "Java_android_view_ViewTreeObserver_native_1set_1have_1predraw_1listeners: invalid state: have_listeners: %d, signal_handle: 0x%016w64x\n", have_listeners, signal_handle);
-		exit(1);
+	if (!have_listeners) {
+		/* Destroy-notify releases the observer's global ref. */
+		g_object_set_data(G_OBJECT(window), pre_draw_key, NULL);
+		return;
 	}
+	if (g_object_get_data(G_OBJECT(window), pre_draw_key)) return;
+	g_object_set_data_full(G_OBJECT(window), pre_draw_key, (*env)->NewGlobalRef(env, this), free_pre_draw_observer);
+	/* The window may be idle; queue one frame so the new listener runs. */
+	queue_pre_draw_frame(window);
 }
