@@ -17,3 +17,11 @@ keeps its native widgets; this does not import full TextView/AlertController.
 AlertDialog content now inherits its actual context instead of an unrelated
 system context with no theme. Explicit dialog-theme resolution remains an
 existing limitation; this patch does not claim to implement it.
+
+Constructor regression: DeferredSetterView overrides the public two-argument
+setTextSize without forwarding it. Construction must still apply the theme's
+24sp size without invoking that override; a subsequent public setter must
+invoke it. This catches early dispatch into uninitialized AppCompat helpers.
+Reference: AOSP frameworks/base 250714c67ba9d2029bc88284672949a87b243b9a,
+core/java/android/widget/TextView.java: constructor uses private setRawTextSize.
+The native preview now has two 24sp labels followed by 28sp, 32sp and 36sp.

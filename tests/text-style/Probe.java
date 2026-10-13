@@ -3,11 +3,22 @@ package org.atl.textstyle;
 import android.widget.*;
 import android.util.TypedValue;
 public class Probe extends android.app.Activity {
+    static final class DeferredSetterView extends TextView {
+        int setterCalls;
+        DeferredSetterView(android.content.Context c) { super(c); }
+        @Override public void setTextSize(int unit, float size) { setterCalls++; }
+    }
     void check(TextView v,float sp,String label){float expected=TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP,sp,getResources().getDisplayMetrics());if(!label.equals("explicit button size"))expected=Math.round(expected);if(Math.abs(v.getTextSize()-expected)>0.1f)throw new AssertionError(label+" "+v.getTextSize()+" != "+expected);}
     public void onCreate(android.os.Bundle b){
         super.onCreate(b);
         try{
             LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
+            DeferredSetterView deferred=new DeferredSetterView(this);
+            if(deferred.setterCalls!=0) throw new AssertionError("constructor called subclass setter");
+            check(deferred,24,"subclass constructor style");
+            deferred.setText("Subclass constructor style 24sp");root.addView(deferred);
+            deferred.setTextSize(12);
+            if(deferred.setterCalls!=1) throw new AssertionError("public setter bypassed subclass");
             TextView text=new TextView(this);text.setText("Text style 24sp");check(text,24,"default text style");root.addView(text);
             Button button=new Button(this);button.setText("Button style 28sp");check(button,28,"default button style");root.addView(button);
             int fallback=getResources().getIdentifier("Fallback","style",getPackageName());
