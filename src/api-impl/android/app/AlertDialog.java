@@ -5,13 +5,14 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.view.View;
 import android.widget.Button;
+import android.widget.TextView;
 
 public class AlertDialog extends Dialog implements DialogInterface {
 
 	private Button[] buttons;
+	private final TextView messageView;
 
-	private native void nativeConstruct(long ptr, long button_positive, long button_negative, long button_neutral);
-	private native void nativeSetMessage(long ptr, String message);
+	private native void nativeConstruct(long ptr, long message, long button_positive, long button_negative, long button_neutral);
 	private native void nativeSetItems(long ptr, String[] items, DialogInterface.OnClickListener listener);
 
 	public AlertDialog(Context context) {
@@ -26,12 +27,16 @@ public class AlertDialog extends Dialog implements DialogInterface {
 		buttons[0].setVisibility(View.GONE);
 		buttons[1].setVisibility(View.GONE);
 		buttons[2].setVisibility(View.GONE);
-		nativeConstruct(nativePtr, buttons[0].widget, buttons[1].widget, buttons[2].widget);
+		messageView = new TextView(themeless);
+		messageView.setId(android.R.id.message);
+		messageView.setVisibility(View.GONE);
+		getWindow().setContentView(messageView);
+		nativeConstruct(nativePtr, messageView.widget, buttons[0].widget, buttons[1].widget, buttons[2].widget);
 	}
 
 	public void setMessage(CharSequence message) {
-		System.out.println("AlertDialog setMessage called with: '" + message + "'");
-		nativeSetMessage(nativePtr, String.valueOf(message));
+		messageView.setText(message);
+		messageView.setVisibility(message == null || message.length() == 0 ? View.GONE : View.VISIBLE);
 	}
 
 	public void setButton(int whichButton, CharSequence text, OnClickListener listener) {
@@ -40,7 +45,8 @@ public class AlertDialog extends Dialog implements DialogInterface {
 		button.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
-				listener.onClick(AlertDialog.this, whichButton);
+				if (listener != null)
+					listener.onClick(AlertDialog.this, whichButton);
 				dismiss();
 			}
 		});

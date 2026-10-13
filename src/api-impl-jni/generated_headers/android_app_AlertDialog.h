@@ -10,18 +10,10 @@ extern "C" {
 /*
  * Class:     android_app_AlertDialog
  * Method:    nativeConstruct
- * Signature: (JJJJ)V
+ * Signature: (JJJJJ)V
  */
 JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeConstruct
-  (JNIEnv *, jobject, jlong, jlong, jlong, jlong);
-
-/*
- * Class:     android_app_AlertDialog
- * Method:    nativeSetMessage
- * Signature: (JLjava/lang/String;)V
- */
-JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeSetMessage
-  (JNIEnv *, jobject, jlong, jstring);
+  (JNIEnv *, jobject, jlong, jlong, jlong, jlong, jlong);
 
 /*
  * Class:     android_app_AlertDialog

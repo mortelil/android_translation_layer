@@ -3,6 +3,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../android_view_Window.h"
 #include "../generated_headers/android_app_AlertDialog.h"
 
 struct _ListEntry {
@@ -39,16 +40,20 @@ static void activate_cb(GtkListView *list, guint position, gpointer user_data)
 		(*env)->ExceptionDescribe(env);
 }
 
-JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeConstruct(JNIEnv *env, jobject this, jlong ptr, jlong button_positive_ptr, jlong button_negative_ptr, jlong button_neutral_ptr)
+JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeConstruct(JNIEnv *env, jobject this, jlong ptr, jlong message_ptr, jlong button_positive_ptr, jlong button_negative_ptr, jlong button_neutral_ptr)
 {
 	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
 	GtkBox *content_area = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 1));
 
-	GtkLabel *label = GTK_LABEL(gtk_label_new(NULL));
-	gtk_label_set_wrap(label, TRUE);
-	gtk_label_set_max_width_chars(label, 50);
-	gtk_box_append(content_area, GTK_WIDGET(label));
-	g_object_set_data_full(G_OBJECT(dialog), "label", g_object_ref(label), g_object_unref);
+	GtkWidget *message_box = GTK_WIDGET(_PTR(message_ptr));
+	GtkWidget *label = gtk_widget_get_first_child(message_box);
+	gtk_label_set_max_width_chars(GTK_LABEL(label), 50);
+	/* Keep the message in the real Java decor hierarchy. Retain the decor
+	 * while replacing the window's old (possibly scaled) content root. */
+	GtkWidget *decor = g_object_ref(atl_window_get_content(dialog));
+	gtk_window_set_child(dialog, NULL);
+	gtk_box_append(content_area, decor);
+	g_object_unref(decor);
 
 	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
 	g_signal_connect(factory, "setup", G_CALLBACK(setup_listitem_cb), NULL);
@@ -63,16 +68,7 @@ JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeConstruct(JNIEnv *env,
 	gtk_box_append(content_area, gtk_widget_get_parent(GTK_WIDGET(_PTR(button_negative_ptr))));
 	gtk_box_append(content_area, gtk_widget_get_parent(GTK_WIDGET(_PTR(button_neutral_ptr))));
 
-	gtk_window_set_child(dialog, GTK_WIDGET(content_area));
-}
-
-JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeSetMessage(JNIEnv *env, jobject this, jlong ptr, jstring message)
-{
-	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
-	GtkLabel *label = g_object_get_data(G_OBJECT(dialog), "label");
-	const char *nativeMessage = (*env)->GetStringUTFChars(env, message, NULL);
-	gtk_label_set_text(label, nativeMessage);
-	(*env)->ReleaseStringUTFChars(env, message, nativeMessage);
+	atl_window_set_content(env, dialog, GTK_WIDGET(content_area));
 }
 
 JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeSetItems(JNIEnv *env, jobject this, jlong ptr, jobjectArray items, jobject on_click)
