@@ -28,6 +28,16 @@ public class NetworkRequest {
 			return this;
 		}
 
+		public Builder addTransportType(int transport) {
+			capabilities.addTransportType(transport);
+			return this;
+		}
+
+		public Builder removeTransportType(int transport) {
+			capabilities.removeTransportType(transport);
+			return this;
+		}
+
 		public Builder removeCapability(int capability) {
 			capabilities.removeCapability(capability);
 			return this;
