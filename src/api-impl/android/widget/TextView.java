@@ -60,7 +60,7 @@ public class TextView extends View {
 		super(context, attrs, defStyleAttr, defStyleRes);
 
 		// AOSP TextView starts with 15px, then applies appearance and direct style.
-		setTextSize(TypedValue.COMPLEX_UNIT_PX, 15);
+		setRawTextSize(15);
 		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.TextView, defStyleAttr, defStyleRes);
 		try {
 			setHighlightColor(a.getColor(com.android.internal.R.styleable.TextView_textColorHighlight, highlightColor));
@@ -80,7 +80,7 @@ public class TextView extends View {
 					setTextColor(aa.getColorStateList(com.android.internal.R.styleable.TextAppearance_textColor));
 				}
 				if (aa.hasValue(com.android.internal.R.styleable.TextAppearance_textSize)) {
-					setTextSize(TypedValue.COMPLEX_UNIT_PX, aa.getDimensionPixelSize(com.android.internal.R.styleable.TextAppearance_textSize, 15));
+					setRawTextSize(aa.getDimensionPixelSize(com.android.internal.R.styleable.TextAppearance_textSize, 15));
 				}
 				aa.recycle();
 			}
@@ -88,7 +88,7 @@ public class TextView extends View {
 				setTextColor(a.getColorStateList(com.android.internal.R.styleable.TextView_textColor));
 			}
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textSize)) {
-				setTextSize(TypedValue.COMPLEX_UNIT_PX, a.getDimensionPixelSize(com.android.internal.R.styleable.TextView_textSize, 15));
+				setRawTextSize(a.getDimensionPixelSize(com.android.internal.R.styleable.TextView_textSize, 15));
 			}
 
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textStyle)) {
@@ -150,7 +150,12 @@ public class TextView extends View {
 	private native void native_setTextAttributes(int[] attributes);
 
 	public void setTextSize(int unit, float size) {
-		float pixels = TypedValue.applyDimension(unit, size, getResources().getDisplayMetrics());
+		setRawTextSize(TypedValue.applyDimension(unit, size, getResources().getDisplayMetrics()));
+	}
+
+	// Like AOSP TextView (250714c6), construction must not dispatch to a
+	// subclass setter before that subclass has initialized its text helpers.
+	private void setRawTextSize(float pixels) {
 		paint.setTextSize(pixels);
 		native_setTextSize(pixels);
 		requestLayout();
