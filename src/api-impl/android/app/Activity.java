@@ -23,6 +23,7 @@ import android.view.Display;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MotionEvent;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
@@ -562,6 +563,15 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	public CharSequence getTitle() {
 		return title;
 	}
+
+	public boolean dispatchTouchEvent(MotionEvent event) {
+		if (event.getActionMasked() == MotionEvent.ACTION_DOWN) onUserInteraction();
+		return getWindow().superDispatchTouchEvent(event) || onTouchEvent(event);
+	}
+
+	public boolean onTouchEvent(MotionEvent event) { return false; }
+
+	public void onUserInteraction() {}
 
 	public void onBackPressed() {
 		System.out.println("onBackPressed() called");

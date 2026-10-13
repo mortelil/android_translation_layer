@@ -16,6 +16,7 @@ public class Window {
 	private WindowManager.LayoutParams params = new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, 0, 0, 0);
 
 	public static interface Callback {
+		public default boolean dispatchTouchEvent(MotionEvent event) { return false; }
 		public void onContentChanged();
 
 		public abstract boolean onCreatePanelMenu(int featureId, Menu menu);
@@ -71,6 +72,15 @@ public class Window {
 		}
 		decorView.removeAllViews();
 		decorView.addView(view);
+	}
+
+	/** @hide Entry from the native window, before app dispatch overrides. */
+	public boolean dispatchTouchEvent(MotionEvent event) {
+		return callback != null ? callback.dispatchTouchEvent(event) : superDispatchTouchEvent(event);
+	}
+
+	public boolean superDispatchTouchEvent(MotionEvent event) {
+		return decorView.dispatchTouchEvent(event);
 	}
 
 	public View getDecorView() {

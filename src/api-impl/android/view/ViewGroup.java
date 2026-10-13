@@ -128,10 +128,60 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		}
 	}
 
-	/* We never call this ourselves */
+	// One child owns an unsplit gesture until UP/CANCEL; never hit-test MOVE
+	// against a new child. This follows AOSP's non-splitting dispatch path.
+	private View touchTarget;
+
+	private boolean dispatchToChild(View child, MotionEvent event, boolean cancel) {
+		MotionEvent local = MotionEvent.obtain(event);
+		local.offsetLocation(getScrollX() - child.getX(), getScrollY() - child.getY());
+		if (cancel) local.setAction(MotionEvent.ACTION_CANCEL);
+		try { return child.dispatchTouchEvent(local); }
+		finally { local.recycle(); }
+	}
+
 	@Override
 	public boolean dispatchTouchEvent(MotionEvent event) {
-		return native_dispatchTouchEvent(widget, event, event.getX(), event.getY());
+		int action = event.getActionMasked();
+		if (action == MotionEvent.ACTION_DOWN) {
+			if (touchTarget != null) dispatchToChild(touchTarget, event, true);
+			touchTarget = null;
+			disallowIntercept = false;
+		}
+		boolean canceled = action == MotionEvent.ACTION_CANCEL;
+		boolean intercepted = false;
+		if (action == MotionEvent.ACTION_DOWN || touchTarget != null) {
+			if (!disallowIntercept) intercepted = onInterceptTouchEvent(event);
+		} else {
+			intercepted = true;
+		}
+		boolean handled = false;
+		if (!canceled && !intercepted && action == MotionEvent.ACTION_DOWN) {
+			for (int i = getChildCount() - 1; i >= 0; i--) {
+				View child = getChildAt(i);
+				if (child.getVisibility() != VISIBLE) continue;
+				float x = event.getX() + getScrollX() - child.getX();
+				float y = event.getY() + getScrollY() - child.getY();
+				if (x < 0 || y < 0 || x >= child.getWidth() || y >= child.getHeight()) continue;
+				if (dispatchToChild(child, event, false)) {
+					touchTarget = child;
+					handled = true;
+					break;
+				}
+			}
+		}
+		if (touchTarget == null) {
+			handled = super.dispatchTouchEvent(event);
+		} else if (!handled) {
+			boolean cancelChild = canceled || intercepted || touchTarget.getParent() != this;
+			handled = dispatchToChild(touchTarget, event, cancelChild);
+			if (cancelChild) touchTarget = null;
+		}
+		if (canceled || action == MotionEvent.ACTION_UP) {
+			touchTarget = null;
+			disallowIntercept = false;
+		}
+		return handled;
 	}
 
 	protected boolean addViewInLayout(View child, int index, LayoutParams params) {

@@ -3,6 +3,7 @@
 #include "defines.h"
 #include "util.h"
 #include "android_view_Window.h"
+#include "views/JavaTouch.h"
 
 #include "generated_headers/android_view_Window.h"
 
@@ -86,6 +87,8 @@ void atl_window_set_content(JNIEnv *env, GtkWindow *window, GtkWidget *content)
 {
     if (atl_window_get_content(window) == content)
         return;
+    atl_cancel_java_touch_fallback(window);
+    atl_install_java_touch_fallback(window);
     if (getenv("ATL_RENDER_SCALE")) {
         jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
         double scale = (*env)->GetStaticIntField(env, metrics, _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;

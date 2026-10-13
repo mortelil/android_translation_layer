@@ -23,6 +23,7 @@ public class Button extends TextView {
 
 	public Button(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
 		super(context, attrs, defStyleAttr, defStyleRes);
+		setClickable(true);
 
 		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.TextView, 0, 0);
 		if (a.hasValue(com.android.internal.R.styleable.TextView_text)) {
