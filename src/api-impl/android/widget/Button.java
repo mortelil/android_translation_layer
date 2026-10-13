@@ -14,7 +14,7 @@ public class Button extends TextView {
 	}
 
 	public Button(Context context, AttributeSet attributeSet) {
-		this(context, attributeSet, 0);
+		this(context, attributeSet, com.android.internal.R.attr.buttonStyle);
 	}
 
 	public Button(Context context, AttributeSet attrs, int defStyleAttr) {
@@ -51,8 +51,6 @@ public class Button extends TextView {
 	@Override
 	public native CharSequence getText();
 
-	@Override
-	public void setTextSize(float size) {}
 
 	@Override
 	public void setCompoundDrawables(Drawable left, Drawable top, Drawable right, Drawable bottom) {
