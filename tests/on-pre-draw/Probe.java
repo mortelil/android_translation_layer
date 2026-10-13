@@ -37,10 +37,10 @@ public class Probe extends Activity {
 	static final long WATCHDOG_MS = 12000;
 
 	View content;
-	ViewTreeObserver observer;
 	final Handler handler = new Handler();
 
 	boolean allow;
+	boolean control;
 	boolean sawFirstFrame;
 	int dispatchCalls, cancelledCalls, allowedCalls;
 	int selfCalls, afterCalls, adderCalls, victimCalls, lateCalls, lastCalls;
@@ -74,7 +74,7 @@ public class Probe extends Activity {
 	final ViewTreeObserver.OnPreDrawListener selfUnreg = new ViewTreeObserver.OnPreDrawListener() {
 		@Override public boolean onPreDraw() {
 			selfCalls++;
-			observer.removeOnPreDrawListener(this);
+			content.getViewTreeObserver().removeOnPreDrawListener(this);
 			return true;
 		}
 	};
@@ -82,7 +82,7 @@ public class Probe extends Activity {
 	final ViewTreeObserver.OnPreDrawListener after = new ViewTreeObserver.OnPreDrawListener() {
 		@Override public boolean onPreDraw() {
 			afterCalls++;
-			observer.removeOnPreDrawListener(this);
+			content.getViewTreeObserver().removeOnPreDrawListener(this);
 			return true;
 		}
 	};
@@ -91,7 +91,7 @@ public class Probe extends Activity {
 	final ViewTreeObserver.OnPreDrawListener late = new ViewTreeObserver.OnPreDrawListener() {
 		@Override public boolean onPreDraw() {
 			lateCalls++;
-			observer.removeOnPreDrawListener(this);
+			content.getViewTreeObserver().removeOnPreDrawListener(this);
 			return true;
 		}
 	};
@@ -100,23 +100,30 @@ public class Probe extends Activity {
 		@Override public void run() {
 			// Self-unregistration during dispatch, plus a listener registered after it
 			// that must still be reached in the same pass (AOSP snapshot semantics).
-			observer.addOnPreDrawListener(selfUnreg);
-			observer.addOnPreDrawListener(after);
+			content.getViewTreeObserver().addOnPreDrawListener(selfUnreg);
+			content.getViewTreeObserver().addOnPreDrawListener(after);
+			stageBStarted = true;
+			// Adding a listener alone schedules nothing; request the frame that
+			// must dispatch it (as AOSP View.invalidate() does on Android).
+			content.invalidate();
 			handler.postDelayed(stageC, 500);
 		}
 	};
 
 	final Runnable stageC = new Runnable() {
 		@Override public void run() {
+			stageCStarted = true;
 			// adder runs first and adds `late` / removes `victim`; `victim` was in the
 			// snapshot and must still run in this pass, `late` only in the next one.
 			adder = new ViewTreeObserver.OnPreDrawListener() {
 				@Override public boolean onPreDraw() {
 					adderCalls++;
 					if (adderCalls == 1) {
-						observer.addOnPreDrawListener(late);
-						observer.removeOnPreDrawListener(victim);
-						observer.removeOnPreDrawListener(this);
+						content.getViewTreeObserver().addOnPreDrawListener(late);
+						content.getViewTreeObserver().removeOnPreDrawListener(victim);
+						content.getViewTreeObserver().removeOnPreDrawListener(this);
+						// `late` may only run in the next pass: request that frame.
+						content.invalidate();
 					}
 					return true;
 				}
@@ -124,29 +131,32 @@ public class Probe extends Activity {
 			victim = new ViewTreeObserver.OnPreDrawListener() {
 				@Override public boolean onPreDraw() {
 					victimCalls++;
-					observer.removeOnPreDrawListener(this);
+					content.getViewTreeObserver().removeOnPreDrawListener(this);
 					return true;
 				}
 			};
-			observer.addOnPreDrawListener(adder);
-			observer.addOnPreDrawListener(victim);
+			content.getViewTreeObserver().addOnPreDrawListener(adder);
+			content.getViewTreeObserver().addOnPreDrawListener(victim);
+			content.invalidate();
 			handler.postDelayed(stageD, 500);
 		}
 	};
 
 	final Runnable stageD = new Runnable() {
 		@Override public void run() {
+			stageDStarted = true;
 			// Drop the last registration, then register again: the window-owned
 			// observer must be released and re-installed without losing callbacks.
-			observer.removeOnPreDrawListener(main);
+			content.getViewTreeObserver().removeOnPreDrawListener(main);
 			last = new ViewTreeObserver.OnPreDrawListener() {
 				@Override public boolean onPreDraw() {
 					lastCalls++;
-					observer.removeOnPreDrawListener(this);
+					content.getViewTreeObserver().removeOnPreDrawListener(this);
 					return true;
 				}
 			};
-			observer.addOnPreDrawListener(last);
+			content.getViewTreeObserver().addOnPreDrawListener(last);
+			content.invalidate();
 			handler.postDelayed(stageE, 600);
 		}
 	};
@@ -156,7 +166,7 @@ public class Probe extends Activity {
 			// Leave one listener registered for the rest of the run: window teardown
 			// (the extended recipe's `close:` step, or process exit) must release the
 			// window-owned registration without crashing.
-			observer.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+			content.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
 				@Override public boolean onPreDraw() { return true; }
 			});
 			report();
@@ -205,6 +215,11 @@ public class Probe extends Activity {
 				+ ",\"last_listener_transition\":" + lastOk
 				+ ",\"listener_kept_for_teardown\":true}"
 				+ "}";
+		writeResults(json);
+	}
+
+	/** Write files/results.json; used for the final report and interim flushes. */
+	void writeResults(String json) {
 		try {
 			File dir = getFilesDir();
 			dir.mkdirs();
@@ -219,15 +234,60 @@ public class Probe extends Activity {
 		}
 	}
 
+	/** Interim flush so a run that is still in progress is observable on disk. */
+	void progress() {
+		writeResults("{"
+				+ "\"status\":\"RUNNING\""
+				+ ",\"colour\":\"#FF00FF\""
+				+ ",\"counts\":{\"dispatch\":" + dispatchCalls
+				+ ",\"cancelled\":" + cancelledCalls
+				+ ",\"allowed\":" + allowedCalls
+				+ ",\"self_unregister\":" + selfCalls
+				+ ",\"after_self\":" + afterCalls
+				+ ",\"adder\":" + adderCalls
+				+ ",\"victim\":" + victimCalls
+				+ ",\"late\":" + lateCalls
+				+ ",\"last\":" + lastCalls + "}"
+				+ ",\"stages\":{\"stageB\":" + stageBStarted
+				+ ",\"stageC\":" + stageCStarted
+				+ ",\"stageD\":" + stageDStarted + "}"
+				+ "}");
+	}
+
+	/** No-cancel baseline: magenta content with no OnPreDraw listener at all. */
+	void reportControl() {
+		String detail = "ONPREDRAW CONTROL sized=" + (content.getWidth() > 0 && content.getHeight() > 0)
+				+ " w=" + content.getWidth() + " h=" + content.getHeight();
+		System.out.println(detail);
+		writeResults("{"
+				+ "\"status\":\"CONTROL\""
+				+ ",\"colour\":\"#FF00FF\""
+				+ ",\"detail\":\"" + detail + "\""
+				+ ",\"content\":{\"width\":" + content.getWidth()
+				+ ",\"height\":" + content.getHeight() + "}"
+				+ "}");
+	}
+
 	@Override public void onCreate(Bundle state) {
 		super.onCreate(state);
 		content = new View(this);
 		content.setBackgroundColor(COLOUR);
 		setContentView(content);
-		observer = content.getViewTreeObserver();
-		observer.addOnPreDrawListener(main);
+		String ctl = getIntent() == null ? null : getIntent().getStringExtra("control");
+		control = ctl != null && ("true".equals(ctl) || "1".equals(ctl));
+		if (control) {
+			// Baseline: no pre-draw listener; the content colour must be presented.
+			handler.postDelayed(new Runnable() {
+				@Override public void run() { reportControl(); }
+			}, 3000);
+			handler.postDelayed(new Runnable() {
+				@Override public void run() { reportControl(); finish(); }
+			}, WATCHDOG_MS);
+			return;
+		}
+		content.getViewTreeObserver().addOnPreDrawListener(main);
 		handler.postDelayed(new Runnable() {
-			@Override public void run() { allow = true; }
+			@Override public void run() { allow = true; progress(); }
 		}, ALLOW_AFTER_MS);
 		handler.postDelayed(new Runnable() {
 			@Override public void run() { fail("timeout: stages did not complete"); report(); }

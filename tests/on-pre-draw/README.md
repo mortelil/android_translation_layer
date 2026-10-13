@@ -137,18 +137,39 @@ pixels), not by callback counts; check `ONPREDRAW PASS` and a fresh
 `$L/data/apps/on-pre-draw.apk_/files/results.json`; a `close:` run must show
 `ATL_UI_CLOSE atl_exited=yes` with no native crash.
 
-## Status of this lane's self-check (2026-10-13)
+## Status of this lane's self-check (2026-10-14) — PASS
 
-Built (native exit 0, `libtranslation_layer_main.so` and `hax.jar` rebuilt) and
-the probe APK ran under ATL (`ATL-PROBE STATUS=OK exit=0 mode=ui`, 2 shots,
-`.../out-onpredraw/atl-run1`). The pixel evidence is **not** yet as required:
-both shots are byte-identical, contain **0** magenta pixels and the probe had
-not written `results.json` when the 9 s run ended. The registration native was
-reached (`bionic_dlsym(... native_1set_1have_1predraw_1listeners) called`).
-Open hypothesis: while a frame is cancelled the deferred
-`g_idle_add_full(... queue_draw)` does not actually schedule a new frame for the
-toplevel in this GTK build, so the cancel loop stalls (colour never appears, no
-further dispatch). Next action: instrument dispatch counts and, if confirmed,
-request the frame explicitly (`gdk_frame_clock_request_phase(clock,
-GDK_FRAME_CLOCK_PHASE_PAINT)`) or queue the draw on the content widget instead of
-the toplevel.
+Two defects were found and fixed after the first run failed; both are corrected
+in this commit and the acceptance now passes.
+
+1. **Native scheduling (the attempted fix's bug).** A cancelled frame queued the
+   next traversal with `g_idle_add_full(... gtk_widget_queue_draw(window))` on
+   the `GtkWindow`, which does not dirty the presented content: after the first
+   frame (the one produced by the initial window map) no further frame was
+   produced, so the listeners never ran again (`dispatch=1, cancelled=1`). The
+   deferred callback now dirties the window's `ATLScaleRoot` child and requests
+   the next phase explicitly with
+   `gdk_frame_clock_request_phase(clock, GDK_FRAME_CLOCK_PHASE_PAINT)`
+   (`android_view_ViewTreeObserver.c`), mirroring
+   `ViewRootImpl.scheduleTraversals()`.
+
+2. **Probe (dead floating observer).** `Probe.onCreate` captured
+   `content.getViewTreeObserver()` before the view was attached; ATL, like AOSP,
+   hands back a floating observer then merges and `kill()`s it on attach, so
+   every later `addOnPreDrawListener` threw `IllegalStateException: This
+   ViewTreeObserver is not alive` (observed at `Probe.java:104`, `System.exit
+   10`). The probe now fetches `content.getViewTreeObserver()` at each use. Each
+   stage also `invalidate()`s `content` to request the frame that must dispatch
+   the listener it just registered (adding a listener alone schedules nothing,
+   on Android or ATL).
+
+Evidence (all with the lane `build-mobile`, wrapper exit 0):
+* control (`-e control=true`, no listener): `shot-control*.png` contain
+  **459800** `#FF00FF` pixels (content 950×484).
+* cancel recipe `wait:2;shot:cancelled;wait:5;shot:allowed`
+  (`out-onpredraw/atl-cancel4`): `shot-cancelled.png` **0**, `shot-allowed.png`
+  **459800** magenta → the cancelled frame was not presented, the allowed one
+  was. `results.json`: `PASS`, `dispatch=180 cancelled=177 allowed=3 self=1
+  after=1 adder=1 victim=1 late=1 last=1`.
+* close recipe (listener left registered, `out-onpredraw/atl-close`):
+  `ATL_UI_CLOSE atl_exited=yes`, process exits 0, no crash, same `PASS`.

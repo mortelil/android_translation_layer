@@ -89,8 +89,24 @@ static void free_pre_draw_observer(gpointer data)
 
 static gboolean pre_draw_queue_draw_idle(gpointer data)
 {
-	gtk_widget_queue_draw(GTK_WIDGET(data));
-	g_object_unref(data);
+	GtkWidget *window = GTK_WIDGET(data);
+	/* Dirty the widget whose snapshot dispatches the listeners (the window's
+	 * ATLScaleRoot child). gtk_widget_queue_draw() on the GtkWindow itself does
+	 * not dirty the presented content here, so a cancelled frame never
+	 * produced a follow-up traversal. */
+	GtkWidget *child = gtk_window_get_child(GTK_WINDOW(window));
+	if (child)
+		gtk_widget_queue_draw(child);
+	else
+		gtk_widget_queue_draw(window);
+	/* A cancelled frame must yield another traversal even though the previous
+	 * frame completed normally (AOSP ViewRootImpl.scheduleTraversals()): ask
+	 * the frame clock for the next paint phase explicitly, otherwise the
+	 * clock can stay idle and the listeners never run again. */
+	GdkFrameClock *clock = gtk_widget_get_frame_clock(window);
+	if (clock)
+		gdk_frame_clock_request_phase(clock, GDK_FRAME_CLOCK_PHASE_PAINT);
+	g_object_unref(window);
 	return G_SOURCE_REMOVE;
 }
 
