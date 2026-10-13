@@ -10,6 +10,7 @@
 
 #include "defines.h"
 #include "util.h"
+#include "apk_assets_cache.h"
 #include "generated_headers/android_content_res_AssetManager.h"
 
 #include <dirent.h>
@@ -154,10 +155,10 @@ JNIEXPORT void JNICALL Java_android_content_res_AssetManager_native_1setApkAsset
 			continue;
 		const char *path = (*env)->GetStringUTFChars(env, path_jstr, NULL);
 		const struct ApkAssets *a;
-		if (path[strlen(path) - 1] == '/')
-			a = ApkAssets_loadDir(strdup(path));
+		if (path[0] && path[strlen(path) - 1] == '/')
+			a = atl_load_apk_assets(path, true);
 		else
-			a = ApkAssets_load(strdup(path), false);
+			a = atl_load_apk_assets(path, false);
 		if (a == NULL)
 			android_log_printf(ANDROID_LOG_WARN, "[" __FILE__ "]", "failed to load ApkAssets from %s\n", path);
 		(*env)->ReleaseStringUTFChars(env, path_jstr, path);
