@@ -268,10 +268,23 @@ JNIEXPORT jboolean JNICALL Java_android_app_Activity_nativeResumeActivity(JNIEnv
 				l->prev->next = NULL;
 				l->prev = NULL;
 			}
+            /* Android never delivers a new intent while the target is resumed.
+             * A top activity stays started: pause/new-intent/resume, no recreate. */
+            gboolean resume_top = activity_current == l->data && !_GET_BOOL_FIELD(l->data, "paused");
+            if (resume_top) {
+                (*env)->CallVoidMethod(env, l->data, handle_cache.activity.onPause);
+                if ((*env)->ExceptionCheck(env)) goto cleanup;
+            }
 			/* -- run the activity's onNewIntent -- */
 			(*env)->CallVoidMethod(env, l->data, handle_cache.activity.onNewIntent, intent);
 			if ((*env)->ExceptionCheck(env))
 				goto cleanup;
+            if (resume_top && !_GET_BOOL_FIELD(l->data, "finishing")) {
+                (*env)->CallVoidMethod(env, l->data, handle_cache.activity.performResume);
+                if ((*env)->ExceptionCheck(env)) goto cleanup;
+                (*env)->CallVoidMethod(env, l->data, handle_cache.activity.onPostResume);
+                if ((*env)->ExceptionCheck(env)) goto cleanup;
+            }
 			found = JNI_TRUE;
 			break;
 		}

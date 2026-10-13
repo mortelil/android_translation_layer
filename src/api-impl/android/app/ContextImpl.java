@@ -452,13 +452,21 @@ public final class ContextImpl extends Context {
 			Slog.w(TAG, "startActivity: intent could not be handled.");
 			return;
 		}
+        boolean singleTask = false;
+        for (PackageParser.Activity declared : this.atl_loaded_app.pkg.activities) {
+            if (className.equals(declared.className)) {
+                singleTask = declared.info.launchMode == android.content.pm.ActivityInfo.LAUNCH_SINGLE_TASK;
+                break;
+            }
+        }
+        final boolean reuseTask = singleTask;
 		final String className_ = className;
 		final Intent intent_ = intent;
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
 				try {
-					if ((intent_.getFlags() & Intent.FLAG_ACTIVITY_CLEAR_TOP) != 0 && intent_.getComponent() != null) {
+					if ((reuseTask || (intent_.getFlags() & Intent.FLAG_ACTIVITY_CLEAR_TOP) != 0) && intent_.getComponent() != null) {
 						boolean found = Activity.nativeResumeActivity(
 						    ContextImpl.this.atl_loaded_app.loadClass(intent_.getComponent().getClassName())
 							.asSubclass(Activity.class),

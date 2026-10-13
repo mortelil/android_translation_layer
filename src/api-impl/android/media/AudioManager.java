@@ -14,6 +14,15 @@ public class AudioManager {
 
 	private native void nativeSetStreamVolume(int volume);
 
+    /** Hardware-specific key/value options have no generic Linux equivalent.
+     * AOSP AudioManager discards AudioSystem.setParameters' error status
+     * (frameworks/base 4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3).
+     * Do not retain values or claim a hardware setting was applied.
+     */
+    public void setParameters(String keyValuePairs) {
+        android.util.Log.w("AudioManager", "Hardware audio parameters are unsupported by the Linux backend");
+    }
+
 	public boolean isBluetoothA2dpOn() {
 		return false;
 	}

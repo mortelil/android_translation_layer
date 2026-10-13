@@ -9,9 +9,11 @@ import android.os.*;
 import java.util.*;
 public class Probe extends Activity {
     final Handler h=new Handler();MediaBrowser browser;boolean done,errorSeen,missingSeen,asyncSeen;int checks,children;
+    void recordPass(){try{getFilesDir().mkdirs();java.io.FileWriter out=new java.io.FileWriter(new java.io.File(getFilesDir(),"results.json"));out.write("{\"status\":\"PASS\"}");out.close();}catch(java.io.IOException e){throw new RuntimeException(e);}}
     void check(boolean ok,String why){if(!ok)throw new AssertionError(why);checks++;}
     void later(Runnable r){h.postDelayed(()->run(r),150);}
-    void run(Runnable r){try{r.run();}catch(Throwable t){done=true;t.printStackTrace();System.out.println("MEDIA_BROWSER FAIL "+t);}}
+    boolean failed;
+    void run(Runnable r){if(failed)return;try{r.run();}catch(Throwable t){failed=true;done=true;t.printStackTrace();System.out.println("MEDIA_BROWSER FAIL "+t);}}
     void parcel(){
         Binder first=new Binder(),second=new Binder();
         check(!first.equals(second),"Binder identity");
@@ -49,7 +51,7 @@ public class Probe extends Activity {
             check("file:///fixture/video.mp4".equals(getIntent().getData().toString()),"launcher URI");
             System.out.println("TYPED_LAUNCH PASS");
         }
-        h.postDelayed(()->{if(!done)System.out.println("MEDIA_BROWSER FAIL timeout");},12000);
+        h.postDelayed(()->{if(!done)run(()->{throw new AssertionError("timeout");});},12000);
         browser=new MediaBrowser(this,new ComponentName(this,ProbeService.class),new MediaBrowser.ConnectionCallback(){
             public void onConnected(){run(()->connected());}
             public void onConnectionFailed(){run(()->{throw new AssertionError("connection failed");});}
@@ -80,7 +82,7 @@ public class Probe extends Activity {
                         check(!browser.isConnected(),"disconnect");Bundle deny=new Bundle();deny.putBoolean("deny",true);
                         MediaBrowser rejected=new MediaBrowser(Probe.this,new ComponentName(Probe.this,ProbeService.class),new MediaBrowser.ConnectionCallback(){
                             public void onConnected(){run(()->{throw new AssertionError("rejected client connected");});}
-                            public void onConnectionFailed(){run(()->{done=true;System.out.println("MEDIA_BROWSER PASS checks="+checks);});}
+                            public void onConnectionFailed(){run(()->{recordPass();done=true;System.out.println("MEDIA_BROWSER PASS checks="+checks);});}
                         },deny);rejected.connect();
                     });
                 });});
