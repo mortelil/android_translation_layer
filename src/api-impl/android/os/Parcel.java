@@ -596,7 +596,7 @@ public class Parcel {
 		}
 	}
 
-	public void readTypedArray(Object[] array, Parcelable.Creator<Parcelable> creator) throws ReflectiveOperationException {
+	public <T> void readTypedArray(T[] array, Parcelable.Creator<T> creator) {
 		int size = readInt();
 		if (array.length != size)
 			throw new RuntimeException("array length mismatch");
@@ -608,11 +608,11 @@ public class Parcel {
 		}
 	}
 
-	public Object[] createTypedArray(Parcelable.Creator<Parcelable> creator) {
+	public <T> T[] createTypedArray(Parcelable.Creator<T> creator) {
 		int size = readInt();
 		if (size < 0)
 			return null;
-		Object[] array = creator.newArray(size);
+		T[] array = creator.newArray(size);
 		for (int i = 0; i < size; i++) {
 			if (readInt() != 0)
 				array[i] = creator.createFromParcel(this);
