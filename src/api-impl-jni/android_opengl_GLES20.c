@@ -1,3 +1,4 @@
+#include "../libandroid/egl_readback.h"
 #include "defines.h"
 #include "util.h"
 #include <GLES2/gl2.h>
@@ -16,7 +17,7 @@ JNIEXPORT jstring JNICALL Java_android_opengl_GLES20_glGetString(JNIEnv *env, jc
 
 JNIEXPORT jint JNICALL Java_android_opengl_GLES20_glGetError(JNIEnv *env, jclass)
 {
-	return (jint)glGetError();
+	return (jint)bionic_glGetError();
 }
 
 JNIEXPORT void JNICALL Java_android_opengl_GLES20_glGetIntegerv__I_3II(JNIEnv *env, jclass, jint pname, jintArray params_ref, jint offset)

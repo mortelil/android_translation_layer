@@ -8,6 +8,7 @@ struct _SurfaceViewWidget {
 	gboolean needs_flip;
 	void (*frame_callback)(SurfaceViewWidget *surface_view_widget);
 	gpointer frame_callback_data;
+	GDestroyNotify frame_callback_destroy;
 };
 
 struct _SurfaceViewWidgetClass {
@@ -15,3 +16,5 @@ struct _SurfaceViewWidgetClass {
 };
 
 void surface_view_widget_set_texture(SurfaceViewWidget *surface_view_widget, GdkTexture *texture, gboolean needs_flip);
+
+void surface_view_widget_set_frame_callback(SurfaceViewWidget *, void (*)(SurfaceViewWidget *), gpointer, GDestroyNotify);
