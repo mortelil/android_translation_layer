@@ -40,12 +40,30 @@ static void free_callback(gpointer callback, GClosure *closure)
 	(*env)->DeleteGlobalRef(env, callback);
 }
 
-JNIEXPORT jlong JNICALL Java_android_net_ConnectivityManager_nativeRegisterNetworkCallback(JNIEnv *env, jobject this, jobject request, jobject callback)
+struct network_registration {
+	gulong availability;
+	gulong metering;
+};
+
+static void on_metered_changed(GNetworkMonitor *monitor, GParamSpec *property, jobject callback)
 {
-	return g_signal_connect_data(g_network_monitor_get_default(), "network-changed", G_CALLBACK(on_network_changed), _REF(callback), free_callback, 0);
+	on_network_changed(monitor, g_network_monitor_get_network_available(monitor), callback);
 }
 
-JNIEXPORT void JNICALL Java_android_net_ConnectivityManager_nativeUnregisterNetworkCallback(JNIEnv *env, jobject this, jlong registration)
+JNIEXPORT jlong JNICALL Java_android_net_ConnectivityManager_nativeRegisterNetworkCallback(JNIEnv *env, jobject this, jobject request, jobject callback)
 {
-	g_signal_handler_disconnect(g_network_monitor_get_default(), registration);
+	GNetworkMonitor *monitor = g_network_monitor_get_default();
+	struct network_registration *registration = g_new0(struct network_registration, 1);
+	registration->availability = g_signal_connect_data(monitor, "network-changed", G_CALLBACK(on_network_changed), _REF(callback), free_callback, 0);
+	registration->metering = g_signal_connect_data(monitor, "notify::network-metered", G_CALLBACK(on_metered_changed), _REF(callback), free_callback, 0);
+	return _INTPTR(registration);
+}
+
+JNIEXPORT void JNICALL Java_android_net_ConnectivityManager_nativeUnregisterNetworkCallback(JNIEnv *env, jobject this, jlong id)
+{
+	struct network_registration *registration = _PTR(id);
+	GNetworkMonitor *monitor = g_network_monitor_get_default();
+	g_signal_handler_disconnect(monitor, registration->availability);
+	g_signal_handler_disconnect(monitor, registration->metering);
+	g_free(registration);
 }
