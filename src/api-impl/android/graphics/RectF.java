@@ -15,6 +15,8 @@
  */
 package android.graphics;
 import java.io.PrintWriter;
+import android.os.Parcel;
+import android.os.Parcelable;
 // import android.util.FloatMath;
 // import com.android.internal.util.FastMath;
 /**
@@ -24,7 +26,7 @@ import java.io.PrintWriter;
  * the rectangle's width and height. Note: most methods do not check to see that
  * the coordinates are sorted correctly (i.e. left <= right and top <= bottom).
  */
-public class RectF {
+public class RectF implements Parcelable {
 	public float left;
 	public float top;
 	public float right;
@@ -517,4 +519,36 @@ public class RectF {
 			bottom = temp;
 		}
 	}
+
+	@Override
+	public int describeContents() {
+		return 0;
+	}
+
+	@Override
+	public void writeToParcel(Parcel out, int flags) {
+		out.writeFloat(left);
+		out.writeFloat(top);
+		out.writeFloat(right);
+		out.writeFloat(bottom);
+	}
+
+	public void readFromParcel(Parcel in) {
+		left = in.readFloat();
+		top = in.readFloat();
+		right = in.readFloat();
+		bottom = in.readFloat();
+	}
+
+	public static final Parcelable.Creator<RectF> CREATOR = new Parcelable.Creator<RectF>() {
+		public RectF createFromParcel(Parcel in) {
+			RectF r = new RectF();
+			r.readFromParcel(in);
+			return r;
+		}
+		public RectF[] newArray(int size) {
+			return new RectF[size];
+		}
+	};
+
 }
