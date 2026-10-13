@@ -2,6 +2,7 @@ package android.os;
 
 import dalvik.system.VMDebug;
 import java.io.IOException;
+import java.util.Map;
 
 public final class Debug {
 	public static class MemoryInfo {
@@ -240,4 +241,26 @@ public final class Debug {
 	public static void startNativeTracing() {}
 
 	public static void stopNativeTracing() {}
+
+	/**
+	 * Returns the value of a runtime statistic, delegating to the ART runtime.
+	 *
+	 * @param statName
+	 *            the name of the runtime statistic to look up.
+	 * @return the value of the specified runtime statistic or {@code null} if the
+	 *         runtime statistic doesn't exist.
+	 */
+	public static String getRuntimeStat(String statName) {
+		return VMDebug.getRuntimeStat(statName);
+	}
+
+	/**
+	 * Returns a map of the names/values of the runtime statistics
+	 * that {@link #getRuntimeStat(String)} supports.
+	 *
+	 * @return a map of the names/values of the supported runtime statistics.
+	 */
+	public static Map<String, String> getRuntimeStats() {
+		return VMDebug.getRuntimeStats();
+	}
 }
