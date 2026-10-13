@@ -1616,6 +1616,19 @@ public class PackageManager {
 		throw new NameNotFoundException(packageName);
 	}
 
+	// PackageParser can return its shared manifest objects. A lookup result must
+	// not let callers rewrite the manifest used by subsequent launches/lookups.
+	private static void copyComponentLookupData(ComponentInfo info, int flags) {
+		info.metaData = (flags & GET_META_DATA) != 0 && info.metaData != null
+		    ? new android.os.Bundle(info.metaData) : null;
+		if (info.applicationInfo != null) {
+			info.applicationInfo = new ApplicationInfo(info.applicationInfo);
+			info.applicationInfo.metaData = (flags & GET_META_DATA) != 0
+			    && info.applicationInfo.metaData != null
+			    ? new android.os.Bundle(info.applicationInfo.metaData) : null;
+		}
+	}
+
 	/**
 	 * Retrieve all of the information we know about a particular activity
 	 * class.
@@ -1638,18 +1651,17 @@ public class PackageManager {
 	 */
 	public ActivityInfo getActivityInfo(ComponentName component,
 	                                    int flags) throws NameNotFoundException {
-
-		PackageInfo packageInfo = getPackageInfo(component.getPackageName(), PackageManager.GET_ACTIVITIES);
-		for (ActivityInfo info : packageInfo.activities) {
-			if (info.name.equals(component.getClassName())) {
-				/* Breeze Weather tries to override the night mode setting, but we don't implement configuration overriding yet.
-				 * AppCompatDelegateImpl.updateAppConfiguration() checks if the setting is correctly overridden and otherwise recreates the activity.
-				 * To prevent infinite recreation, we set the CONFIG_UI_MODE flag, indicating that the activity can handle night mode change without recreation. */
-				info.configChanges = ActivityInfo.CONFIG_UI_MODE;
-				return info;
+		PackageInfo pkg = getPackageInfo(component.getPackageName(), flags | GET_ACTIVITIES);
+		if (pkg.activities != null) {
+			for (ActivityInfo info : pkg.activities) {
+				if (info.name.equals(component.getClassName())) {
+					ActivityInfo result = new ActivityInfo(info);
+					copyComponentLookupData(result, flags);
+					return result;
+				}
 			}
 		}
-		throw new NameNotFoundException();
+		throw new NameNotFoundException(component.toString());
 	}
 
 	/**
@@ -1674,7 +1686,17 @@ public class PackageManager {
 	 */
 	public ActivityInfo getReceiverInfo(ComponentName component,
 	                                    int flags) throws NameNotFoundException {
-		return null;
+		PackageInfo pkg = getPackageInfo(component.getPackageName(), flags | GET_RECEIVERS);
+		if (pkg.receivers != null) {
+			for (ActivityInfo info : pkg.receivers) {
+				if (info.name.equals(component.getClassName())) {
+					ActivityInfo result = new ActivityInfo(info);
+					copyComponentLookupData(result, flags);
+					return result;
+				}
+			}
+		}
+		throw new NameNotFoundException(component.toString());
 	}
 
 	/**
@@ -1697,13 +1719,18 @@ public class PackageManager {
 	 * @see #GET_SHARED_LIBRARY_FILES
 	 */
 	public ServiceInfo getServiceInfo(ComponentName component,
-	                                  int flags) throws NameNotFoundException {
-		for (PackageParser.Service s : ATLLoadedApp.getPrimaryApplication().pkg.services) {
-			if (s.className.equals(component.getClassName())) {
-				return s.info;
+	                                    int flags) throws NameNotFoundException {
+		PackageInfo pkg = getPackageInfo(component.getPackageName(), flags | GET_SERVICES);
+		if (pkg.services != null) {
+			for (ServiceInfo info : pkg.services) {
+				if (info.name.equals(component.getClassName())) {
+					ServiceInfo result = new ServiceInfo(info);
+					copyComponentLookupData(result, flags);
+					return result;
+				}
 			}
 		}
-		return new ServiceInfo();
+		throw new NameNotFoundException(component.toString());
 	}
 
 	/**
@@ -1727,13 +1754,18 @@ public class PackageManager {
 	 * @see #GET_SHARED_LIBRARY_FILES
 	 */
 	public ProviderInfo getProviderInfo(ComponentName component,
-	                                    int flags) throws Exception {
-		for (PackageParser.Provider p : ATLLoadedApp.getPrimaryApplication().pkg.providers) {
-			if (p.className.equals(component.getClassName())) {
-				return p.info;
+	                                    int flags) throws NameNotFoundException {
+		PackageInfo pkg = getPackageInfo(component.getPackageName(), flags | GET_PROVIDERS);
+		if (pkg.providers != null) {
+			for (ProviderInfo info : pkg.providers) {
+				if (info.name.equals(component.getClassName())) {
+					ProviderInfo result = new ProviderInfo(info);
+					copyComponentLookupData(result, flags);
+					return result;
+				}
 			}
 		}
-		throw new NameNotFoundException();
+		throw new NameNotFoundException(component.toString());
 	}
 
 	/**
