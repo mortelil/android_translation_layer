@@ -961,6 +961,8 @@ public class View implements Drawable.Callback {
 	private int visibility = View.VISIBLE;
 	private float alpha = 1.0f;
 	private boolean pressed = false;
+	private boolean clickable;
+	private boolean touchClickPending;
 	private Drawable background;
 	private int backgroundTint = 0;
 	private int mForegroundGravity = Gravity.START | Gravity.TOP;
@@ -1039,6 +1041,7 @@ public class View implements Drawable.Callback {
 		widget = native_constructor(context, attrs);
 
 		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.View, defStyle, defStyleRes);
+		clickable = a.getBoolean(com.android.internal.R.styleable.View_clickable, false);
 		this.id = a.getResourceId(com.android.internal.R.styleable.View_id, View.NO_ID);
 		if (a.hasValue(com.android.internal.R.styleable.View_backgroundTint))
 			backgroundTint = a.getColor(com.android.internal.R.styleable.View_backgroundTint, 0);
@@ -1218,20 +1221,45 @@ public class View implements Drawable.Callback {
 
 	public boolean onTouchEventInternal(MotionEvent event, boolean handle_gestures) {
 		boolean handled = false;
-		if (on_touch_listener != null)
+		if (isEnabled() && on_touch_listener != null)
 			handled = on_touch_listener.onTouch(this, event);
 
 		if (!handled)
 			handled = onTouchEvent(event);
 
-		if (handle_gestures && !handled && event.getAction() == MotionEvent.ACTION_UP)
-			handled = performClick();
-
 		return handled;
 	}
 
 	public boolean onTouchEvent(MotionEvent event) {
-		return false;
+		if (!isClickable()) return false;
+		if (!isEnabled()) return true;
+		switch (event.getActionMasked()) {
+			case MotionEvent.ACTION_DOWN:
+				touchClickPending = true;
+				setPressed(true);
+				break;
+			case MotionEvent.ACTION_MOVE:
+				int slop = ViewConfiguration.get(context).getScaledTouchSlop();
+				if (event.getX() < -slop || event.getY() < -slop || event.getX() >= getWidth() + slop || event.getY() >= getHeight() + slop) {
+					touchClickPending = false;
+					setPressed(false);
+				}
+				break;
+			case MotionEvent.ACTION_UP:
+				boolean click = touchClickPending;
+				touchClickPending = false;
+				setPressed(false);
+				if (click) {
+					Runnable clickAction = new Runnable() { public void run() { performClick(); } };
+					if (!post(clickAction)) performClick();
+				}
+				break;
+			case MotionEvent.ACTION_CANCEL:
+				touchClickPending = false;
+				setPressed(false);
+				break;
+		}
+		return true;
 	}
 
 	public void setOnTouchListener(OnTouchListener l) {
@@ -1243,6 +1271,7 @@ public class View implements Drawable.Callback {
 	public void setOnClickListener(OnClickListener l) {
 		nativeSetOnClickListener(widget);
 		on_click_listener = l;
+		if (l != null) setClickable(true);
 	}
 	protected native void nativeSetOnClickListener(long widget);
 
@@ -1559,10 +1588,14 @@ public class View implements Drawable.Callback {
 		return background;
 	}
 
-	public void setClickable(boolean clickable) {}
+	public void setClickable(boolean clickable) {
+		this.clickable = clickable;
+		if (!clickable) { touchClickPending = false; setPressed(false); }
+	}
 
 	public void setEnabled(boolean enabled) {
 		atl_enabled = enabled;
+		if (!enabled) { touchClickPending = false; setPressed(false); }
 		native_setVisibility(widget, visibility, alpha, atl_enabled);
 	}
 
@@ -2049,7 +2082,7 @@ public class View implements Drawable.Callback {
 	public void setOnApplyWindowInsetsListener(View.OnApplyWindowInsetsListener l) {}
 
 	public final boolean isFocusable() { return atl_focusable; }
-	public boolean isClickable() { return true; }
+	public boolean isClickable() { return clickable; }
 	public boolean isLongClickable() { return true; }
 
 	public int getLayoutDirection() { return LAYOUT_DIRECTION_LTR; }
@@ -2274,7 +2307,7 @@ public class View implements Drawable.Callback {
 
 	public boolean onInterceptTouchEvent(MotionEvent event) { return false; }
 
-	public boolean dispatchTouchEvent(MotionEvent event) { return false; }
+	public boolean dispatchTouchEvent(MotionEvent event) { return onTouchEventInternal(event, true); }
 
 	public void requestUnbufferedDispatch(MotionEvent event) {
 		if (event == null)
@@ -2320,7 +2353,7 @@ public class View implements Drawable.Callback {
 
 	public void requestFitSystemWindows() {}
 
-	public boolean isPressed() { return false; }
+	public boolean isPressed() { return pressed; }
 
 	public native void getWindowVisibleDisplayFrame(Rect rect);
 

@@ -225,6 +225,11 @@ public class Dialog implements Window.Callback, DialogInterface {
 
 	public void setDismissMessage(Message msg) {}
 
+	@Override
+	public boolean dispatchTouchEvent(MotionEvent event) {
+		return getWindow().superDispatchTouchEvent(event) || onTouchEvent(event);
+	}
+
 	public boolean onTouchEvent(MotionEvent event) {
 		return false;
 	}

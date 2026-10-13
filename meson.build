@@ -165,6 +165,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                   	'src/api-impl-jni/views/AndroidLayout.c',
                                                                   	'src/api-impl-jni/views/android_view_inputmethod_InputMethodManager.c',
                                                                   	'src/api-impl-jni/views/android_view_View.c',
+	'src/api-impl-jni/views/JavaTouch.c',
                                                                   	'src/api-impl-jni/views/android_view_ViewGroup.c',
                                                                   	'src/api-impl-jni/views/android_view_ViewTreeObserver.c',
                                                                   	'src/api-impl-jni/views/android_view_WindowManagerImpl.c',
