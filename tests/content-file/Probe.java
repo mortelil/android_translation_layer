@@ -45,7 +45,7 @@ public class Probe extends android.app.Activity {
         try {
             getFilesDir().mkdirs();
             File f = new File(getFilesDir(), "fixture");
-            try (OutputStream out = new FileOutputStream(f)) { out.write(73); }
+            try (OutputStream out = new FileOutputStream(f)) { out.write(new byte[] {73, 74, 75}); }
             ContentResolver r = getContentResolver();
             check(read(r.openFile(Uri.fromFile(f), "r", null)) == 73, "file bytes");
             Uri content = Uri.parse("content://org.atl.contentfile.provider/fixture");
