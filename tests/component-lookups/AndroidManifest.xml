@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.atl.componentlookups">
+<uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28"/>
+<application>
+<activity android:name=".Probe" android:exported="true" android:configChanges="orientation|screenSize">
+<meta-data android:name="probe" android:value="activity"/>
+<intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+</activity>
+<receiver android:name=".Receiver" android:exported="false"><meta-data android:name="probe" android:value="receiver"/></receiver>
+<service android:name=".Service" android:exported="false"><meta-data android:name="probe" android:value="service"/></service>
+<provider android:name=".Provider" android:authorities="org.atl.componentlookups.provider" android:enabled="false" android:exported="false"><meta-data android:name="probe" android:value="provider"/></provider>
+</application></manifest>
