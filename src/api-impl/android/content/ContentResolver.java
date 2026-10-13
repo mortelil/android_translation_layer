@@ -41,20 +41,29 @@ public class ContentResolver {
 	public final void registerContentObserver(Uri uri, boolean notifyForDescendants, ContentObserver observer, int userHandle) {
 	}
 
+	public final ParcelFileDescriptor openFile(Uri uri, String mode, CancellationSignal signal) throws FileNotFoundException {
+		return openFileDescriptor(uri, mode, signal);
+	}
+
 	public ParcelFileDescriptor openFileDescriptor(Uri uri, String mode) throws FileNotFoundException {
-		if ("file".equals(uri.getScheme())) {
-			return ParcelFileDescriptor.open(new File(uri.getPath()), ParcelFileDescriptor.parseMode(mode));
-		} else {
-			ContentProvider provider = ContentProvider.atl_get_content_provider(uri.getAuthority());
-			if (provider != null)
-				return provider.openFile(uri, mode);
-			else
-				return null;
-		}
+		return openFileDescriptor(uri, mode, null);
 	}
 
 	public ParcelFileDescriptor openFileDescriptor(Uri uri, String mode, CancellationSignal signal) throws FileNotFoundException {
-		return openFileDescriptor(uri, mode);
+		java.util.Objects.requireNonNull(uri, "uri");
+		java.util.Objects.requireNonNull(mode, "mode");
+		if ("file".equals(uri.getScheme())) {
+			// Like Android, local file opens are synchronous and have no
+			// provider cancellation transport.
+			return ParcelFileDescriptor.open(new File(uri.getPath()), ParcelFileDescriptor.parseMode(mode));
+		}
+		ContentProvider provider = "content".equals(uri.getScheme())
+		        ? ContentProvider.atl_get_content_provider(uri.getAuthority()) : null;
+		if (provider == null)
+			throw new FileNotFoundException("No content provider: " + uri);
+		if (signal != null)
+			signal.throwIfCanceled();
+		return provider.openFile(uri, mode, signal);
 	}
 
 	public AssetFileDescriptor openAssetFileDescriptor(Uri uri, String mode) throws FileNotFoundException {

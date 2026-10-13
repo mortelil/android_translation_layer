@@ -77,6 +77,10 @@ public abstract class ContentProvider {
 
 	public abstract ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException;
 
+	public ParcelFileDescriptor openFile(Uri uri, String mode, android.os.CancellationSignal signal) throws FileNotFoundException {
+		return openFile(uri, mode);
+	}
+
 	public AssetFileDescriptor openAssetFile(Uri uri, String mode) throws FileNotFoundException {
 		ParcelFileDescriptor fd = openFile(uri, mode);
 		return fd != null ? new AssetFileDescriptor(fd, 0, -1) : null;
