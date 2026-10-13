@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2007 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.os;
 
 import android.util.ArrayMap;
@@ -366,6 +382,50 @@ public class BaseBundle {
 		} catch (ClassCastException e) {
 			typeWarning(key, o, "int[]", e);
 			return null;
+		}
+	}
+
+	// AOSP BaseBundle double contracts, frameworks/base 94b4c163.
+	/**
+	 * Inserts a double value into the mapping of this Bundle, replacing
+	 * any existing value for the given key.
+	 *
+	 * @param key a String, or null
+	 * @param value a double
+	 */
+	public void putDouble(String key, double value) {
+		mMap.put(key, value);
+	}
+
+	/**
+	 * Returns the value associated with the given key, or 0.0 if
+	 * no mapping of the desired type exists for the given key.
+	 *
+	 * @param key a String
+	 * @return a double value
+	 */
+	public double getDouble(String key) {
+		return getDouble(key, 0.0);
+	}
+
+	/**
+	 * Returns the value associated with the given key, or defaultValue if
+	 * no mapping of the desired type exists for the given key.
+	 *
+	 * @param key a String
+	 * @param defaultValue Value to return if key does not exist
+	 * @return a double value
+	 */
+	public double getDouble(String key, double defaultValue) {
+		Object o = mMap.get(key);
+		if (o == null) {
+			return defaultValue;
+		}
+		try {
+			return (Double)o;
+		} catch (ClassCastException e) {
+			typeWarning(key, o, "Double", defaultValue, e);
+			return defaultValue;
 		}
 	}
 }

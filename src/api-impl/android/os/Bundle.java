@@ -312,17 +312,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
 	}
 
 	/**
-	 * Inserts a double value into the mapping of this Bundle, replacing
-	 * any existing value for the given key.
-	 *
-	 * @param key a String, or null
-	 * @param value a double
-	 */
-	public void putDouble(String key, double value) {
-		mMap.put(key, value);
-	}
-
-	/**
 	 * Inserts a CharSequence value into the mapping of this Bundle, replacing
 	 * any existing value for the given key.  Either key or value may be null.
 	 *
@@ -683,38 +672,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
 			return (Float)o;
 		} catch (ClassCastException e) {
 			typeWarning(key, o, "Float", defaultValue, e);
-			return defaultValue;
-		}
-	}
-
-	/**
-	 * Returns the value associated with the given key, or 0.0 if
-	 * no mapping of the desired type exists for the given key.
-	 *
-	 * @param key a String
-	 * @return a double value
-	 */
-	public double getDouble(String key) {
-		return getDouble(key, 0.0);
-	}
-
-	/**
-	 * Returns the value associated with the given key, or defaultValue if
-	 * no mapping of the desired type exists for the given key.
-	 *
-	 * @param key a String
-	 * @param defaultValue Value to return if key does not exist
-	 * @return a double value
-	 */
-	public double getDouble(String key, double defaultValue) {
-		Object o = mMap.get(key);
-		if (o == null) {
-			return defaultValue;
-		}
-		try {
-			return (Double)o;
-		} catch (ClassCastException e) {
-			typeWarning(key, o, "Double", defaultValue, e);
 			return defaultValue;
 		}
 	}
