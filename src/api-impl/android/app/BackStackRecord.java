@@ -60,7 +60,8 @@ final class BackStackRecord extends FragmentTransaction {
 	private void doAddOp(Fragment fragment, String tag, int opcmd) {
 		// The tag is assigned when the op is recorded (AOSP sets mTag in
 		// doAddOp, before execution), so getTag() is readable immediately.
-		fragment.activity = mManager.activity;
+		if (fragment.activity != null && fragment.activity != mManager.activity)
+			throw new IllegalStateException("Fragment belongs to another activity");
 		if (tag != null) {
 			if (fragment.mTag != null && !tag.equals(fragment.mTag)) {
 				throw new IllegalStateException("Can't change tag of fragment "

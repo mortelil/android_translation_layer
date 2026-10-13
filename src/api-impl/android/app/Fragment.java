@@ -9,8 +9,15 @@ public class Fragment {
 	Activity activity;
 	private boolean created;
 	private boolean activityCreated;
+	private boolean attached;
+	private boolean started;
+	private boolean resumed;
 
 	void performCreate(Bundle state) {
+		if (!attached) {
+			attached = true;
+			onAttach((android.content.Context) activity);
+		}
 		if (!created) {
 			created = true;
 			onCreate(state);
@@ -24,6 +31,36 @@ public class Fragment {
 			onActivityCreated(state);
 		}
 	}
+
+	// Headless fragment transitions: catch up on late add, never dispatch an
+	// upward event twice, and unwind only states that were actually entered.
+	void performStart() {
+		if (!started) { started = true; onStart(); }
+	}
+	void performResume() {
+		performStart();
+		if (!resumed) { resumed = true; onResume(); }
+	}
+	void performPause() {
+		if (resumed) { resumed = false; onPause(); }
+	}
+	void performStop() {
+		performPause();
+		if (started) { started = false; onStop(); }
+	}
+	void performDestroy() {
+		performStop();
+		if (created) { created = false; onDestroy(); }
+		activityCreated = false;
+		if (attached) { attached = false; onDetach(); }
+		activity = null;
+		mTag = null;
+	}
+	public void onAttach(android.content.Context context) {
+		if (context instanceof Activity) onAttach((Activity) context);
+	}
+	@Deprecated public void onAttach(Activity activity) {}
+	public void onDetach() {}
 
 
 	/*
