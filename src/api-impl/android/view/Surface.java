@@ -11,6 +11,12 @@ public class Surface {
 	public long widget;
 	private SurfaceTexture texture;
 	private boolean released;
+
+    // SurfaceView owns this widget-backed surface's creation/destruction cycle.
+    synchronized void atlSetWidget(long widget) {
+        this.widget = widget;
+        released = false;
+    }
 	private SurfaceCanvas lockedCanvas;
 
 	public Surface() {}

@@ -70,7 +70,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	 * @return  instance of main activity class
 	 * @throws Exception
 	 */
-	private static Activity createMainActivity(String className, long native_window, String uriString) throws ReflectiveOperationException {
+	private static Activity createMainActivity(String className, long native_window, String uriString, String actionString, String typeString) throws ReflectiveOperationException {
 		Uri uri = uriString != null ? Uri.parse(uriString) : null;
 		if (className == null) {
 			for (PackageParser.Activity activity : ATLLoadedApp.getPrimaryApplication().pkg.activities) {
@@ -99,17 +99,26 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 				System.err.println("Failed to find main Activity");
 			System.exit(1);
 		}
-		return internalCreateActivity(className, native_window, uri != null ? new Intent("android.intent.action.VIEW", uri) : new Intent());
+		Intent launchIntent = new Intent();
+		if (actionString != null) launchIntent.setAction(actionString);
+		else if (uri != null) launchIntent.setAction(Intent.ACTION_VIEW);
+		// setType() would clear the URI; preserve both, as Android's am start does.
+		launchIntent.setDataAndType(uri, typeString);
+		return internalCreateActivity(className, native_window, launchIntent);
 	}
 
 	private final FragmentManager fragmentManager = new FragmentManager(this);
 	private boolean fragmentsCreated;
 	private boolean fragmentsActivityCreated;
+	private boolean fragmentsStarted;
+	private boolean fragmentsResumed;
 	private Bundle fragmentCreationState;
 
-	void moveFragmentToCreationState(Fragment fragment) {
+	void moveFragmentToCurrentState(Fragment fragment) {
 		if (fragmentsCreated) fragment.performCreate(fragmentCreationState);
 		if (fragmentsActivityCreated) fragment.performActivityCreated(fragmentCreationState);
+		if (fragmentsStarted) fragment.performStart();
+		if (fragmentsResumed) fragment.performResume();
 	}
 
 	// AOSP Activity.performCreate dispatches activity-created only after the
@@ -204,15 +213,19 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	// in super.onStart/onResume re-enters lifecycle observers too early.
 	final void performStart() {
 		onStart();
+		fragmentManager.executePendingTransactions();
+		fragmentsStarted = true;
 		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
-			fragment.onStart();
+			if (fragment.activity == this) fragment.performStart();
 		}
 	}
 
 	final void performResume() {
 		onResume();
+		fragmentManager.executePendingTransactions();
+		fragmentsResumed = true;
 		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
-			fragment.onResume();
+			if (fragment.activity == this) fragment.performResume();
 		}
 	}
 
@@ -239,12 +252,13 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	protected void onPause() {
 		Slog.i(TAG, "- onPause - yay!");
+		fragmentsResumed = false;
 
 		// AOSP Activity.onPause (android-17.0.0_r1 Activity.java:2721) dispatches first.
 		getApplication().dispatchActivityPaused(this);
 
-		for (Fragment fragment : fragments) {
-			fragment.onPause();
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			if (fragment.activity == this) fragment.performPause();
 		}
 
 		paused = true;
@@ -253,9 +267,10 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	protected void onStop() {
 		Slog.i(TAG, "- onStop - yay!");
+		fragmentsStarted = false;
 
-		for (Fragment fragment : fragments) {
-			fragment.onStop();
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			if (fragment.activity == this) fragment.performStop();
 		}
 
 		// AOSP Activity.onStop (android-17.0.0_r1 Activity.java:2952).
@@ -267,9 +282,8 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	protected void onDestroy() {
 		Slog.i(TAG, "- onDestroy - yay!");
 
-		for (Fragment fragment : fragments) {
-			fragment.onDestroy();
-		}
+		fragmentsCreated = fragmentsActivityCreated = fragmentsStarted = fragmentsResumed = false;
+		fragmentManager.destroy();
 
 		// AOSP Activity.onDestroy (android-17.0.0_r1 Activity.java:3030).
 		getApplication().dispatchActivityDestroyed(this);

@@ -4,7 +4,7 @@ import android.os.IBinder;
 import android.os.IInterface;
 import android.os.Parcel;
 
-public class DynamiteMeasurementManager implements IBinder {
+public class DynamiteMeasurementManager extends android.os.Binder {
 
 	@Override
 	public String getInterfaceDescriptor() {

@@ -31,6 +31,8 @@ import java.util.List;
 public class FragmentManager {
 
 	Activity activity;
+	private boolean mExecuting;
+	private volatile boolean mDestroyed;
 
 	private final List<BackStackRecord> mPendingTransactions = new ArrayList<>();
 
@@ -58,23 +60,39 @@ public class FragmentManager {
 	}
 
 	public boolean executePendingTransactions() {
+		if (mDestroyed) throw new IllegalStateException("Activity has been destroyed");
 		return execPendingActions();
 	}
 
 	boolean execPendingActions() {
+		if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper())
+			throw new IllegalStateException("Fragment transactions must run on the main thread");
+		if (mExecuting) throw new IllegalStateException("FragmentManager is already executing transactions");
 		boolean didSomething = false;
-		while (!mPendingTransactions.isEmpty()) {
-			BackStackRecord transaction = mPendingTransactions.remove(0);
-			transaction.executeOps();
-			didSomething = true;
-		}
+		mExecuting = true;
+		try {
+			while (true) {
+				BackStackRecord transaction;
+				synchronized (mPendingTransactions) {
+					if (mPendingTransactions.isEmpty()) break;
+					transaction = mPendingTransactions.remove(0);
+				}
+				transaction.executeOps();
+				didSomething = true;
+			}
+		} finally { mExecuting = false; }
 		return didSomething;
 	}
 
 	void enqueue(BackStackRecord transaction) {
-		mPendingTransactions.add(transaction);
+		// Like AOSP enqueueAction, accepting a transaction is thread safe;
+		// only its execution is restricted to the host's main thread.
+		synchronized (mPendingTransactions) {
+			if (mDestroyed) throw new IllegalStateException("Activity has been destroyed");
+			mPendingTransactions.add(transaction);
+		}
 		new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
-			@Override public void run() { execPendingActions(); }
+			@Override public void run() { if (!mDestroyed) execPendingActions(); }
 		});
 	}
 
@@ -82,11 +100,23 @@ public class FragmentManager {
 		if (activity.fragments.contains(fragment)) {
 			throw new IllegalStateException("Fragment already added: " + fragment);
 		}
+		if (fragment.activity != null && fragment.activity != activity)
+			throw new IllegalStateException("Fragment belongs to another activity");
+		fragment.activity = activity;
 		activity.fragments.add(fragment);
-		activity.moveFragmentToCreationState(fragment);
+		activity.moveFragmentToCurrentState(fragment);
 	}
 
 	void removeFragment(Fragment fragment) {
-		activity.fragments.remove(fragment);
+		if (activity.fragments.remove(fragment)) fragment.performDestroy();
+	}
+
+	void destroy() {
+		synchronized (mPendingTransactions) {
+			mDestroyed = true;
+			mPendingTransactions.clear();
+		}
+		for (Fragment fragment : new ArrayList<Fragment>(activity.fragments)) fragment.performDestroy();
+		activity.fragments.clear();
 	}
 }
