@@ -52,7 +52,6 @@ public final class ViewTreeObserver {
 	private boolean mAlive = true;
 
 	// accessed from native code
-	private long onGlobalLayout_signal_handle = 0;
 	private long onPreDraw_signal_handle = 0;
 
 	private long window;
