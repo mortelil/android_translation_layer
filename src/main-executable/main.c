@@ -516,8 +516,12 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	free(app_lib_dir);
 
 	jclass display_class = (*env)->FindClass(env, "android/view/Display");
-	_SET_STATIC_INT_FIELD(display_class, "window_width", d->window_width);
-	_SET_STATIC_INT_FIELD(display_class, "window_height", d->window_height);
+	jclass metrics_class = (*env)->FindClass(env, "android/util/DisplayMetrics");
+	double render_scale = (*env)->GetStaticIntField(env, metrics_class,
+	    _STATIC_FIELD_ID(metrics_class, "DENSITY_DEVICE", "I")) / 160.0;
+	(*env)->DeleteLocalRef(env, metrics_class);
+	_SET_STATIC_INT_FIELD(display_class, "window_width", (int)(d->window_width * render_scale + 0.5));
+	_SET_STATIC_INT_FIELD(display_class, "window_height", (int)(d->window_height * render_scale + 0.5));
 
 	/* -- register our JNI library under the appropriate classloader -- */
 
@@ -805,7 +809,6 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		gdk_wayland_toplevel_set_application_id(GDK_WAYLAND_TOPLEVEL(toplevel), package_name);
 	}
 
-	update_config_for_window(GTK_WINDOW(window));
 
 	if (!d->apk_instrumentation_class && app_icon_path && *app_icon_path) {
 		char *app_icon_path_full = malloc(strlen(app_data_dir) + 1 + strlen(app_icon_path) + 1); // +1 for /, +1 for NULL

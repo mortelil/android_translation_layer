@@ -114,6 +114,7 @@ public abstract class Context {
 	static {
 		sys_config = new Configuration();
 		native_updateConfig(sys_config);
+		sys_config.applyDisplayMetrics(new android.util.DisplayMetrics());
 		ATLLoadedApp primary_application = ATLLoadedApp.getPrimaryApplication();
 
 		ApplicationInfo application_info = primary_application.pkg.applicationInfo;

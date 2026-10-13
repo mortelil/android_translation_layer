@@ -4,6 +4,9 @@
 #include "util.h"
 #include "android_view_Window.h"
 #include "views/JavaTouch.h"
+#include "jni_exceptions.h"
+
+extern GtkWindow *window;
 
 #include "generated_headers/android_view_Window.h"
 
@@ -41,10 +44,14 @@ static void scale_root_allocate(GtkWidget *widget, int width, int height, int ba
 	int pixel_width = (int)(width * root->scale + 0.5);
 	int pixel_height = (int)(height * root->scale + 0.5);
 	JNIEnv *env = get_jni_env();
-	jclass display = (*env)->FindClass(env, "android/view/Display");
-	_SET_STATIC_INT_FIELD(display, "window_width", pixel_width);
-	_SET_STATIC_INT_FIELD(display, "window_height", pixel_height);
-	(*env)->DeleteLocalRef(env, display);
+	// A dialog has its own allocation, not a new app display size.
+	if (gtk_widget_get_root(widget) == GTK_ROOT(window)) {
+		jclass display = (*env)->FindClass(env, "android/view/Display");
+		jmethodID resize = (*env)->GetStaticMethodID(env, display, "setWindowSize", "(II)V");
+		(*env)->CallStaticVoidMethod(env, display, resize, pixel_width, pixel_height);
+		(*env)->DeleteLocalRef(env, display);
+		atl_jni_handle_uncaught_exception(env, "window geometry update");
+	}
 	gtk_widget_allocate(root->child, pixel_width, pixel_height, -1,
 	                    gsk_transform_scale(NULL, 1.0 / root->scale, 1.0 / root->scale));
 }
@@ -89,7 +96,7 @@ void atl_window_set_content(JNIEnv *env, GtkWindow *window, GtkWidget *content)
         return;
     atl_cancel_java_touch_fallback(window);
     atl_install_java_touch_fallback(window);
-    if (getenv("ATL_RENDER_SCALE")) {
+    {
         jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
         double scale = (*env)->GetStaticIntField(env, metrics, _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
         (*env)->DeleteLocalRef(env, metrics);
@@ -98,8 +105,6 @@ void atl_window_set_content(JNIEnv *env, GtkWindow *window, GtkWidget *content)
         root->child = content;
         gtk_widget_set_parent(content, GTK_WIDGET(root));
         gtk_window_set_child(window, GTK_WIDGET(root));
-    } else {
-        gtk_window_set_child(window, content);
     }
     /* Also expose Android coordinates to libandroid's native input queue. */
     g_object_set_data(G_OBJECT(window), "atl-content", content);
