@@ -62,7 +62,7 @@ static void surface_view_widget_snapshot(GtkWidget *widget, GdkSnapshot *snapsho
 	atl_surface_control_snapshot(widget, GTK_SNAPSHOT(snapshot));
 	if (surface_view_widget->frame_callback) {
 		surface_view_widget->frame_callback(surface_view_widget);
-		surface_view_widget->frame_callback = NULL;
+		surface_view_widget_set_frame_callback(surface_view_widget, NULL, NULL, NULL);
 	}
 }
 
@@ -73,6 +73,7 @@ static void surface_view_widget_dispose(GObject *object)
 		g_object_unref(surface_view_widget->texture);
 		surface_view_widget->texture = NULL;
 	}
+	surface_view_widget_set_frame_callback(surface_view_widget, NULL, NULL, NULL);
 	G_OBJECT_CLASS(surface_view_widget_parent_class)->dispose(object);
 }
 
@@ -216,4 +217,13 @@ JNIEXPORT void JNICALL Java_android_view_SurfaceView_native_1postSnapshot(JNIEnv
 	g_object_unref(renderer);
 
 	surface_view_widget_set_texture(surface_view_widget, texture, FALSE);
+}
+
+void surface_view_widget_set_frame_callback(SurfaceViewWidget *view,
+        void (*callback)(SurfaceViewWidget *), gpointer data, GDestroyNotify destroy)
+{
+	if (view->frame_callback_destroy) view->frame_callback_destroy(view->frame_callback_data);
+	view->frame_callback = callback;
+	view->frame_callback_data = data;
+	view->frame_callback_destroy = destroy;
 }
