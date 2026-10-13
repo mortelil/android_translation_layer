@@ -425,6 +425,48 @@ public class MediaRouter {
 		}
 	}
 
+	/**
+	 * A callback that does nothing on every event. Applications subclass it and
+	 * override only the events they care about.
+	 */
+	public static class SimpleCallback extends Callback {
+		@Override
+		public void onRouteSelected(MediaRouter router, int type, RouteInfo info) {
+		}
+
+		@Override
+		public void onRouteUnselected(MediaRouter router, int type, RouteInfo info) {
+		}
+
+		@Override
+		public void onRouteAdded(MediaRouter router, RouteInfo info) {
+		}
+
+		@Override
+		public void onRouteRemoved(MediaRouter router, RouteInfo info) {
+		}
+
+		@Override
+		public void onRouteChanged(MediaRouter router, RouteInfo info) {
+		}
+
+		@Override
+		public void onRouteGrouped(MediaRouter router, RouteInfo info, RouteGroup group, int index) {
+		}
+
+		@Override
+		public void onRouteUngrouped(MediaRouter router, RouteInfo info, RouteGroup group) {
+		}
+
+		@Override
+		public void onRouteVolumeChanged(MediaRouter router, RouteInfo info) {
+		}
+
+		@Override
+		public void onRoutePresentationDisplayChanged(MediaRouter router, RouteInfo info) {
+		}
+	}
+
 	public static abstract class VolumeCallback {
 		public abstract void onVolumeUpdateRequest(RouteInfo info, int direction);
 

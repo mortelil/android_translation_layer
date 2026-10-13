@@ -47,6 +47,19 @@ import java.util.Set;
  * rather than throw an exception unless otherwise specified.
  */
 public abstract class Uri implements Parcelable, Comparable<Uri> {
+    // ATL uses its own Parcel wire format. Preserve the complete encoded URI.
+    @Override public void writeToParcel(android.os.Parcel dest, int flags) {
+        dest.writeString(toString());
+    }
+    public static final Parcelable.Creator<Uri> CREATOR = new Parcelable.Creator<Uri>() {
+        @Override public Uri createFromParcel(android.os.Parcel in) {
+            String value = in.readString();
+            if (value == null) throw new android.os.BadParcelableException("Null URI");
+            return Uri.parse(value);
+        }
+        @Override public Uri[] newArray(int size) { return new Uri[size]; }
+    };
+
 
 	/*
 

@@ -81,6 +81,8 @@ public interface MenuItem {
 
 	public boolean isActionViewExpanded();
 
+	public boolean collapseActionView();
+
 	public MenuItem setIntent(Intent intent);
 
 	public MenuItem setIconTintList(ColorStateList tint);

@@ -3,6 +3,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../jni_exceptions.h"
 
 #include "WrapperWidget.h"
 #include "marshal.h"
@@ -121,16 +122,20 @@ struct jni_callback_data {
 	jclass this_class;
 	gint resize_width;
 	gint resize_height;
+	guint create_source;
+	guint resize_source;
 };
 
 static gboolean on_resize_delayed(struct jni_callback_data *d)
 {
+	d->resize_source = 0;
 	JNIEnv *env;
 	(*d->jvm)->GetEnv(d->jvm, (void **)&env, JNI_VERSION_1_6);
 
 	// TODO: are there cases where returning RGBA_8888 is a bad idea?
 	// NOTE: we want to call the private method of android.view.SurfaceView, not the related method with this name in the API
 	(*env)->CallVoidMethod(env, d->this, handle_cache.surface_view.surfaceChanged, 1 /*RGBA_8888*/, d->resize_width, d->resize_height);
+	atl_jni_handle_uncaught_exception(env, "SurfaceHolder.surfaceChanged");
 
 	return G_SOURCE_REMOVE;
 }
@@ -140,23 +145,57 @@ static void on_resize(GtkWidget *self, gint width, gint height, struct jni_callb
 	d->resize_width = width;
 	d->resize_height = height;
 
-	g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, G_SOURCE_FUNC(on_resize_delayed), d, NULL);
+	if (!d->resize_source)
+		d->resize_source = g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, G_SOURCE_FUNC(on_resize_delayed), d, NULL);
 }
 
 static gboolean on_realize_delayed(struct jni_callback_data *d)
 {
+	d->create_source = 0;
 	JNIEnv *env;
 	(*d->jvm)->GetEnv(d->jvm, (void **)&env, JNI_VERSION_1_6);
 
 	// NOTE: we want to call the private method of android.view.SurfaceView, not the related method with this name in the API
 	(*env)->CallVoidMethod(env, d->this, handle_cache.surface_view.surfaceCreated);
+	atl_jni_handle_uncaught_exception(env, "SurfaceHolder.surfaceCreated");
+    if (d->resize_width > 0 && d->resize_height > 0) {
+        if (d->resize_source) { g_source_remove(d->resize_source); d->resize_source = 0; }
+        on_resize_delayed(d);
+    }
 
 	return G_SOURCE_REMOVE;
 }
 
 static void on_realize(GtkWidget *self, struct jni_callback_data *d)
 {
-	g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, G_SOURCE_FUNC(on_realize_delayed), d, NULL);
+	if (!d->create_source)
+		d->create_source = g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, G_SOURCE_FUNC(on_realize_delayed), d, NULL);
+}
+
+static void cancel_pending(struct jni_callback_data *d)
+{
+    if (d->create_source) { g_source_remove(d->create_source); d->create_source = 0; }
+    if (d->resize_source) { g_source_remove(d->resize_source); d->resize_source = 0; }
+}
+
+static void on_unrealize(GtkWidget *self, struct jni_callback_data *d)
+{
+    cancel_pending(d);
+    JNIEnv *env = get_jni_env();
+    jmethodID method = (*env)->GetMethodID(env, d->this_class, "surfaceDestroyed", "()V");
+    atl_jni_handle_uncaught_exception(env, "SurfaceHolder destroy lookup");
+    (*env)->CallVoidMethod(env, d->this, method);
+    atl_jni_handle_uncaught_exception(env, "SurfaceHolder.surfaceDestroyed");
+}
+
+static void free_callback_data(gpointer data)
+{
+    struct jni_callback_data *d = data;
+    cancel_pending(d);
+    JNIEnv *env = get_jni_env();
+    (*env)->DeleteGlobalRef(env, d->this);
+    (*env)->DeleteGlobalRef(env, d->this_class);
+    free(d);
 }
 
 JNIEXPORT jlong JNICALL Java_android_view_SurfaceView_native_1constructor(JNIEnv *env, jobject this, jobject context, jobject attrs)
@@ -174,13 +213,15 @@ JNIEXPORT jlong JNICALL Java_android_view_SurfaceView_native_1constructor(JNIEnv
 	JavaVM *jvm;
 	(*env)->GetJavaVM(env, &jvm);
 
-	struct jni_callback_data *callback_data = malloc(sizeof(struct jni_callback_data));
+	struct jni_callback_data *callback_data = calloc(1, sizeof(struct jni_callback_data));
 	callback_data->jvm = jvm;
 	callback_data->this = _REF(this);
 	callback_data->this_class = _REF((*env)->FindClass(env, "android/view/SurfaceView"));
 
 	g_signal_connect(dummy, "resize", G_CALLBACK(on_resize), callback_data);
 	g_signal_connect(dummy, "realize", G_CALLBACK(on_realize), callback_data);
+    g_signal_connect(dummy, "unrealize", G_CALLBACK(on_unrealize), callback_data);
+    g_object_set_data_full(G_OBJECT(dummy), "atl-surface-callbacks", callback_data, free_callback_data);
 
 	return _INTPTR(graphics_offload);
 }

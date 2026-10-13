@@ -6,6 +6,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class AudioTrack implements AudioRouting {
+
+	// AOSP frameworks/base android-15.0.0_r1 AudioTrack.java.
+	public static final int WRITE_BLOCKING = 0;
+	public static final int WRITE_NON_BLOCKING = 1;
+	public static final int MODE_STATIC = 0;
+	public static final int MODE_STREAM = 1;
+	public static final int SUCCESS = 0;
+	public static final int ERROR = -1;
+
 	private final Map<AudioRouting.OnRoutingChangedListener, Handler> routingListeners = new HashMap<>();
 
 	@Override

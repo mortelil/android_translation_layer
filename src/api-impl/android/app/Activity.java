@@ -70,7 +70,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	 * @return  instance of main activity class
 	 * @throws Exception
 	 */
-	private static Activity createMainActivity(String className, long native_window, String uriString) throws ReflectiveOperationException {
+	private static Activity createMainActivity(String className, long native_window, String uriString, String actionString, String typeString) throws ReflectiveOperationException {
 		Uri uri = uriString != null ? Uri.parse(uriString) : null;
 		if (className == null) {
 			for (PackageParser.Activity activity : ATLLoadedApp.getPrimaryApplication().pkg.activities) {
@@ -99,7 +99,12 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 				System.err.println("Failed to find main Activity");
 			System.exit(1);
 		}
-		return internalCreateActivity(className, native_window, uri != null ? new Intent("android.intent.action.VIEW", uri) : new Intent());
+		Intent launchIntent = new Intent();
+        if (actionString != null) launchIntent.setAction(actionString);
+        else if (uri != null) launchIntent.setAction(Intent.ACTION_VIEW);
+        // setType() would clear the URI; preserve both, as Android's am start does.
+        launchIntent.setDataAndType(uri, typeString);
+        return internalCreateActivity(className, native_window, launchIntent);
 	}
 
 	private final FragmentManager fragmentManager = new FragmentManager(this);

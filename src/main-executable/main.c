@@ -270,6 +270,8 @@ struct jni_callback_data {
 	uint32_t window_height;
 	gboolean install;
 	gboolean install_internal;
+	char *intent_action;
+	char *intent_type;
 	char *prgname;
 	char **extra_jvm_options;
 	char **extra_string_keys;
@@ -408,8 +410,8 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		JNIEnv *env = get_jni_env();
 		fprintf(stderr, "opening uri over DBus: %s\n", uri);
 		jobject activity = (*env)->CallStaticObjectMethod(env, handle_cache.activity.class,
-		                                                  _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;)Landroid/app/Activity;"),
-		                                                  _JSTRING(d->apk_main_activity_class), _INTPTR(window), _JSTRING(uri));
+		                                                  _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/app/Activity;"),
+		                                                  _JSTRING(d->apk_main_activity_class), _INTPTR(window), _JSTRING(uri), NULL, NULL);
 		if ((*env)->ExceptionCheck(env))
 			atl_jni_handle_uncaught_exception(env, "Activity construction");
 		activity_start(env, activity);
@@ -644,11 +646,17 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 			atl_jni_handle_uncaught_exception(env, "Instrumentation.create");
 	}
 
+    if ((d->intent_action || d->intent_type) && !d->apk_main_activity_class) {
+        fprintf(stderr, "--action and --type require --launch-activity\n");
+        exit(1);
+    }
+
 	// construct main Activity
 	if (!d->apk_instrumentation_class && !d->install_internal) {
 		activity_object = (*env)->CallStaticObjectMethod(env, handle_cache.activity.class,
-		                                                 _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;)Landroid/app/Activity;"),
-		                                                 _JSTRING(d->apk_main_activity_class), _INTPTR(window), (uri_option && *uri_option) ? _JSTRING(uri_option) : NULL);
+		                                                 _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/app/Activity;"),
+		                                                 _JSTRING(d->apk_main_activity_class), _INTPTR(window), (uri_option && *uri_option) ? _JSTRING(uri_option) : NULL,
+		                                                 d->intent_action ? _JSTRING(d->intent_action) : NULL, d->intent_type ? _JSTRING(d->intent_type) : NULL);
 		if ((*env)->ExceptionCheck(env))
 			atl_jni_handle_uncaught_exception(env, "Activity construction");
 		if (uri_option)
@@ -894,6 +902,8 @@ void init_cmd_parameters(GApplication *app, struct jni_callback_data *d)
 		{ "sdk-int",           0 , 0, G_OPTION_ARG_STRING,       &d->sdk_int,                   "shorthand for -X \"-DBuild.VERSION.SDK_INT=<version>\"",                                                           "SDK_INT" },
 		/* long_name | short_name | flags                     | arg                  | arg_data     | description                                                                              | arg_desc */
 		{ "uri",              'u', G_OPTION_FLAG_OPTIONAL_ARG, G_OPTION_ARG_CALLBACK, option_uri_cb, "open the given URI inside the application",                                               "URI"           },
+		{ "action", 'a', 0, G_OPTION_ARG_STRING, &d->intent_action, "intent action (requires --launch-activity)", "ACTION" },
+		{ "type", 't', 0, G_OPTION_ARG_STRING, &d->intent_type, "intent MIME type (requires --launch-activity)", "MIME" },
 		{NULL}
 		/* clang-format on */
 	};
@@ -977,6 +987,8 @@ int main(int argc, char **argv)
 	callback_data->window_height = 540;
 	callback_data->install = FALSE;
 	callback_data->install_internal = FALSE;
+	callback_data->intent_action = NULL;
+	callback_data->intent_type = NULL;
 	callback_data->prgname = argv[0];
 	callback_data->extra_jvm_options = NULL;
 	callback_data->extra_string_keys = NULL;

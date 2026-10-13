@@ -1,6 +1,8 @@
 package android.graphics;
 
 import android.os.Parcelable;
+import android.os.Parcel;
+import android.os.BadParcelableException;
 import android.util.DisplayMetrics;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -15,6 +17,47 @@ import java.nio.ShortBuffer;
  * The methods getTexture() and getSnapshot() automatically convert between the two as needed.
  */
 public final class Bitmap implements Parcelable {
+    @Override public synchronized void writeToParcel(Parcel dest, int flags) {
+        if (recycled) throw new IllegalStateException("Bitmap is recycled");
+        if (config.gdk_memory_format == -1)
+            throw new UnsupportedOperationException("Unsupported bitmap format: " + config);
+        Config parcelConfig = config == Config.HARDWARE ? Config.ARGB_8888 : config;
+        long count = (long) stride * height;
+        if (count <= 0 || count > Integer.MAX_VALUE)
+            throw new IllegalStateException("Bitmap is too large to parcel");
+        ByteBuffer buffer = ByteBuffer.allocate((int) count);
+        native_copy_to_buffer(getTexture(), buffer, config.gdk_memory_format, stride);
+        dest.writeInt(width);
+        dest.writeInt(height);
+        dest.writeString(parcelConfig.name());
+        dest.writeInt(mutable ? 1 : 0);
+        dest.writeInt(hasAlpha ? 1 : 0);
+        dest.writeByteArray(buffer.array());
+    }
+
+    public static final Parcelable.Creator<Bitmap> CREATOR = new Parcelable.Creator<Bitmap>() {
+        @Override public Bitmap createFromParcel(Parcel in) {
+            int width = in.readInt(), height = in.readInt();
+            Config config;
+            try { config = Config.valueOf(in.readString()); }
+            catch (RuntimeException e) { throw new BadParcelableException(e); }
+            boolean mutable = in.readInt() != 0, alpha = in.readInt() != 0;
+            byte[] pixels = in.createByteArray();
+            long row = ((long) width * config.bytes_per_pixel + 3) & ~3L;
+            long count = row * height;
+            if (width <= 0 || height <= 0 || row > Integer.MAX_VALUE
+                    || count > Integer.MAX_VALUE || config.gdk_memory_format == -1
+                    || config == Config.HARDWARE || pixels == null || count != pixels.length)
+                throw new BadParcelableException("Invalid bitmap parcel");
+            Bitmap bitmap = new Bitmap(width, height, config);
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels));
+            bitmap.mutable = mutable;
+            bitmap.hasAlpha = alpha;
+            return bitmap;
+        }
+        @Override public Bitmap[] newArray(int size) { return new Bitmap[size]; }
+    };
+
 
 	public enum Config {
 		RGB_565(2, -1, /*ANDROID_BITMAP_FORMAT_RGB_565*/ 4),

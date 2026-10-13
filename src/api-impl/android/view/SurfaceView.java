@@ -14,36 +14,59 @@ public class SurfaceView extends View {
 	public SurfaceView(Context context) {
 		super(context);
 
-		mSurface.widget = this.widget;
 	}
 
 	public SurfaceView(Context context, AttributeSet attrs) {
 		super(context, attrs);
 
-		mSurface.widget = this.widget;
 	}
 
 	public SurfaceView(Context context, AttributeSet attrs, int defStyleAttr) {
 		super(context, attrs, defStyleAttr);
 
-		mSurface.widget = this.widget;
 	}
 
-	private void surfaceChanged(int format, int width, int height) {
-		if (System.getenv("ATL_DEBUG_SURFACE") != null)
-			System.err.println("ATL surfaceChanged " + width + "x" + height + " callbacks=" + mCallbacks.size());
-		for (SurfaceHolder.Callback c : mCallbacks) {
-			c.surfaceChanged(mSurfaceHolder, format, width, height);
-		}
-	}
+	private boolean mSurfaceCreated;
+    private boolean mIsCreating;
+    private boolean mFirstSurfaceChange;
+    private final Rect mSurfaceFrame = new Rect();
 
-	private void surfaceCreated() {
-		if (System.getenv("ATL_DEBUG_SURFACE") != null)
-			System.err.println("ATL surfaceCreated callbacks=" + mCallbacks.size());
-		for (SurfaceHolder.Callback c : mCallbacks) {
-			c.surfaceCreated(mSurfaceHolder);
-		}
-	}
+    private SurfaceHolder.Callback[] callbacks() {
+        synchronized (mCallbacks) { return mCallbacks.toArray(new SurfaceHolder.Callback[0]); }
+    }
+
+    private void surfaceChanged(int format, int width, int height) {
+        if (!mSurfaceCreated) return;
+        mSurfaceFrame.set(0, 0, width, height);
+        mIsCreating = mFirstSurfaceChange;
+        try {
+            for (SurfaceHolder.Callback callback : callbacks())
+                callback.surfaceChanged(mSurfaceHolder, format, width, height);
+        } finally { mIsCreating = false; mFirstSurfaceChange = false; }
+    }
+
+    private void surfaceCreated() {
+        if (mSurfaceCreated) return;
+        mSurfaceCreated = true;
+        mFirstSurfaceChange = true;
+        mSurfaceFrame.set(0, 0, getWidth(), getHeight());
+        mSurface.atlSetWidget(widget);
+        mIsCreating = true;
+        try {
+            for (SurfaceHolder.Callback callback : callbacks()) callback.surfaceCreated(mSurfaceHolder);
+        } finally { mIsCreating = false; }
+    }
+
+    private void surfaceDestroyed() {
+        if (!mSurfaceCreated) return;
+        mSurfaceCreated = false;
+        try {
+            for (SurfaceHolder.Callback callback : callbacks()) callback.surfaceDestroyed(mSurfaceHolder);
+        } finally {
+            mSurface.atlSetWidget(0);
+            mSurfaceFrame.set(0, 0, 0, 0);
+        }
+    }
 
 	@Override
 	protected native long native_constructor(Context context, AttributeSet attrs);
@@ -62,8 +85,7 @@ public class SurfaceView extends View {
 
 		@Override
 		public boolean isCreating() {
-			//		return mIsCreating;
-			return false;
+			return mIsCreating;
 		}
 
 		@Override
@@ -77,9 +99,9 @@ public class SurfaceView extends View {
 
 		@Override
 		public void removeCallback(Callback callback) {
-			/*		synchronized (mCallbacks) {
-					mCallbacks.remove(callback);
-					}*/
+			synchronized (mCallbacks) {
+                mCallbacks.remove(callback);
+            }
 		}
 
 		@Override
@@ -197,7 +219,7 @@ public class SurfaceView extends View {
 					mLastLockTime = now;
 					mSurfaceLock.unlock();
 			*/
-			if (getWidth() == 0 || getHeight() == 0)
+			if (!mSurfaceCreated || getWidth() == 0 || getHeight() == 0)
 				return null;
 
 			return new GskCanvas(native_createSnapshot());
@@ -224,7 +246,7 @@ public class SurfaceView extends View {
 		@Override
 		public Rect getSurfaceFrame() {
 			//		return mSurfaceFrame;
-			return new Rect(0, 0, 400, 400);
+			return mSurfaceFrame;
 		}
 	};
 

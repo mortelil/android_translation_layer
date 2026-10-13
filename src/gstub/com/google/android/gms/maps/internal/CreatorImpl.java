@@ -5,7 +5,7 @@ import android.os.IBinder;
 import android.os.IInterface;
 import android.os.Parcel;
 
-public class CreatorImpl implements IBinder {
+public class CreatorImpl extends android.os.Binder {
 
 	@Override
 	public String getInterfaceDescriptor() {

@@ -7,6 +7,18 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#undef android_media_AudioTrack_WRITE_BLOCKING
+#define android_media_AudioTrack_WRITE_BLOCKING 0L
+#undef android_media_AudioTrack_WRITE_NON_BLOCKING
+#define android_media_AudioTrack_WRITE_NON_BLOCKING 1L
+#undef android_media_AudioTrack_MODE_STATIC
+#define android_media_AudioTrack_MODE_STATIC 0L
+#undef android_media_AudioTrack_MODE_STREAM
+#define android_media_AudioTrack_MODE_STREAM 1L
+#undef android_media_AudioTrack_SUCCESS
+#define android_media_AudioTrack_SUCCESS 0L
+#undef android_media_AudioTrack_ERROR
+#define android_media_AudioTrack_ERROR -1L
 #undef android_media_AudioTrack_ERROR_BAD_VALUE
 #define android_media_AudioTrack_ERROR_BAD_VALUE -2L
 #undef android_media_AudioTrack_ERROR_INVALID_OPERATION
