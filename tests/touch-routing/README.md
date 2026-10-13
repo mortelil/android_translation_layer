@@ -35,3 +35,8 @@ MotionEvent metadata are not implemented by this patch. Native multi-touch
 sequence generation still needs a real touchscreen replay; the focused probe
 checks multi-pointer coordinate offsets, not touchscreen hardware. The existing
 setMotionEventSplittingEnabled stub is not upgraded or claimed as supported.
+
+Negative native-boundary check: launch org.atl.touchrouting.Throwing and click
+its covered region. Require IllegalStateException: TOUCH_EXPECTED_EXCEPTION
+and nonzero termination through the uncaught-exception path, not continued
+callback processing with a pending JNI exception. Verified exit status 10.

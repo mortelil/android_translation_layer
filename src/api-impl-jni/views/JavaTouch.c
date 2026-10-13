@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "../defines.h"
 #include "../util.h"
+#include "../jni_exceptions.h"
 #include "../android_view_Window.h"
 #include "../widgets/WrapperWidget.h"
 #include "JavaTouch.h"
@@ -38,16 +39,25 @@ static gboolean deliver(struct java_touch *state, int action)
         coords[4*i] = local.x; coords[4*i+1] = local.y;
         coords[4*i+2] = raw.x; coords[4*i+3] = raw.y;
     }
+    gboolean handled = FALSE;
+    jobject event = NULL;
+    jclass clazz = NULL;
+    jfloatArray jcoords = NULL;
     jintArray jids = (*env)->NewIntArray(env, state->count);
-    jfloatArray jcoords = (*env)->NewFloatArray(env, 4 * state->count);
+    if (!jids) goto cleanup;
+    jcoords = (*env)->NewFloatArray(env, 4 * state->count);
+    if (!jcoords) goto cleanup;
     (*env)->SetIntArrayRegion(env, jids, 0, state->count, ids);
     (*env)->SetFloatArrayRegion(env, jcoords, 0, 4 * state->count, coords);
-    jobject event = (*env)->NewObject(env, handle_cache.motion_event.class,
+    event = (*env)->NewObject(env, handle_cache.motion_event.class,
         handle_cache.motion_event.constructor, 0x1002, action, (jlong)state->time, jids, jcoords);
-    jclass clazz = (*env)->GetObjectClass(env, state->callback);
+    if (!event) goto cleanup;
+    clazz = (*env)->GetObjectClass(env, state->callback);
+    if (!clazz) goto cleanup;
     jmethodID method = (*env)->GetMethodID(env, clazz, "dispatchTouchEvent", "(Landroid/view/MotionEvent;)Z");
-    gboolean handled = (*env)->CallBooleanMethod(env, state->callback, method, event);
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionDescribe(env);
+    if (!method) goto cleanup;
+    handled = (*env)->CallBooleanMethod(env, state->callback, method, event);
+cleanup:
     (*env)->DeleteLocalRef(env, clazz);
     (*env)->DeleteLocalRef(env, event);
     (*env)->DeleteLocalRef(env, jids);
@@ -78,7 +88,11 @@ void atl_cancel_java_touch_fallback(GtkWindow *window)
     if (state) clear_touch(state, TRUE);
 }
 
-static void unmap(GtkWidget *window, struct java_touch *state) { clear_touch(state, TRUE); }
+static void unmap(GtkWidget *window, struct java_touch *state)
+{
+    clear_touch(state, TRUE);
+    atl_jni_handle_uncaught_exception(get_jni_env(), "touch cancellation on unmap");
+}
 static void dispose_state(gpointer data)
 {
     struct java_touch *state = data;
@@ -152,6 +166,7 @@ static gboolean capture(GtkEventControllerLegacy *controller, GdkEvent *event, s
     state->ending = action == 1 || action == 3;
     guint generation = state->generation;
     gboolean handled = deliver(state, action);
+    atl_jni_handle_uncaught_exception(get_jni_env(), "Window.dispatchTouchEvent");
     if (generation != state->generation) return TRUE; // callback replaced or unmapped its window content
     state->ending = FALSE;
     if (down && state->count == 1 && !handled) {
