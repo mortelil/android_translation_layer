@@ -30,7 +30,7 @@ public class StaticLayout extends Layout {
 
 		public static Builder obtain(CharSequence source, int bufstart, int bufend, TextPaint paint, int outerwidth) {
 			Builder builder = new Builder();
-			builder.layout = new StaticLayout(source, bufstart, bufend, paint, outerwidth, null, null, 0, 0, false, null, 0, 0);
+			builder.layout = new StaticLayout(source, bufstart, bufend, paint, outerwidth, null, null, 1, 0, false, null, 0, 0);
 			return builder;
 		}
 
@@ -44,7 +44,7 @@ public class StaticLayout extends Layout {
 
 		public Builder setEllipsizedWidth(int ellipsizedWidth) { return this; }
 
-		public Builder setLineSpacing(float add, float mult) { return this; }
+		public Builder setLineSpacing(float add, float mult) { layout.setLineSpacingInternal(add, mult); return this; }
 
 		public Builder setUseLineSpacingFromFallbacks(boolean useFallbackLineSpacing) {
 			// Pango already includes the fonts used by each shaped run in line metrics.

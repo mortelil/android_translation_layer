@@ -271,6 +271,14 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTypeface
 
 /*
  * Class:     android_widget_TextView
+ * Method:    native_setLineSpacing
+ * Signature: (JFF)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setLineSpacing
+  (JNIEnv *, jobject, jlong, jfloat, jfloat);
+
+/*
+ * Class:     android_widget_TextView
  * Method:    native_setHintTextColor
  * Signature: (JI)V
  */

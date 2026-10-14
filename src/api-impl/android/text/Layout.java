@@ -39,10 +39,22 @@ public class Layout {
 		this.spacing_mult = spacingMult;
 		this.spacing_add = spacingAdd;
 		this.align = align;
+		if (Float.isNaN(spacingAdd) || Float.isInfinite(spacingAdd) || Float.isNaN(spacingMult) || Float.isInfinite(spacingMult))
+			throw new IllegalArgumentException("Line spacing must be finite");
 		layout = native_constructor(str, paint.paint, width);
 		native_set_text_attributes(layout, android.atl.TextSpanAttributes.encode(this.text, paint.density));
+		native_set_spacing(layout, spacingAdd, spacingMult);
 	}
 	protected static native void native_set_text_attributes(long layout, int[] attributes);
+
+	protected void setLineSpacingInternal(float add, float mult) {
+		if (Float.isNaN(add) || Float.isInfinite(add) || Float.isNaN(mult) || Float.isInfinite(mult))
+			throw new IllegalArgumentException("Line spacing must be finite");
+		spacing_add = add;
+		spacing_mult = mult;
+		native_set_spacing(layout, add, mult);
+	}
+	private static native void native_set_spacing(long layout, float add, float mult);
 
 	public int getLineCount() {
 		return native_get_line_count(layout);

@@ -96,6 +96,9 @@ public class TextView extends View {
 				setTypeface(getTypeface(), textStyle);
 			}
 
+			setLineSpacing(a.getDimensionPixelSize(com.android.internal.R.styleable.TextView_lineSpacingExtra, 0),
+			    a.getFloat(com.android.internal.R.styleable.TextView_lineSpacingMultiplier, 1f));
+
 			if (a.hasValue(com.android.internal.R.styleable.TextView_textAllCaps)) {
 				boolean allCaps = a.getBoolean(com.android.internal.R.styleable.TextView_textAllCaps, false);
 				setAllCaps(allCaps);
@@ -180,7 +183,18 @@ public class TextView extends View {
 		native_setTypeface(widget, (tf == null ? Typeface.DEFAULT : tf).native_instance);
 	}
 	private native void native_setTypeface(long widget, long typeface);
-	public void setLineSpacing(float add, float mult) {}
+	private float lineSpacingExtra = 0, lineSpacingMultiplier = 1;
+	public void setLineSpacing(float add, float mult) {
+		if (Float.isNaN(add) || Float.isInfinite(add) || Float.isNaN(mult) || Float.isInfinite(mult))
+			throw new IllegalArgumentException("Line spacing must be finite");
+		if (lineSpacingExtra == add && lineSpacingMultiplier == mult) return;
+		native_setLineSpacing(widget, add, mult);
+		lineSpacingExtra = add;
+		lineSpacingMultiplier = mult;
+		requestLayout();
+		invalidate();
+	}
+	private native void native_setLineSpacing(long widget, float add, float mult);
 	public final void setLinksClickable(boolean whether) {}
 
 	public void setInputType(int type) {
@@ -368,7 +382,7 @@ public class TextView extends View {
 
 	public Layout getLayout() {
 		if (textLayoutWidth < 0) return null;
-		return new BoringLayout(getText(), getPaint(), textLayoutWidth, Layout.Alignment.ALIGN_NORMAL, 1, 0, new BoringLayout.Metrics(), false);
+		return new BoringLayout(getText(), getPaint(), textLayoutWidth, Layout.Alignment.ALIGN_NORMAL, lineSpacingMultiplier, lineSpacingExtra, new BoringLayout.Metrics(), false);
 	}
 
 	public int getCurrentTextColor() {
@@ -484,9 +498,9 @@ public class TextView extends View {
 		include_padding = includePadding;
 	}
 
-	public float getLineSpacingExtra() { return 0.f; }
+	public float getLineSpacingExtra() { return lineSpacingExtra; }
 
-	public float getLineSpacingMultiplier() { return 1.f; }
+	public float getLineSpacingMultiplier() { return lineSpacingMultiplier; }
 
 	public TextDirectionHeuristic getTextDirectionHeuristic() {
 		return TextDirectionHeuristics.LTR;
