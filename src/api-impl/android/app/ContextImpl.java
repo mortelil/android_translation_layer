@@ -12,6 +12,7 @@ import android.content.*;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageParser;
+import android.content.pm.ShortcutManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.hardware.SensorManager;
@@ -63,6 +64,7 @@ public final class ContextImpl extends Context {
 
 	private final LayoutInflater layout_inflater = new LayoutInflater(this);
 	private final JobScheduler job_scheduler = new JobScheduler(this);
+	private final ShortcutManager shortcut_manager = new ShortcutManager(this);
 
 	private final int atl_flags;
 
@@ -194,6 +196,8 @@ public final class ContextImpl extends Context {
 				return new BluetoothManager();
 			case "jobscheduler":
 				return job_scheduler;
+			case "shortcut":
+				return shortcut_manager;
 			case "appops":
 				return new AppOpsManager();
 			case "user":
@@ -228,6 +232,8 @@ public final class ContextImpl extends Context {
 			return layout_inflater;
 		if (serviceClass == JobScheduler.class)
 			return job_scheduler;
+		if (serviceClass == ShortcutManager.class)
+			return shortcut_manager;
 		if (serviceClass == WindowManager.class)
 			return new WindowManagerImpl();
 		return serviceClass.getConstructors()[0].newInstance();
