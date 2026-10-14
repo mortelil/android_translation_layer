@@ -208,8 +208,8 @@ public final class ATLActivityController {
 	/**
 	 * Executes one path step against the record's current instance, following
 	 * the AOSP TransactionExecutor.performLifecycleSequence state-to-handler
-	 * mapping. ON_RESUME pairs performResume with onPostResume (AOSP keeps
-	 * onPostResume inside the resume step of the launch/relaunch flow).
+	 * mapping. ON_RESUME executes performResume, which itself ends with
+	 * onPostResume (AOSP Activity.performResume, Activity.java:9521).
 	 * Lifecycle state is updated only after the callback returns.
 	 */
 	void performState(ATLActivityRecord r, int state, Bundle launchSavedState) {
@@ -229,7 +229,6 @@ public final class ATLActivityController {
 				break;
 			case ON_RESUME:
 				a.performResume();
-				a.onPostResume();
 				break;
 			case ON_PAUSE:
 				a.performPause();
@@ -257,7 +256,7 @@ public final class ATLActivityController {
 	 * before P onSaveInstanceState runs BEFORE onStop, from P onward AFTER.
 	 * ATL supports both, selected by the loaded app's targetSdkVersion (A09).
 	 */
-	static boolean isPreP(int targetSdkVersion) {
+	public static boolean isPreP(int targetSdkVersion) {
 		return targetSdkVersion < 28; /* Build.VERSION_CODES.P */
 	}
 

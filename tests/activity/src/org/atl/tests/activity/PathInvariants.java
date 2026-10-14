@@ -54,16 +54,21 @@ public class PathInvariants {
 					continue;
 				int[] full = ATLActivityController.getLifecyclePath(start, finish, false);
 
-				// A01 closure: with excludeLastState=false the path lands on finish.
-				check(full.length > 0 && full[full.length - 1] == finish,
+				// A01 closure: with excludeLastState=false the path lands on
+				// finish — or is empty when the record is already there (AOSP
+				// returns an empty sequence for identity requests).
+				boolean identity = start == finish;
+				check((identity && full.length == 0)
+					|| (!identity && full.length > 0 && full[full.length - 1] == finish),
 					"closure", "start=" + ATLActivityController.stateName(start)
 					+ " finish=" + ATLActivityController.stateName(finish) + " path=" + fmt(full));
 				closureChecked++;
 
 				// A02: ON_RESTART never persists — interior only, at most once.
-				check(count(full, ATLActivityController.ON_RESTART) <= 1
-					&& (full[full.length - 1] != ATLActivityController.ON_RESTART),
-					"restart-not-last", fmt(full));
+				if (full.length > 0)
+					check(count(full, ATLActivityController.ON_RESTART) <= 1
+						&& full[full.length - 1] != ATLActivityController.ON_RESTART,
+						"restart-not-last", fmt(full));
 				// ON_RESTART only ever appears immediately before an ON_START step.
 				for (int i = 0; i < full.length; i++) {
 					if (full[i] == ATLActivityController.ON_RESTART)
@@ -89,8 +94,8 @@ public class PathInvariants {
 
 				// excludeLastState trims exactly the last entry, preserving order.
 				int[] trimmed = ATLActivityController.getLifecyclePath(start, finish, true);
-				check(trimmed.length == full.length - 1, "exclude-last-len", fmt(full) + " -> " + fmt(trimmed));
-				boolean prefix = trimmed.length == full.length - 1;
+				check(trimmed.length == full.length - (full.length > 0 ? 1 : 0), "exclude-last-len", fmt(full) + " -> " + fmt(trimmed));
+				boolean prefix = trimmed.length == full.length - (full.length > 0 ? 1 : 0);
 				for (int i = 0; prefix && i < trimmed.length; i++)
 					prefix = trimmed[i] == full[i];
 				check(prefix, "exclude-last-prefix", fmt(full) + " -> " + fmt(trimmed));
@@ -104,18 +109,28 @@ public class PathInvariants {
 		check(java.util.Arrays.equals(ATLActivityController.getLifecyclePath(ATLActivityController.ON_PAUSE, ATLActivityController.ON_RESUME, false),
 			new int[]{ATLActivityController.ON_RESUME}), "pause-resume-shortcut", "");
 		// Restart-through-STOP: ON_RESUME -> ON_START keeps the record, walks
-		// down to STOP, emits ON_RESTART, then ON_START.
+		// down PAUSE+STOP (loop start+1..ON_STOP), emits ON_RESTART, then ON_START.
 		check(java.util.Arrays.equals(ATLActivityController.getLifecyclePath(ATLActivityController.ON_RESUME, ATLActivityController.ON_START, false),
-			new int[]{ATLActivityController.ON_STOP, ATLActivityController.ON_RESTART, ATLActivityController.ON_START}), "restart-through-stop", "");
+			new int[]{ATLActivityController.ON_PAUSE, ATLActivityController.ON_STOP, ATLActivityController.ON_RESTART, ATLActivityController.ON_START}), "restart-through-stop", "");
 		// Relaunch-through-DESTROY: below the restart window, going up destroys.
 		check(java.util.Arrays.equals(ATLActivityController.getLifecyclePath(ATLActivityController.ON_CREATE, ATLActivityController.ON_RESUME, false),
 			new int[]{ATLActivityController.ON_START, ATLActivityController.ON_RESUME}), "create-resume-up", "");
-		// ON_DESTROY from ON_CREATE: destroy only (no pause/stop of a created record).
+		// ON_DESTROY from ON_CREATE as a pure path query is the plain upward
+		// walk (AOSP "just go there"); AOSP never asks for it — finish() from
+		// onCreate skips to destroy via ActivityThread.handleLaunchActivity's
+		// isFinishing check, which the controller's finish flow mirrors
+		// explicitly rather than through path(current, ON_DESTROY).
 		check(java.util.Arrays.equals(ATLActivityController.getLifecyclePath(ATLActivityController.ON_CREATE, ATLActivityController.ON_DESTROY, false),
-			new int[]{ATLActivityController.ON_DESTROY}), "create-destroy", "");
-		// Full relaunch: RESUME -> RESUME passes through STOP/RESTART/START/RESUME.
-		check(java.util.Arrays.equals(ATLActivityController.getLifecyclePath(ATLActivityController.ON_RESUME, ATLActivityController.ON_RESUME, false),
-			new int[]{ATLActivityController.ON_STOP, ATLActivityController.ON_RESTART, ATLActivityController.ON_START, ATLActivityController.ON_RESUME}), "relaunch-resume-resume", "");
+			new int[]{ATLActivityController.ON_START, ATLActivityController.ON_RESUME, ATLActivityController.ON_PAUSE, ATLActivityController.ON_STOP, ATLActivityController.ON_DESTROY}), "create-destroy-upwalk", "");
+		// Identity: RESUME -> RESUME is a no-op; AOSP getLifecyclePath returns
+		// an empty sequence (relaunch is destroy + a fresh path from
+		// PRE_ON_CREATE, never path(RESUME, RESUME)).
+		check(ATLActivityController.getLifecyclePath(ATLActivityController.ON_RESUME, ATLActivityController.ON_RESUME, false).length == 0,
+			"resume-resume-identity-empty", "");
+		// Full relaunch through DESTROY: RESUME -> CREATE (finish below the
+		// restart window) destroys and rebuilds up to CREATE.
+		check(java.util.Arrays.equals(ATLActivityController.getLifecyclePath(ATLActivityController.ON_RESUME, ATLActivityController.ON_CREATE, false),
+			new int[]{ATLActivityController.ON_PAUSE, ATLActivityController.ON_STOP, ATLActivityController.ON_DESTROY, ATLActivityController.ON_CREATE}), "relaunch-resume-create", "");
 
 		// Guards.
 		boolean threw = false;
@@ -141,7 +156,8 @@ public class PathInvariants {
 		check(!ATLActivityController.isPreP(35), "is-p-35", "");
 
 		System.out.println("ACTLPATH ALL_DONE " + pass + " PASS " + fail + " FAIL");
-		if (fail > 0)
-			System.exit(1);
+		// Explicit exit on both paths: this host dalvikvm aborts in
+		// JNI_OnUnload during clean DestroyJavaVM shutdown.
+		System.exit(fail > 0 ? 1 : 0);
 	}
 }

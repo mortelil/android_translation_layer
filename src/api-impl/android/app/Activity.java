@@ -230,6 +230,11 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
 			if (fragment.activity == this) fragment.performResume();
 		}
+		// AOSP Activity.performResume (Activity.java:9482-9533, android-17.0.0_r1,
+		// 94b4c163b7df) calls onPostResume at the end of the resume step, after
+		// fragment dispatchResume; keep it inside performResume so the controller
+		// (android.atl) never needs protected access.
+		onPostResume();
 	}
 
 	/**
