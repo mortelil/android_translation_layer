@@ -31,7 +31,13 @@ APK="$OUT/build/audio-probe.apk"
 echo "apk=$APK"
 
 echo "== [2/5] find sink monitor =="
-SINK=$(toolbox run --container atl_dev sh -lc "pactl list short sinks 2>/dev/null | head -1 | cut -f2")
+# ATL opens the ALSA "default" PCM device, i.e. PulseAudio's *default* sink.
+# Monitor that sink: the `list short sinks` order is not stable, and monitoring
+# a non-default sink records silence during a real playback.
+SINK=$(toolbox run --container atl_dev sh -lc "pactl get-default-sink 2>/dev/null | head -1")
+if [ -z "$SINK" ]; then
+    SINK=$(toolbox run --container atl_dev sh -lc "pactl list short sinks 2>/dev/null | head -1 | cut -f2")
+fi
 [ -n "$SINK" ] || { echo "no pulse sink found in atl_dev"; exit 1; }
 echo "sink=$SINK monitor=$SINK.monitor"
 

@@ -197,10 +197,16 @@ public class AudioTrack implements AudioRouting {
 	}
 
 	/**
-	 * Writes interleaved PCM16 from a ByteBuffer in the requested mode. Direct
-	 * buffers and writable heap buffers are handed straight to native; a
-	 * read-only heap buffer (AOSP reaches it through sun.misc.Unsafe) is copied
-	 * once, since its backing array is not accessible.
+	 * Writes interleaved PCM16 from a ByteBuffer in the requested mode.
+	 * <p>
+	 * Mirrors AOSP's branch exactly (android-17.0.0_r1
+	 * media/java/android/media/AudioTrack.java:3772-3781): a <b>direct</b>
+	 * buffer, read-only or not, goes through the native direct-buffer path; a
+	 * <b>non-direct</b> buffer is handed the backing array obtained from
+	 * {@link ByteBuffer#array()}. A read-only <i>heap</i> buffer therefore
+	 * throws {@link java.nio.ReadOnlyBufferException} (AOSP reaches it through
+	 * {@code NioUtils.unsafeArray}, which is the same {@code array()} call) and
+	 * is rejected, while a read-only <i>direct</i> buffer is accepted.
 	 */
 	public int write(ByteBuffer audioData, int sizeInBytes, int writeMode) {
 		if (pcm_handle == 0 || audioFormat != AudioFormat.ENCODING_PCM_16BIT)
@@ -212,12 +218,15 @@ public class AudioTrack implements AudioRouting {
 
 		boolean blocking = writeMode == WRITE_BLOCKING;
 		int ret;
-		if (audioData.isDirect() || audioData.hasArray()) {
+		if (audioData.isDirect()) {
 			ret = native_write_nio(audioData, sizeInBytes, blocking);
 		} else {
-			byte[] copy = new byte[sizeInBytes];
-			audioData.duplicate().get(copy);
-			ret = native_write_bytes(copy, 0, sizeInBytes, blocking);
+			// ByteBuffer.array() throws java.nio.ReadOnlyBufferException for a
+			// read-only heap buffer. Do not catch or convert it: that is the
+			// documented Android behaviour.
+			ret = native_write_bytes(audioData.array(),
+			                         audioData.arrayOffset() + audioData.position(),
+			                         sizeInBytes, blocking);
 		}
 		if (ret > 0) {
 			// java.nio.Buffer explicitly: the covariant ByteBuffer overrides
