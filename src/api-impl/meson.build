@@ -682,6 +682,7 @@ srcs = [
 	'android/view/ViewPropertyAnimator.java',
 	'android/view/ViewStub.java',
 	'android/view/ViewTreeObserver.java',
+	'android/view/WindowId.java',
 	'android/view/Window.java',
 	'android/view/WindowInsets.java',
 	'android/view/WindowInsetsAnimation.java',

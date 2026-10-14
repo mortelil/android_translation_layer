@@ -55,8 +55,6 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
-class WindowId {}
-
 public class View implements Drawable.Callback {
 
 	// --- constants from android source
@@ -2394,7 +2392,20 @@ public class View implements Drawable.Callback {
 
 	public String getTransitionName() { return null; }
 
-	public WindowId getWindowId() { return null; }
+	private WindowId mWindowId;
+
+	/**
+	 * Returns the {@link WindowId} of this view's window, creating it on first use so
+	 * that repeat calls return an identity-comparable token (AOSP returns the attach
+	 * info's window id; ATL has no attach info, so the token is derived from
+	 * {@link #getWindowToken()}).
+	 */
+	public WindowId getWindowId() {
+		if (mWindowId == null) {
+			mWindowId = new WindowId(getWindowToken());
+		}
+		return mWindowId;
+	}
 
 	public boolean isInLayout() {
 		return false; // FIXME
