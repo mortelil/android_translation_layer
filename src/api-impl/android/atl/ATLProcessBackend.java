@@ -76,6 +76,18 @@ public interface ATLProcessBackend {
 	/** Runs child onCreate if needed, then onStartCommand(intent, flags, startId); reports its return. */
 	void startService(String processName, String componentClass, Intent intent, int startId, Callback<Integer> callback);
 
+	/**
+	 * Flags-carrying form of {@link #startService(String, String, Intent, int, Callback)}
+	 * (r3 delta): the controller computes the redelivery flags (START_FLAG_RETRY /
+	 * START_FLAG_REDELIVERY) from its own R13 bookkeeping and passes them here, the
+	 * way AOSP parcels them in ServiceStartArgs (ActiveServices.sendServiceArgsLocked
+	 * 6696-6702). Added as a default so the frozen four-argument shape (and its
+	 * lane-D implementors) is unchanged: a host without flags support delivers 0.
+	 */
+	default void startService(String processName, String componentClass, Intent intent, int flags, int startId, Callback<Integer> callback) {
+		startService(processName, componentClass, intent, startId, callback);
+	}
+
 	/** Runs child onCreate if needed, then a fresh onBind(intent); reports the binder (may be null). */
 	void bindService(String processName, String componentClass, Intent intent, Callback<IBinder> callback);
 

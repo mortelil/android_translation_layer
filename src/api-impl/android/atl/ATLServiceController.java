@@ -26,6 +26,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.ArrayMap;
 import android.util.Slog;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -58,9 +59,12 @@ import java.util.IdentityHashMap;
  * never unbound lives as long as the registry's own client entry does.
  *
  * <p>Placement: {@link #resolvePlacement} decides per manifest service whether it
- * runs in the loader's own process (null) or in a process of its own. Placing a
- * service in another process is not wired to a process backend yet, so
- * {@link #placementRemoteProcess} still refuses it exactly as before.
+ * runs in the loader's own process (null) or in a process of its own. A remote
+ * placement needs a process backend: with none installed (the production
+ * default) {@link #placementRemoteProcess} refuses it exactly as before, and
+ * with the fake backend installed (env {@code ATL_PROCESS_BACKEND=fake}) the
+ * child-side lifecycle runs through {@link ATLProcessBackend} operations on
+ * the main looper, in post order with every other op.
  */
 public final class ATLServiceController {
 	private static final String TAG = "ATLLoadedApp";
@@ -113,8 +117,36 @@ public final class ATLServiceController {
 	private final IdentityHashMap<ATLServiceRegistry.ServiceRecord, ArrayDeque<ATLServiceRegistry.StartItem>> stagedStarts =
 	    new IdentityHashMap<>();
 
+	/** Env selecting the (test) process backend; only "fake" exists so far. */
+	static final String ENV_PROCESS_BACKEND = "ATL_PROCESS_BACKEND";
+	/** Env marking this loader as a service child (PR31 ATL_SERVICE_PROCESS refusal). */
+	static final String ENV_SERVICE_PROCESS = "ATL_SERVICE_PROCESS";
+
+	private final Handler main = new Handler(Looper.getMainLooper());
+	/**
+	 * The installed process backend for remote services, or null: remote
+	 * placements are refused then, exactly as before the backend existed.
+	 */
+	private final ATLProcessBackend processBackend;
+	/**
+	 * Live remote instances (fake backend; populated through
+	 * {@link ATLProcessBackend.ChildEventListener#onInstanceHosted}): the
+	 * controller resolves a hosted instance's stopSelf() back to its record
+	 * (S09), because a remote record's own {@code instance} stays null.
+	 */
+	private final IdentityHashMap<Service, ATLServiceRegistry.ServiceRecord> remoteInstances =
+	    new IdentityHashMap<>();
+	/**
+	 * The last death generation reported per process name (coordinator ruling:
+	 * a backend callback captured for G &lt;= lastDiedGeneration[P] is stale).
+	 * The per-record guard is {@link ATLServiceRegistry.ServiceRecord#generation},
+	 * which {@link ATLServiceRegistry#forgetRemoteProcessState} bumps on death.
+	 */
+	private final ArrayMap<String, Integer> lastDiedGeneration = new ArrayMap<>();
+
 	public ATLServiceController(ATLLoadedApp app) {
 		this.app = app;
+		this.processBackend = installProcessBackend();
 	}
 
 	private static ATLServiceRegistry.RestartConstants restartConstantsFromEnv() {
@@ -202,12 +234,20 @@ public final class ATLServiceController {
 	/**
 	 * SEAM for the process backend wiring: the single place that decides whether a
 	 * service placed in {@code process} (not the loader's own) may run there. It
-	 * returns the process name to place the record in, or throws when it may not.
-	 * No backend is wired yet, so it always refuses; the callers have no remote
-	 * branch, so nothing may return a name from here before they get one.
+	 * returns the process name to place the record in, or throws when it may
+	 * not. Split APKs and service children are refused with the PR31 wording;
+	 * with no backend installed (the production default) a remote service stays
+	 * explicitly unsupported with the message the SVC-014 check grew up with.
 	 */
 	private String placementRemoteProcess(PackageParser.Service service, String process) {
-		throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
+		String[] splits = app.pkg.applicationInfo.splitSourceDirs;
+		if (splits != null && splits.length > 0)
+			throw new UnsupportedOperationException("Remote services in split APKs are not implemented");
+		if (System.getenv(ENV_SERVICE_PROCESS) != null)
+			throw new UnsupportedOperationException("Service-to-other-process bindings are not implemented");
+		if (processBackend == null)
+			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
+		return process;
 	}
 
 	/**
@@ -245,6 +285,9 @@ public final class ATLServiceController {
 		if (resolved == null) {
 			Slog.w(TAG, "startService: no matching service found for intent: " + intent);
 			return null;
+		}
+		if (resolved.remoteProcess != null) {
+			return startRemoteService(resolved, intent);
 		}
 		final ComponentName component = resolved.component;
 		final ATLServiceRegistry.ServiceRecord record =
@@ -397,6 +440,13 @@ public final class ATLServiceController {
 		}
 		final ComponentName component = resolved.component;
 		final boolean autoCreate = (flags & Context.BIND_AUTO_CREATE) != 0;
+		// PR31 parity: a bind that may not create the service may not spawn a
+		// remote process for it either. Synchronous, like the placement refusals.
+		if (resolved.remoteProcess != null && !autoCreate
+		    && !processBackend.isProcessUp(resolved.remoteProcess)) {
+			throw new UnsupportedOperationException(
+			    "Non-auto-create binding to an unstarted remote process is not implemented");
+		}
 		final ATLServiceRegistry.ServiceRecord record =
 		    service_registry.allocateBind(component, resolved.remoteProcess);
 		// The dispatcher exists before the client is registered, so no delivery can
@@ -414,6 +464,10 @@ public final class ATLServiceController {
 				// instance up.
 				client.requested = true;
 				try {
+					if (record.isRemote()) {
+						deliverRemoteBinders(record, record.generation);
+						return;
+					}
 					if (record.instance == null) {
 						if (!autoCreate)
 							return;
@@ -460,8 +514,12 @@ public final class ATLServiceController {
 	public void unbindService(Context context, ServiceConnection serviceConnection) {
 		ArrayList<ATLServiceRegistry.UnbindResult> results = service_registry.unbind(context, serviceConnection);
 		forgetServiceDispatcher(context, serviceConnection);
-		for (ATLServiceRegistry.UnbindResult result : results)
-			postUnbindWork(result.record, result.intents, result.destroy);
+		for (ATLServiceRegistry.UnbindResult result : results) {
+			if (result.record.isRemote())
+				postRemoteUnbindWork(result.record, result.intents, result.destroy);
+			else
+				postUnbindWork(result.record, result.intents, result.destroy);
+		}
 	}
 
 	/**
@@ -535,6 +593,10 @@ public final class ATLServiceController {
 		if (result.keptBound)
 			return true;
 		final ATLServiceRegistry.ServiceRecord record = result.record;
+		if (record.isRemote()) {
+			teardownRemoteInstance(record);
+			return true;
+		}
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
@@ -558,23 +620,456 @@ public final class ATLServiceController {
 	 * it. Returns true when the service was stopped.
 	 */
 	public boolean stopServiceFromSelf(Service service, int startId) {
-		final ATLServiceRegistry.ServiceRecord record = service_registry.findByInstance(service);
+		ATLServiceRegistry.ServiceRecord record = service_registry.findByInstance(service);
 		if (record == null) {
-			// Not started / never started, or already stopped.
-			return false;
+			// A remote instance is hosted by the process backend, not by the
+			// record itself: route it through the hosted-instance map (S09).
+			record = remoteInstances.get(service);
+			if (record == null) {
+				// Not started / never started, or already stopped (a dead
+				// instance's stopSelf is a no-op).
+				return false;
+			}
 		}
+		if (record.isRemote())
+			return stopServiceFromSelfRemote(record, startId);
 		ATLServiceRegistry.StopResult result = service_registry.stopSelf(record, startId);
 		if (!result.running) return false;
 		if (result.keptBound) return true;
 		final Service instance = record.instance;
+		final ATLServiceRegistry.ServiceRecord stopped = record;
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
 				instance.onDestroy();
-				unbindInstanceContextClients(record);
+				unbindInstanceContextClients(stopped);
 			}
 		});
 		return true;
+	}
+
+	// ---------------------------------------------------------------------
+	// Remote placement: process-backend wiring (fake backend until the lane-D
+	// transport lands; DESIGN-BRIEF 5.3-5.6)
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Installs the process backend for remote services: the fake in-loader
+	 * host, and only when env {@code ATL_PROCESS_BACKEND=fake}. With no backend
+	 * (the production default) remote services stay explicitly unsupported.
+	 */
+	private ATLProcessBackend installProcessBackend() {
+		if (!"fake".equals(System.getenv(ENV_PROCESS_BACKEND)))
+			return null;
+		ATLFakeProcessBackend backend = new ATLFakeProcessBackend(app);
+		backend.setProcessDeathListener(new ATLProcessBackend.ProcessDeathListener() {
+			@Override
+			public void onProcessDied(final String processName, final int generation) {
+				// A death may be reported from any thread; all policy runs on
+				// the main looper.
+				main.post(new Runnable() {
+					@Override
+					public void run() {
+						handleBackendProcessDeath(processName, generation);
+					}
+				});
+			}
+		});
+		backend.setChildEventListener(new ATLProcessBackend.ChildEventListener() {
+			@Override
+			public void onStopSelf(final String processName, final String componentClass, final int startId) {
+				// Real child hosts report stopSelf() over the wire; a fake
+				// (in-loader) instance routes through Service.stopSelf()
+				// directly instead.
+				main.post(new Runnable() {
+					@Override
+					public void run() {
+						ATLServiceRegistry.ServiceRecord record =
+						    service_registry.findByComponent(new ComponentName(app.pkg.packageName, componentClass));
+						if (record != null && record.isRemote())
+							stopServiceFromSelfRemote(record, startId);
+					}
+				});
+			}
+
+			@Override
+			public void onInstanceHosted(String processName, String componentClass, Service instance) {
+				// Runs on the main looper, before the instance's first child-side
+				// lifecycle call, so a re-entrant stopSelf() already finds its record.
+				ATLServiceRegistry.ServiceRecord record =
+				    service_registry.findByComponent(new ComponentName(app.pkg.packageName, componentClass));
+				if (record != null && record.isRemote() && processName.equals(record.remoteProcess))
+					remoteInstances.put(instance, record);
+			}
+
+			@Override
+			public void onInstanceReleased(String processName, String componentClass, Service instance) {
+				// The backend destroyed the instance (child onDestroy has run):
+				// its context can no longer hold bindings.
+				if (remoteInstances.remove(instance) != null)
+					releaseInstanceRegistrations(instance);
+			}
+		});
+		return backend;
+	}
+
+	/**
+	 * Authoritative stop from a hosted remote instance (S09): the registry
+	 * decides whether the start ID may stop the record and whether bound
+	 * clients keep it alive; the child-side instance is destroyed through the
+	 * backend only when the record is really stopped.
+	 */
+	private boolean stopServiceFromSelfRemote(ATLServiceRegistry.ServiceRecord record, int startId) {
+		ATLServiceRegistry.StopResult result = service_registry.stopSelf(record, startId);
+		if (!result.running)
+			return false;
+		if (result.keptBound)
+			return true;
+		teardownRemoteInstance(result.record);
+		return true;
+	}
+
+	/**
+	 * Destroys the child-side instance of a stopped remote record: onDestroy()
+	 * runs in the child (backend op) and the instance's own registrations are
+	 * released when the backend reports the instance gone.
+	 */
+	private void teardownRemoteInstance(final ATLServiceRegistry.ServiceRecord record) {
+		main.post(new Runnable() {
+			@Override
+			public void run() {
+				processBackend.destroyService(record.remoteProcess, record.className);
+			}
+		});
+	}
+
+	/**
+	 * LoadedApk.removeContextRegistrations for a destroyed REMOTE instance: the
+	 * bindings it issued from its own context are unbound -- the target records
+	 * are torn down when nothing else keeps them alive -- and its client
+	 * registrations are forgotten.
+	 */
+	private void releaseInstanceRegistrations(Service instance) {
+		Context context = instance.getBaseContext();
+		if (context == null)
+			return;
+		ArrayList<ATLServiceRegistry.UnbindResult> results = service_registry.unbindContext(context);
+		forgetContextDispatchers(context);
+		for (ATLServiceRegistry.UnbindResult result : results) {
+			if (result.record.isRemote())
+				postRemoteUnbindWork(result.record, result.intents, result.destroy);
+			else
+				postUnbindWork(result.record, result.intents, result.destroy);
+		}
+	}
+
+	/**
+	 * startService for a service the manifest places in another process
+	 * (S09/S10): the request is recorded synchronously like a local one, then
+	 * the child's onCreate (through a pending bind, if any) and onStartCommand
+	 * run as backend ops on the main looper, in post order with every other op.
+	 */
+	private ComponentName startRemoteService(final Resolved resolved, Intent intent) {
+		final ATLServiceRegistry.ServiceRecord record =
+		    service_registry.allocateStart(resolved.component, intent, resolved.remoteProcess);
+		main.post(new Runnable() {
+			@Override
+			public void run() {
+				if (!service_registry.isLive(record))
+					return;
+				final int generation = record.generation;
+				// A started and bound service delivers its binder before
+				// onStartCommand (local order parity).
+				deliverRemoteBinders(record, generation);
+				for (ATLServiceRegistry.StartItem item : drainStartItems(record))
+					deliverRemoteStart(record, generation, item);
+			}
+		});
+		return resolved.component;
+	}
+
+	/**
+	 * All start items of {@code record} that must be delivered now: the staged
+	 * surplus of the one-item-per-op local rule first (oldest), then everything
+	 * newly pending, minus the items AOSP's batch rule skips. The restart path
+	 * delivers every pending item, not one per op.
+	 */
+	private ArrayList<ATLServiceRegistry.StartItem> drainStartItems(ATLServiceRegistry.ServiceRecord record) {
+		ArrayList<ATLServiceRegistry.StartItem> taken = service_registry.takePendingStarts(record);
+		ArrayDeque<ATLServiceRegistry.StartItem> staged = stagedStarts.remove(record);
+		if (staged != null)
+			taken.addAll(0, staged);
+		ArrayList<ATLServiceRegistry.StartItem> deliver = new ArrayList<>();
+		for (ATLServiceRegistry.StartItem item : taken) {
+			if (!service_registry.skipNullIntent(item, taken.size()))
+				deliver.add(item);
+		}
+		return deliver;
+	}
+
+	/**
+	 * Delivers one start item to the child: the item is marked delivered at
+	 * send time (AOSP stamps it in sendServiceArgsLocked, so a kill in flight
+	 * counts as delivered and the restart plan owns it), the redelivery flags
+	 * are computed from the R13 bookkeeping here in the loader, and the child's
+	 * onStartCommand() return is applied when it arrives -- unless the hosting
+	 * process died in between: a callback captured for an earlier generation is
+	 * stale and is ignored (generation guard).
+	 */
+	private void deliverRemoteStart(final ATLServiceRegistry.ServiceRecord record, final int generation,
+	                                final ATLServiceRegistry.StartItem item) {
+		service_registry.markStartDelivered(record, item, SystemClock.uptimeMillis());
+		final int flags = service_registry.startFlagsFor(item);
+		processBackend.startService(record.remoteProcess, record.className, item.intent, flags, item.id,
+		    new ATLProcessBackend.Callback<Integer>() {
+			    @Override
+			    public void onResult(Integer res) {
+				    if (record.generation != generation || !service_registry.isLive(record))
+					    return;
+				    try {
+					    service_registry.onStartCommandResult(record, item.id, res);
+				    } catch (IllegalArgumentException e) {
+					    Slog.w(TAG, "startService: " + record.className + " returned an unknown start result", e);
+				    }
+			    }
+
+			    @Override
+			    public void onHostUnavailable() {
+				    handleRemoteSpawnFailure(record);
+			    }
+		    });
+	}
+
+	/**
+	 * Resolves and delivers the binder of every processed-but-undelivered client
+	 * of a remote record: an AUTO_CREATE bind, a bind left pending by an earlier
+	 * op, or the rebind after a restart. The child runs onBind() once per
+	 * binding identity (filterEquals, like the local ensureBindingIdentity); an
+	 * identity armed by an onUnbind() == true gets the child's onRebind() and
+	 * the cached binder; a null binder reports onNullBinding() through the
+	 * dispatcher. Callbacks are generation-guarded; a spawn failure reports
+	 * onServiceDisconnected() to the undelivered client (DO_SPAWN_FAILURE
+	 * ruling) -- never onNullBinding(), never a false connect.
+	 */
+	private void deliverRemoteBinders(final ATLServiceRegistry.ServiceRecord record, final int generation) {
+		ArrayList<ATLServiceRegistry.BoundClient> clients = service_registry.bindingsOf(record);
+		for (final ATLServiceRegistry.BoundClient client : clients) {
+			if (!client.requested || client.delivered)
+				continue;
+			final Intent intent = client.intent;
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			if (dispatcher == null)
+				continue; // unbound meanwhile: forgotten, no late connect
+			if (!service_registry.hasBindingIdentity(record, intent)) {
+				service_registry.addBindingIdentity(record, intent);
+				if (service_registry.consumeRebindPending(record, intent)) {
+					// The child survived the unbind that armed the rebind:
+					// onRebind() there, then the binder it already returned.
+					processBackend.rebindService(record.remoteProcess, record.className, intent);
+					client.delivered = true;
+					dispatcher.doConnected(record.component, service_registry.binderFor(record, intent), false);
+					continue;
+				}
+				processBackend.bindService(record.remoteProcess, record.className, intent,
+				    new ATLProcessBackend.Callback<IBinder>() {
+					    @Override
+					    public void onResult(IBinder binder) {
+						    if (record.generation != generation || !service_registry.isLive(record))
+							    return;
+						    service_registry.cacheBinder(record, intent, binder);
+						    record.binderResolved = true;
+						    client.delivered = true;
+						    ATLServiceDispatcher d = peekServiceDispatcher(client.context, client.connection);
+						    if (d != null)
+							    d.doConnected(record.component, binder, false);
+					    }
+
+					    @Override
+					    public void onHostUnavailable() {
+						    handleRemoteSpawnFailure(record);
+					    }
+				    });
+				continue;
+			}
+			// A known identity: deliver what is cached for it -- a bind without
+			// BIND_AUTO_CREATE waits for exactly this.
+			if (service_registry.hasCachedBinder(record, intent)) {
+				client.delivered = true;
+				dispatcher.doConnected(record.component, service_registry.binderFor(record, intent), false);
+			}
+		}
+	}
+
+	/**
+	 * The hosting process of {@code record} could not be spawned: the component
+	 * never ran, so the record holds nothing a client can wait for. Undelivered
+	 * clients learn their request died through onServiceDisconnected() (the
+	 * approved DO_SPAWN_FAILURE deviation; AOSP silently drops the client),
+	 * never through onNullBinding() and never through a false connect.
+	 */
+	private void handleRemoteSpawnFailure(ATLServiceRegistry.ServiceRecord record) {
+		service_registry.failRemote(record);
+		for (ATLServiceRegistry.BoundClient client : service_registry.bindingsOf(record)) {
+			if (client.delivered)
+				continue;
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			if (dispatcher != null)
+				dispatcher.doSpawnFailure(record.component);
+		}
+	}
+
+	/**
+	 * Posted work of a client removal on a remote record: the child runs
+	 * onUnbind() (arming onRebind() when it returns true), and a record the
+	 * removal left neither started nor bound is destroyed in the child. Backend
+	 * ops run in post order, so the child sees every onUnbind() before any
+	 * onDestroy().
+	 */
+	private void postRemoteUnbindWork(final ATLServiceRegistry.ServiceRecord record,
+	                                  final ArrayList<Intent> intents, final boolean destroy) {
+		main.post(new Runnable() {
+			@Override
+			public void run() {
+				for (final Intent intent : intents) {
+					processBackend.unbindService(record.remoteProcess, record.className, intent,
+					    new ATLProcessBackend.Callback<Boolean>() {
+						    @Override
+						    public void onResult(Boolean res) {
+							    if (res != null && res)
+								    service_registry.markRebindPending(record, intent);
+						    }
+
+						    @Override
+						    public void onHostUnavailable() {
+							    // The hosting process is gone: its state was
+							    // already forgotten by the death path.
+						    }
+					    });
+				}
+				if (destroy)
+					processBackend.destroyService(record.remoteProcess, record.className);
+			}
+		});
+	}
+
+	/** One killed record's per-connection state captured under the registry locks, delivered outside them. */
+	private static final class RemoteDeathWork {
+		ATLServiceRegistry.ServiceRecord record;
+		final ArrayList<ATLServiceRegistry.BoundClient> clients = new ArrayList<>();
+		final ArrayList<IBinder> binders = new ArrayList<>();
+	}
+
+	/**
+	 * killServicesLocked analogue for a hosting process that died: ALL registry
+	 * state first (hosted instances, binders and identities, crash count --
+	 * never a callback under a lock), then, outside the locks: delivered
+	 * clients get onServiceDisconnected() only (S12: a death is not a
+	 * binding-died); a record past the crash cap is torn down
+	 * (onServiceDisconnected + onBindingDied, no restart); everything else is
+	 * restarted per the R13 ladder at the planned time.
+	 */
+	private void handleBackendProcessDeath(String processName, int generation) {
+		lastDiedGeneration.put(processName, Integer.valueOf(generation));
+		ArrayList<Service> deadInstances = new ArrayList<>();
+		synchronized (remoteInstances) {
+			for (java.util.Map.Entry<Service, ATLServiceRegistry.ServiceRecord> entry : remoteInstances.entrySet()) {
+				if (processName.equals(entry.getValue().remoteProcess))
+					deadInstances.add(entry.getKey());
+			}
+			for (Service instance : deadInstances)
+				remoteInstances.remove(instance);
+		}
+		ArrayList<RemoteDeathWork> work = new ArrayList<>();
+		for (ATLServiceRegistry.ServiceRecord record : service_registry.recordsOfProcess(processName)) {
+			RemoteDeathWork w = new RemoteDeathWork();
+			w.record = record;
+			for (ATLServiceRegistry.BoundClient client : service_registry.bindingsOf(record)) {
+				if (!client.delivered)
+					continue;
+				ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+				w.clients.add(client);
+				// The binder each connection last reported, captured before the
+				// forget below clears the record's cache: what doDeath() matches.
+				w.binders.add(dispatcher == null ? null : dispatcher.binderOf(record.component));
+			}
+			service_registry.forgetRemoteProcessState(record);
+			service_registry.incServiceCrashCount(record, SystemClock.uptimeMillis(), restart_constants);
+			work.add(w);
+		}
+		for (RemoteDeathWork w : work) {
+			for (int i = 0; i < w.clients.size(); i++) {
+				ATLServiceRegistry.BoundClient client = w.clients.get(i);
+				client.delivered = false;
+				IBinder binder = w.binders.get(i);
+				ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+				if (dispatcher != null && binder != null)
+					dispatcher.doDeath(w.record.component, binder);
+			}
+			if (w.record.crashCount >= restart_constants.boundCrashMaxRetry) {
+				teardownRemoteRecord(w.record);
+				continue;
+			}
+			ATLServiceRegistry.RestartPlan plan =
+			    service_registry.planRestart(w.record, true, SystemClock.uptimeMillis(), restart_constants);
+			if (plan.droppedStart)
+				service_registry.setStarted(w.record, false);
+			if (!plan.scheduled) {
+				// Nothing needs the service any more: bring it down for good.
+				teardownRemoteRecord(w.record);
+				continue;
+			}
+			final ATLServiceRegistry.ServiceRecord record = w.record;
+			main.postAtTime(new Runnable() {
+				@Override
+				public void run() {
+					restartRemoteNow(record);
+				}
+			}, plan.nextRestartTime);
+		}
+	}
+
+	/**
+	 * Brings a remote record down for good (crash cap reached, or nothing needs
+	 * it): delivered clients get the torn-down-binding report —
+	 * onServiceDisconnected() (when the death disconnect has not run yet)
+	 * followed by onBindingDied() — and the record is failed so nothing waits on
+	 * it. No restart is scheduled (S12).
+	 */
+	private void teardownRemoteRecord(ATLServiceRegistry.ServiceRecord record) {
+		service_registry.clearRestarting(record);
+		for (ATLServiceRegistry.BoundClient client : service_registry.bindingsOf(record)) {
+			if (!client.delivered)
+				continue;
+			client.delivered = false;
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			if (dispatcher != null)
+				dispatcher.doConnected(record.component, null, true);
+		}
+		service_registry.failRemote(record);
+	}
+
+	/**
+	 * performServiceRestartLocked analogue, at the planned time: the hosting
+	 * process is spawned again, auto-create clients are re-bound (the fresh
+	 * binder of the new-generation instance reconnects them after the death
+	 * disconnect), and the starts the restart plan kept are delivered — a
+	 * sticky service's fabricated null item, and any pending redelivery with
+	 * its START_FLAG_RETRY/START_FLAG_REDELIVERY flags from the R13
+	 * bookkeeping (uniform pendingStarts delivery, local and remote).
+	 */
+	private void restartRemoteNow(final ATLServiceRegistry.ServiceRecord record) {
+		if (!service_registry.isLive(record))
+			return;
+		if (!service_registry.restartNeeded(record)) {
+			teardownRemoteRecord(record);
+			return;
+		}
+		service_registry.clearRestarting(record);
+		final int generation = record.generation;
+		deliverRemoteBinders(record, generation);
+		service_registry.stickyRestartItem(record);
+		for (ATLServiceRegistry.StartItem item : drainStartItems(record))
+			deliverRemoteStart(record, generation, item);
 	}
 
 	/** The registration's dispatcher, created by the first bind of the pair (AOSP LoadedApk.getServiceDispatcher). */

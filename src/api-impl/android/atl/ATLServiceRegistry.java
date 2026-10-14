@@ -433,6 +433,18 @@ public final class ATLServiceRegistry {
 		}
 	}
 
+	/**
+	 * The live record registered for {@code component}, or null. The fake
+	 * process backend's hosted-instance reports carry only a component class,
+	 * so the controller resolves them back to their record this way.
+	 */
+	public ServiceRecord findByComponent(ComponentName component) {
+		synchronized (lock) {
+			ServiceRecord record = records.get(component);
+			return record != null && !record.destroyed ? record : null;
+		}
+	}
+
 	/** The last start ID allocated for {@code record}; 0 before the first start. */
 	public int lastStartIdOf(ServiceRecord record) {
 		synchronized (lock) {

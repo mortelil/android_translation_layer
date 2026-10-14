@@ -85,6 +85,37 @@ public final class ATLServiceDispatcher {
 		}
 	}
 
+	/**
+	 * The binder last reported for {@code name} on this registration, or null:
+	 * what a death report must match (AOSP reads {@code ConnectionInfo.binder}
+	 * when routing {@code binderDied}). Read-only view into the dispatcher state.
+	 */
+	public IBinder binderOf(ComponentName name) {
+		synchronized (this) {
+			ConnectionInfo info = mActiveConnections.get(name);
+			return info == null ? null : info.binder;
+		}
+	}
+
+	/**
+	 * Spawn failure of the host process of {@code name}: the registration was
+	 * never connected for it, so the client learns its request is dead through
+	 * {@code onServiceDisconnected()} -- never a false {@code onServiceConnected()}
+	 * and never {@code onNullBinding()} (LIFECYCLE-FOUNDATION coordinator ruling
+	 * DO_SPAWN_FAILURE; AOSP has no counterpart, which silently drops the
+	 * client). A registration that already holds a binder for {@code name} is
+	 * left alone: delivered clients are disconnected through the death and
+	 * teardown paths instead.
+	 */
+	public void doSpawnFailure(ComponentName name) {
+		synchronized (this) {
+			if (mForgotten || mActiveConnections.containsKey(name)) {
+				return;
+			}
+		}
+		mConnection.onServiceDisconnected(name);
+	}
+
 	/** AOSP {@code ServiceDispatcher.connected}: queues {@link #doConnected} on the main looper. */
 	public void connected(final ComponentName name, final IBinder service, final boolean dead) {
 		mMainHandler.post(new Runnable() {
