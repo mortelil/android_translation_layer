@@ -53,6 +53,8 @@ public final class ViewTreeObserver {
 
 	// accessed from native code
 	private long window;
+	// Pre-draw belongs to this Android hierarchy, not the shared GTK window.
+	private long decorView;
 
 	/**
 	 * Interface definition for a callback to be invoked when the view hierarchy is
@@ -301,8 +303,10 @@ public final class ViewTreeObserver {
 	}
 
 	ViewTreeObserver(Window window) {
-		if (window != null)
+		if (window != null) {
 			this.window = window.native_window;
+			this.decorView = window.getDecorView().widget;
+		}
 	}
 
 	/**

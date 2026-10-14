@@ -177,9 +177,22 @@ JNIEXPORT void JNICALL Java_android_view_Window_set_1layout(JNIEnv *env, jobject
 		gtk_window_set_default_size(gtk_window, width, height);
 }
 
+static void free_window_reference(gpointer data)
+{
+	JNIEnv *env = get_jni_env();
+	(*env)->DeleteWeakGlobalRef(env, (jweak)data);
+}
+
 JNIEXPORT void JNICALL Java_android_view_Window_set_1jobject(JNIEnv *env, jclass this, jlong window, jobject window_jobj)
 {
-	g_object_set_data(G_OBJECT(window), "jobject", _WEAK_REF(window_jobj));
+	g_object_set_data_full(G_OBJECT(window), "jobject", _WEAK_REF(window_jobj), free_window_reference);
+	/* A GtkWindow hosts several activity hierarchies. Remember each Android
+	 * Window on its decor wrapper so hidden views keep their own observer. */
+	jobject decor = _GET_OBJ_FIELD(window_jobj, "decorView", "Landroid/view/ViewGroup;");
+	GtkWidget *widget = _PTR(_GET_LONG_FIELD(decor, "widget"));
+	g_object_set_data_full(G_OBJECT(gtk_widget_get_parent(widget)), "atl-android-window",
+	                      _WEAK_REF(window_jobj), free_window_reference);
+	(*env)->DeleteLocalRef(env, decor);
 }
 
 JNIEXPORT void JNICALL Java_android_view_Window_remove_1gtk_1background(JNIEnv *env, jobject this, jlong window)
