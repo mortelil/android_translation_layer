@@ -56,6 +56,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	List<Fragment> fragments = new ArrayList<>();
 	boolean destroyed = false;
 	private boolean finishing = false;
+	// Set while a recreation destroys this instance; AOSP ActivityThread sets
+	// mChangingConfigurations during relaunch so isFinishing() stays false.
+	boolean changingConfigurations = false;
 
 	public static Activity internalCreateActivity(String className, long native_window, Intent intent) throws ReflectiveOperationException {
 		Activity activity = ATLLoadedApp.getPrimaryApplication().createActivity(className, intent);
@@ -123,7 +126,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	// AOSP Activity.performCreate dispatches activity-created only after the
 	// application's entire onCreate override has completed.
-	final void performCreate(Bundle state) {
+	public final void performCreate(Bundle state) {
 		onCreate(state);
 		fragmentManager.executePendingTransactions();
 		fragmentsActivityCreated = true;
@@ -211,7 +214,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	// 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d) dispatch upward fragment
 	// transitions AFTER the complete application override returns. Dispatching
 	// in super.onStart/onResume re-enters lifecycle observers too early.
-	final void performStart() {
+	public final void performStart() {
 		onStart();
 		fragmentManager.executePendingTransactions();
 		fragmentsStarted = true;
@@ -220,13 +223,71 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		}
 	}
 
-	final void performResume() {
+	public final void performResume() {
 		onResume();
 		fragmentManager.executePendingTransactions();
 		fragmentsResumed = true;
 		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
 			if (fragment.activity == this) fragment.performResume();
 		}
+	}
+
+	/**
+	 * Restart step of the AOSP lifecycle path: onRestart only. The following
+	 * ON_START path step performs the actual start, mirroring AOSP
+	 * TransactionExecutor.performLifecycleSequence (ON_RESTART ->
+	 * performRestartActivity(r, start=false), android-17.0.0_r1,
+	 * 94b4c163b7df, TransactionExecutor.java:232-233).
+	 */
+	public final void performRestart() {
+		onRestart();
+	}
+
+	/** Pause step; Application/fragment dispatch stays inside onPause (AOSP Activity.onPause). */
+	public final void performPause() {
+		onPause();
+	}
+
+	/** Stop step; Application/fragment dispatch stays inside onStop (AOSP Activity.onStop). */
+	public final void performStop() {
+		onStop();
+	}
+
+	/** Destroy step; fragment teardown + Application dispatch stay inside onDestroy. */
+	public final void performDestroy() {
+		onDestroy();
+	}
+
+	/**
+	 * AOSP Activity.performRestoreInstanceState (Activity.java:2003-2006):
+	 * restore hook invoked by the controller between onStart and onPostCreate
+	 * when the activity is being re-created (never on a fresh launch).
+	 */
+	public final void performRestoreInstanceState(Bundle savedInstanceState) {
+		onRestoreInstanceState(savedInstanceState);
+	}
+
+	/**
+	 * AOSP Activity.performSaveInstanceState (Activity.java:2536-2545): save
+	 * hook invoked by the controller around onStop per the targetSdk rule
+	 * (pre-P: before onStop; P+: after onStop — AOSP ActivityThread
+	 * callActivityOnStop, ActivityThread.java:6361-6394).
+	 */
+	public final void performSaveInstanceState(Bundle outState) {
+		onSaveInstanceState(outState);
+	}
+
+	/**
+	 * AOSP Activity.onRestoreInstanceState (Activity.java:2047-2055): restores
+	 * the view hierarchy state saved under WINDOW_HIERARCHY_TAG. Window
+	 * hierarchy state save/restore lands with the saved-state change (see
+	 * tests/activity/DESIGN-CHECKPOINT.md).
+	 */
+	protected void onRestoreInstanceState(Bundle savedInstanceState) {
+		Bundle windowState = savedInstanceState != null
+		    ? (Bundle)savedInstanceState.getBundle("android:viewHierarchyState") : null;
+		if (windowState != null && window != null)
+			window.restoreHierarchyState(windowState);
 	}
 
 	protected void onRestart() {
@@ -501,7 +562,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		return (LayoutInflater)getSystemService("layout_inflater");
 	}
 
-	public boolean isChangingConfigurations() { return false; }
+	public boolean isChangingConfigurations() { return changingConfigurations; }
 
 	@Override
 	public void onContentChanged() {

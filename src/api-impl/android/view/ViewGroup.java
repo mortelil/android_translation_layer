@@ -9,13 +9,35 @@ import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.util.AttributeSet;
+import android.os.Parcelable;
 import android.util.Slog;
+import android.util.SparseArray;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Objects;
 
 public class ViewGroup extends View implements ViewParent, ViewManager {
+	// Hierarchy-state dispatch: a ViewGroup saves/restores its own state (by
+	// ID, via super) and then forwards to every child (public API contract).
+	@Override
+	protected void dispatchSaveInstanceState(SparseArray<Parcelable> container) {
+		super.dispatchSaveInstanceState(container);
+		if (children != null) {
+			for (View child : children)
+				child.dispatchSaveInstanceState(container);
+		}
+	}
+
+	@Override
+	protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
+		super.dispatchRestoreInstanceState(container);
+		if (children != null) {
+			for (View child : children)
+				child.dispatchRestoreInstanceState(container);
+		}
+	}
+
 	/* clang-format off */
 	static final int FLAG_CLIP_CHILDREN        = (1 << 0);
 	static final int FLAG_INVALIDATE_REQUIRED  = (1 << 2);

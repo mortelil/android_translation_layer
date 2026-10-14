@@ -2038,7 +2038,25 @@ public class View implements Drawable.Callback {
 		return factory.inflate(resource, root);
 	}
 
-	public void saveHierarchyState(SparseArray<Parcelable> array) {}
+	// View hierarchy state dispatch (public API contract: state is saved per
+	// view ID into the SparseArray; implemented per the documented Android
+	// contract — the pinned AOSP checkout carries no android/view sources to
+	// copy verbatim, see tests/activity/DESIGN-CHECKPOINT.md).
+	public void saveHierarchyState(SparseArray<Parcelable> array) {
+		dispatchSaveInstanceState(array);
+	}
+
+	protected void dispatchSaveInstanceState(SparseArray<Parcelable> container) {
+		if (id != NO_ID) {
+			Parcelable state = onSaveInstanceState();
+			if (state != null)
+				container.put(id, state);
+		}
+	}
+
+	protected Parcelable onSaveInstanceState() {
+		return null;
+	}
 
 	public void setDuplicateParentStateEnabled(boolean enabled) {}
 
@@ -2586,7 +2604,20 @@ public class View implements Drawable.Callback {
 		return result;
 	}
 
-	public void restoreHierarchyState(SparseArray<Parcelable> container) {}
+	public void restoreHierarchyState(SparseArray<Parcelable> container) {
+		dispatchRestoreInstanceState(container);
+	}
+
+	protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
+		if (id != NO_ID) {
+			Parcelable state = container.get(id);
+			if (state != null)
+				onRestoreInstanceState(state);
+		}
+	}
+
+	protected void onRestoreInstanceState(Parcelable state) {
+	}
 
 	public boolean isHovered() { return false; }
 
