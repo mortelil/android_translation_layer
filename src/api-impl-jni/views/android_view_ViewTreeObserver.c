@@ -2,6 +2,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../android_view_Window.h"
 #include "../generated_headers/android_view_ViewTreeObserver.h"
 
 /* OMP OsmAnd d6f82b27 identified registration before the window is mapped.
@@ -76,9 +77,8 @@ static void on_global_layout_unmap(GtkWidget *window, GlobalLayoutRegistration *
  * The equivalent boundary in ATL is the root snapshot: the whole window
  * content is presented through one ATLScaleRoot, so the observer is
  * dispatched from atl_scale_root_snapshot() (android_view_Window.c) before
- * any of the hierarchy is snapshotted. Like the global-layout registration,
- * the observer is owned by the GtkWindow, so window teardown releases the JNI
- * ref; all operations run on the UI thread, as on Android. */
+ * any of the hierarchy is snapshotted. The pre-draw observer is owned by the
+ * decor wrapper, so hierarchy teardown releases the JNI ref; all operations run on the UI thread, as on Android. */
 static const char *pre_draw_key = "atl-predraw-observer";
 
 static void free_pre_draw_observer(gpointer data)
@@ -123,11 +123,18 @@ static void queue_pre_draw_frame(GtkWidget *window)
  * this frame. */
 gboolean atl_view_tree_observer_dispatch_pre_draw(GtkWidget *window)
 {
-	jobject observer = g_object_get_data(G_OBJECT(window), pre_draw_key);
+	/* Activities share a GtkWindow and live in a GtkStack. Only the visible
+	 * Android hierarchy may veto its frame; a stopped splash activity may
+	 * legitimately keep an always-false listener until it is destroyed. */
+	GtkWidget *content = atl_window_get_content(GTK_WINDOW(window));
+	if (GTK_IS_STACK(content))
+		content = gtk_stack_get_visible_child(GTK_STACK(content));
+	if (!content) return TRUE;
+	jobject observer = g_object_get_data(G_OBJECT(content), pre_draw_key);
 	if (!observer) return TRUE;
 
 	JNIEnv *env = get_jni_env();
-	/* A listener may remove the last registration, freeing the window data and
+	/* A listener may remove the last registration, freeing the hierarchy data and
 	 * the global ref while we are calling into Java. */
 	jobject local = (*env)->NewLocalRef(env, observer);
 	jboolean cancel = (*env)->CallBooleanMethod(env, local, handle_cache.view_tree_observer.dispatchOnPreDraw);
@@ -176,17 +183,19 @@ JNIEXPORT void JNICALL Java_android_view_ViewTreeObserver_native_1set_1have_1pre
 {
 	GtkWidget *window = _PTR(_GET_LONG_FIELD(this, "window"));
 
-	if (!window) {
+	GtkWidget *decor = _PTR(_GET_LONG_FIELD(this, "decorView"));
+	GtkWidget *owner = decor ? gtk_widget_get_parent(decor) : NULL;
+	if (!window || !owner) {
 		return;
 	}
 
 	if (!have_listeners) {
 		/* Destroy-notify releases the observer's global ref. */
-		g_object_set_data(G_OBJECT(window), pre_draw_key, NULL);
+		g_object_set_data(G_OBJECT(owner), pre_draw_key, NULL);
 		return;
 	}
-	if (g_object_get_data(G_OBJECT(window), pre_draw_key)) return;
-	g_object_set_data_full(G_OBJECT(window), pre_draw_key, (*env)->NewGlobalRef(env, this), free_pre_draw_observer);
+	if (g_object_get_data(G_OBJECT(owner), pre_draw_key)) return;
+	g_object_set_data_full(G_OBJECT(owner), pre_draw_key, (*env)->NewGlobalRef(env, this), free_pre_draw_observer);
 	/* The window may be idle; queue one frame so the new listener runs. */
 	queue_pre_draw_frame(window);
 }

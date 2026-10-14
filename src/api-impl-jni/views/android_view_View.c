@@ -1044,7 +1044,12 @@ JNIEXPORT jobject JNICALL Java_android_view_View_native_1get_1window(JNIEnv *env
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
 	GtkRoot *root = gtk_widget_get_root(widget);
-	return root ? g_object_get_data(G_OBJECT(root), "jobject") : NULL;
+	if (!root) return NULL; // Detached views retain their floating observer.
+	for (GtkWidget *ancestor = widget; ancestor; ancestor = gtk_widget_get_parent(ancestor)) {
+		jobject owner = g_object_get_data(G_OBJECT(ancestor), "atl-android-window");
+		if (owner) return (*env)->NewLocalRef(env, owner);
+	}
+	return (*env)->NewLocalRef(env, g_object_get_data(G_OBJECT(root), "jobject"));
 }
 
 extern GtkWindow *window;
