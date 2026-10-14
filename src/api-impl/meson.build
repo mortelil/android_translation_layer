@@ -102,6 +102,7 @@ srcs = [
 	'android/atl/ATLNativeAbi.java',
 	'android/atl/ATLAppSplits.java',
 	'android/atl/ATLServiceRegistry.java',
+	'android/atl/ATLActivityController.java',
 	'android/atl/ATLMediaContentProvider.java',
 	'android/atl/ATLDocumentsProvider.java',
 	'android/atl/ATLMediaIndex.java',
