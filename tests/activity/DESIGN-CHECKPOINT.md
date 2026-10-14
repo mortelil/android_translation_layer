@@ -139,3 +139,84 @@ WINDOW_CLOSE_REQUEST=3, WINDOW_READY=4, NEW_INTENT=5).
   (true, line 330); the only reader is the C seam
   (_GET_BOOL_FIELD(activity, "paused")). When the C readers are retired the
   controller's record.state replaces it and the field can be dropped.
+
+## Session 3 (LaneCResume2) — seam implementation design frozen and verified
+
+Committed: 7d45f45b "meson: register ATLActivityController in api-impl srcs"
+(self-applied per coordinator ruling, identical to
+integration/inbox/0002-...patch; D applies the same line at integration).
+Verified after full mobile build (JOBS=2, exit 0):
+`unzip -l build-mobile/src/api-impl/hax.jar | grep ATLActivityController`
+shows ATLActivityController.class + $ATLActivityRecord.class. Worktree clean.
+
+### AOSP anchors re-verified against the pinned source this session
+
+- Launch order is AOSP-shaped: performCreate → performStart →
+  performRestoreInstanceState (only when saved state exists) → onPostCreate →
+  performResume — ActivityThread.handleStartActivity (pinned
+  ActivityThread.java:4590-4635; restore call sites 4613/4617, postCreate
+  4626/4629). Old ATL ran onPostCreate BEFORE performStart; the controller
+  switches to the AOSP position (probe-invisible: onPostCreate is not framed
+  by ActA/ActB and has no observer callback).
+- Activity.onSaveInstanceState: the view-hierarchy save is the FIRST
+  statement inside onSaveInstanceState (pinned Activity.java:2613-2620,
+  outState.putBundle(WINDOW_HIERARCHY_TAG, mWindow.saveHierarchyState())),
+  not in performSaveInstanceState. ATL's Window.saveHierarchyState/
+  restoreHierarchyState already exist; TextView.SavedState (text round-trip)
+  already exists (TextView.java:35-56). A08 editable-view restoration needs
+  the first-statement addition in Activity.onSaveInstanceState + a view ID.
+- Activity.performNewIntent EXISTS AOSP-verbatim (Activity.java:9355-9361:
+  onNewIntent(intent); no setIntent inside; ActivityThread.java:6939 comment
+  shows the framework preserves the record intent — the controller must NOT
+  update record.intent on new-intent delivery).
+- Destroy is NEVER a lifecycle-path walk: AOSP executes DestroyActivityItem
+  directly (handleDestroyActivity → performDestroy) — getLifecyclePath is
+  only used for [CREATED..RESUMED] moves. Controller rule: ON_DESTROY is
+  always a direct performState(r, ON_DESTROY) call; moveToState must never
+  target ON_DESTROY (getLifecyclePath(ON_CREATE, ON_DESTROY) would walk UP
+  through ON_START/ON_RESUME — the finish-in-onCreate skip mirrors
+  ActivityThread instead: destroy directly, never start).
+- atl_jni_handle_uncaught_exception NEVER RETURNS (report + exit(1),
+  jni_exceptions.h contract): use only at GTK/GLib boundaries with no Java
+  caller (activity_window_ready/close_all/back entrypoints). activity_start
+  must keep the pending-return contract: main.c:325/417/843 all call
+  atl_jni_handle_uncaught_exception(env, "Activity startup") after it.
+- Launcher main.c calls createMainActivity via handle_cache.activity.class
+  (main.c:412,656); fileChooserResultCallback lookup uses .class
+  (android_app_Activity.c:340). After the seam rewrite handle_cache.activity
+  keeps ONLY .class; all 10 MethodIDs are deleted (no user remains once the
+  controller does back-override detection via Java reflection
+  getClass().getMethod("onBackPressed").getDeclaringClass() != Activity.class
+  — equivalent to the old C MethodID comparison).
+
+### Probe/baseline facts established this session (drives the baseline regen)
+
+- EVERY A→B→A scenario drives a real launch (S2, S4.1-5, S3D1, L-SNAP,
+  L-REGD, L-EQUALS + terminal L-THROW: ProbeApp.handleBResumed/scheduleStartB
+  cycle), but make_fixtures.py atl_transform only rewrites S2
+  ("if sid != S2: return out"). A real ATL run would emit the divergence
+  groups in all of them → BASELINE_MISMATCH on S4.1 in PINNED mode
+  (compare_baseline pins activity_order for every non-terminal, non-external
+  scenario; L-THROW is terminal/validate_terminal, S3D2 externally_driven).
+  The probe has never been green against a real ATL run; baseline
+  regeneration MUST generalize the transform to every scenario containing an
+  ActB onCreate: insert ActA onStop group right before the scenario's ActB
+  onPause event, and ActA onRestart (framing only, no callbacks —
+  callback_map has no onRestart) + ActA onStart groups immediately before
+  ActA onResume. Observer callbacks for the inserted groups must derive from
+  each scenario's own observer set (the current transform hardcodes
+  AppObs-A/AppObs-B — wrong for S4.2+). Extra groups are accepted by
+  compare_groups/_validate_extra_group as long as well formed (pre/post
+  framing, bundle default "-" when callback_map lacks the event);
+  terminal L-THROW prefix validation also tolerates them (compare_groups),
+  so no manifest change is needed.
+- New-controller framing per launch scenario (AOSP shape + pinned
+  divergence): A.onPause, B.onCreate, B.onStart, B.onResume, A.onStop |
+  B.onPause, A.onRestart, A.onStart, A.onResume, B.onStop, B.onDestroy.
+- ATL run mechanics: scripts/mobile/run.sh (exec build-mobile/
+  android-translation-layer <apk>) via toolbox + dbus-run-session +
+  xvfb-run (tooling.md §3); probe writes trace.log + results.json to
+  getFilesDir() under ANDROID_APP_DATA_DIR (set it to a lane-private dir);
+  poll stdout for LIFE_ALL_DONE + TERMINAL_THROW_DONE, then close the window
+  externally for S3D2 and collect trace.log. FRAMEWORK_RES for build.sh must
+  point at the lane build-mobile res/framework-res apk.
