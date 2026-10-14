@@ -60,9 +60,9 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getOutputSampleRate
 /*
  * Class:     android_media_AudioTrack
  * Method:    native_getPlaybackHeadPosition
- * Signature: ()I
+ * Signature: ()J
  */
-JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition
+JNIEXPORT jlong JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition
   (JNIEnv *, jobject);
 
 /*

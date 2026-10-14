@@ -32,6 +32,9 @@ import java.util.List;
  *   - mono tracks, non-zero-offset partial writes, release-vs-writer races and
  *     a real mid-stream worker underrun followed by recovery,
  *   - use-after-release and unavailable-device error codes,
+ *   - AOSP's 32-bit playback-head wrap (the conversion helper's exact
+ *     boundary results: 0x7FFFFFFF -> 2147483647, 0x80000000 -> -2147483648,
+ *     0xFFFFFFFF -> -1, 0x100000000 -> 0),
  *   - a real 1 kHz tone reaching the sink (verified host-side from the sink
  *     monitor recording, not from "no error"/PLAYING).
  *
@@ -88,6 +91,15 @@ public class AudioProbeActivity extends Activity {
 		String msg = t.getMessage();
 		check(what, false, "threw " + t.getClass().getName() + (msg != null ? (": " + msg) : ""));
 		t.printStackTrace();
+	}
+
+	/** Record a not-applicable check (an ATL-only seam that is absent on the
+	 *  Android reference) without counting it as a failure. */
+	private static void skip(String what, String detail) {
+		String line = "ASSERT " + what + ": " + detail + " -> SKIP";
+		checks.add(line);
+		System.out.println(TAG + line);
+		System.out.flush();
 	}
 
 	/** Same JSON convention as the other ATL probes: files/results.json plus a
@@ -644,13 +656,38 @@ public class AudioProbeActivity extends Activity {
 			}
 		}
 
-		// ---- 32-bit playback head wrap: explicitly UNTESTED -------------------
-		// A uint32 wrap needs >2^31 rendered frames (~12 h at 48 kHz) and there
-		// is no deterministic injectable seam; a test-only production seam would
-		// falsify the production code, so this path is deliberately not faked.
-		System.out.println(TAG + "playback_head_wrap: UNTESTED - needs >2^31 rendered frames "
-		                   + "(~12h at 48kHz) and has no injectable seam; not faked.");
-		System.out.flush();
+		// ---- 32-bit playback head wrap: AOSP unsigned-32 reinterpretation ----
+		// AOSP's getPlaybackHeadPosition() returns native_get_position(); the
+		// javadoc (android-17.0.0_r1 media/java/android/media/AudioTrack.java:
+		// 2577-2589) requires the signed int to be reinterpreted as unsigned
+		// 32-bit, so it wraps at 2^32 and is reset by stop()/flush() (covered by
+		// stop_resets_head and flush_resets_head above). A real wrap needs
+		// >2^31 rendered frames (~12 h at 48 kHz), so pin the production
+		// conversion helper at its exact boundaries instead. On the Android
+		// reference that helper does not exist: record SKIP, never FAIL.
+		try {
+			java.lang.reflect.Method m = Class.forName("android.media.AudioTrack")
+				.getDeclaredMethod("headPositionFromFrames", long.class);
+			m.setAccessible(true);
+			long[] boundary = {0x7FFFFFFFL, 0x80000000L, 0xFFFFFFFFL, 0x100000000L};
+			int[] expected = {2147483647, -2147483648, -1, 0};
+			boolean wrapOk = true;
+			StringBuilder wd = new StringBuilder();
+			for (int i = 0; i < boundary.length; i++) {
+				int got = ((Integer) m.invoke(null, boundary[i])).intValue();
+				wd.append(i > 0 ? " " : "").append(Long.toHexString(boundary[i]))
+				  .append("->").append(got);
+				if (got != expected[i])
+					wrapOk = false;
+			}
+			check("playback_head_wrap_32bit", wrapOk, wd.toString());
+		} catch (NoSuchMethodException e) {
+			// The Android reference has no ATL seam; not applicable, not a failure.
+			skip("playback_head_wrap_32bit",
+			     "android.media.AudioTrack.headPositionFromFrames absent (Android reference)");
+		} catch (Throwable e) {
+			fail("playback_head_wrap_32bit", e);
+		}
 	}
 
 	/** Non-blocking writes may legitimately return 0 while the device is full;

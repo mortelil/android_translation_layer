@@ -606,12 +606,14 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1release(JNIEnv *env
 	_SET_LONG_FIELD(this, "pcm_handle", 0);
 }
 
-/* Frames still queued in the device buffer; the Java side subtracts this from
- * the number of frames it has written to obtain the playback head. */
-JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition(JNIEnv *env, jobject this)
+/* Frames the device has finished rendering since the last stop()/flush(),
+ * returned UNTRUNCATED so the Java side can apply AOSP's 32-bit wrap itself
+ * (android.media.AudioTrack#headPositionFromFrames); the public
+ * getPlaybackHeadPosition() reinterprets the low 32 bits as unsigned. */
+JNIEXPORT jlong JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition(JNIEnv *env, jobject this)
 {
 	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
-	int queued;
+	jlong rendered_frames;
 
 	(void)env;
 
@@ -619,7 +621,7 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosi
 		return 0;
 	pthread_mutex_lock(&t->lock);
 	if (t->released || !t->pcm) {
-		queued = (int)t->rendered;
+		rendered_frames = (jlong)t->rendered;
 	} else {
 		int state = snd_pcm_state(t->pcm);
 		switch (state) {
@@ -645,8 +647,8 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosi
 			 * the position jump backwards. */
 			break;
 		}
-		queued = (int)t->rendered;
+		rendered_frames = (jlong)t->rendered;
 	}
 	pthread_mutex_unlock(&t->lock);
-	return queued;
+	return rendered_frames;
 }

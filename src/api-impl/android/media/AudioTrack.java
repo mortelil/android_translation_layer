@@ -260,13 +260,31 @@ public class AudioTrack implements AudioRouting {
 	}
 
 	/**
-	 * Frames rendered since the last stop()/flush(), wrapping as an int exactly
-	 * like the ALSA/Android hardware position counter.
+	 * Frames rendered since the last stop()/flush().
+	 * <p>
+	 * AOSP (android-17.0.0_r1 media/java/android/media/AudioTrack.java:2577-2589)
+	 * defines the return value as the hardware frame counter whose signed int
+	 * must be {@link #headPositionFromFrames reinterpreted as unsigned 32-bit}:
+	 * the next position after 0x7FFFFFFF is (int) 0x80000000, it wraps at 2^32,
+	 * and it is reset to zero by stop() and flush().
 	 */
 	public int getPlaybackHeadPosition() {
 		if (pcm_handle == 0)
 			return 0;
-		return native_getPlaybackHeadPosition();
+		return headPositionFromFrames(native_getPlaybackHeadPosition());
+	}
+
+	/**
+	 * Applies AOSP's 32-bit wrap to the native frame counter: the backend
+	 * tracks a continuously advancing 64-bit frame count, but the public
+	 * position is its low 32 bits interpreted as unsigned, so
+	 * 0x7FFFFFFF -> 2147483647, 0x80000000 -> -2147483648, 0xFFFFFFFF -> -1
+	 * and 0x100000000 -> 0. Package-private: the conversion is a production
+	 * behaviour that the contract probe pins at the exact boundaries without a
+	 * real ~12-hour playback.
+	 */
+	static int headPositionFromFrames(long frames) {
+		return (int) frames;
 	}
 
 	public boolean getTimestamp(AudioTimestamp timestamp) {
@@ -278,7 +296,7 @@ public class AudioTrack implements AudioRouting {
 	}
 
 	private static native int native_getOutputSampleRate(int streamType);
-	private native int native_getPlaybackHeadPosition();
+	private native long native_getPlaybackHeadPosition();
 	private native void native_play();
 	private native void native_pause();
 	private native void native_stop();
