@@ -8,9 +8,9 @@ out=$(cd "$2" && pwd)
 src=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 art_java=$(pkg-config --variable=libdir art-standalone)/java
 mkdir -p "$out/classes"
-"${JAVAC:-javac}" -source 8 -target 8 -cp "$atl_build/src/api-impl/hax.jar:$art_java/core-all_classes.jar" \
+"${JAVAC:-javac}" -source 8 -target 8 -bootclasspath "$art_java/core-all_classes.jar" -cp "$atl_build/src/api-impl/hax.jar" \
 	-d "$out/classes" "$src/WindowIdProbeActivity.java"
-dx --dex --output="$out/classes.dex" "$out/classes"
+dx --min-sdk-version=26 --dex --output="$out/classes.dex" "$out/classes"
 aapt package -f -M "$src/AndroidManifest.xml" -I "$atl_build/res/framework-res/framework-res.apk" \
 	-F "$out/windowid-probe.apk"
 (cd "$out" && aapt add windowid-probe.apk classes.dex)

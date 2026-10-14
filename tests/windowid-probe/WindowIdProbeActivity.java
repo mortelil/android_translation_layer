@@ -28,6 +28,7 @@ import android.widget.TextView;
 public class WindowIdProbeActivity extends Activity {
 	private static final String TAG = "[WID] ";
 	private static int failures = 0;
+	private static int checks = 0;
 
 	private FrameLayout content;
 	private View a;
@@ -80,6 +81,13 @@ public class WindowIdProbeActivity extends Activity {
 					t.printStackTrace(System.out);
 					failures++;
 				}
+				try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+				        new java.io.File(getFilesDir(), "results.json"))) {
+					out.write(("{\"status\":\"" + (failures == 0 ? "PASS" : "FAIL")
+					    + "\",\"checks\":" + checks + ",\"failures\":" + failures + "}").getBytes("UTF-8"));
+				} catch (java.io.IOException e) {
+					throw new RuntimeException(e);
+				}
 				System.out.println(TAG + "RESULT failures=" + failures);
 				System.out.println(TAG + "DONE");
 				System.out.flush();
@@ -89,6 +97,7 @@ public class WindowIdProbeActivity extends Activity {
 	}
 
 	private static void check(String what, boolean ok, String detail) {
+		checks++;
 		if (!ok)
 			failures++;
 		System.out.println(TAG + "ASSERT " + what + ": " + detail + " -> " + (ok ? "PASS" : "FAIL"));
@@ -120,6 +129,9 @@ public class WindowIdProbeActivity extends Activity {
 		check("sibling/id-hash-equal", ia != null && ia.hashCode() == ib.hashCode(),
 			"hash a=" + (ia != null ? ia.hashCode() : "null") + " b=" + (ib != null ? ib.hashCode() : "null"));
 		check("sibling/id-same-instance", ia == ib, "same instance=" + (ia == ib));
+
+		check("equality/null", ia != null && !ia.equals(null), "null is not a window");
+		check("equality/foreign", ia != null && !ia.equals("window"), "other type is not a window");
 
 		/* --- repeat calls stay stable --- */
 		check("stability/same-token", a.getWindowToken() == ta, "token stable=" + (a.getWindowToken() == ta));

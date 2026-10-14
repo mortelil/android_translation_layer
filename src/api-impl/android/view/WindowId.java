@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 The Android Open Source Project
+ * Copyright (C) 2006 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-/* Ported from AOSP android-37.0 android/view/WindowId.java; only the Parcelable
- * plumbing, the focus-observer API and the IWindowId IPC token were adapted: ATL has
- * no IWindowId binder, so the window identity is carried as a plain IBinder, keeping
- * the token-identity semantics of AOSP's equals()/hashCode(). */
+/* Identity comparison adapted from AOSP frameworks/base
+ * core/java/android/view/WindowId.java at
+ * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d (android-17.0.0_r1).
+ * ATL uses a local IBinder identity. Parcelable transport and focus observation
+ * are not implemented by this class. */
 package android.view;
 
 import android.os.IBinder;
