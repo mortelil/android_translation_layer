@@ -8,7 +8,7 @@ if [ "$#" -ne 2 ]; then
 fi
 APK=$1
 OUT=$2
-ADB=${ADB:-/home/morten/Android/Sdk/platform-tools/adb}
+ADB=${ADB:-${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb}
 SERIAL=${ANDROID_SERIAL:-emulator-5554}
 PACKAGE=org.atl.shortcutmanager
 ACTIVITY=$PACKAGE/.Probe

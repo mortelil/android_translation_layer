@@ -6,6 +6,9 @@ import android.content.Intent;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Parcel;
+import android.os.BaseBundle;
+import android.os.Bundle;
+import java.io.ByteArrayInputStream;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
 import java.io.ByteArrayOutputStream;
@@ -25,38 +28,12 @@ import java.util.Set;
  * implementation of the publisher-side subset ATL needs (dynamic shortcut
  * publishing), not a port of the AOSP parcellation or resource handling.
  *
- * <p>Known ATL limitations that shape what can be persisted:
- * <ul>
- * <li>{@link android.graphics.drawable.Icon} is a non-Parcelable stub in
- * api-impl, so the icon is accepted and stored in memory but is NOT
- * preserved across {@link #writeToParcel} or across process restarts. It is
- * deliberately excluded from the typed store codec
- * ({@link #writeTypedTo}/{@link #readTypedFrom}) for the same reason.</li>
- * <li>{@link android.content.Intent} and {@link android.content.ComponentName}
- * declare {@code implements Parcelable} but implement no
- * {@code writeToParcel}/{@code CREATOR}, so intent/component essentials are
- * encoded explicitly from their getters. Intent extras are not part of the
- * supported set (the ATL Intent stores extras in a raw map that has no
- * parcel support).</li>
- * <li>{@link PersistableBundle} is not Parcelable in api-impl either, so
- * {@link Builder#setExtras} is accepted and returned within the process
- * but, like the icon, is NOT preserved across {@link #writeToParcel} or
- * across process restarts.</li>
- * </ul>
- *
- * <p>Two serializations exist and must not be confused:
- * <ul>
- * <li>The {@link Parcelable} layout below ({@link #PARCEL_VERSION} {@code = 1})
- * is the public Android contract used by {@code getSystemService}
- * clients and {@code Parcel} round trips. It is <b>frozen</b>: it is also the
- * decoder for the legacy on-disk envelope version 2 (the previous ATL store
- * format), so {@link #CREATOR} stays byte-compatible with what that format
- * wrote. See {@link ShortcutManager} for the migration.</li>
- * <li>The typed, versioned store codec ({@link #writeTypedTo}/
- * {@link #readTypedFrom}) described in {@link ShortcutManager} is what the
- * current on-disk store uses. It is explicit (sizes/wide types), not a Parcel
- * channel.</li>
- * </ul>
+ * <p>Intent and publisher extras use an explicit typed codec (scalar values and
+ * int/long/String arrays). Unsupported values are rejected, not silently lost.
+ * Icons are not supported by ATL's Icon implementation. Store schema 4 and
+ * parcel schema 2 add extras; old store schemas 2/3 and parcel schema 1 remain
+ * readable. No Android binary Parcel compatibility is claimed.
+
  */
 public class ShortcutInfo implements Parcelable {
 	/** AOSP: {@code getRank()} value when no explicit rank was set. */
@@ -68,7 +45,7 @@ public class ShortcutInfo implements Parcelable {
 	public static final int FLAG_LONG_LIVED = 1 << 13;
 
 	/** Bumped when the parcel layout below changes incompatibly. */
-	private static final int PARCEL_VERSION = 1;
+	private static final int PARCEL_VERSION = 2;
 
 	/** Guard against absurd strings while decoding (1 MiB). */
 	private static final int MAX_STRING_BYTES = 1 << 20;
@@ -92,8 +69,7 @@ public class ShortcutInfo implements Parcelable {
 	 */
 	private Icon icon;
 	/**
-	 * Stored in memory only; ATL's {@link PersistableBundle} is not Parcelable,
-	 * so extras are not written to the parcel (see the class comment).
+	 * Publisher extras, encoded independently of PersistableBundle Parcelable support.
 	 */
 	private PersistableBundle extras;
 
@@ -112,7 +88,7 @@ public class ShortcutInfo implements Parcelable {
 		this.packageName = b.context.getPackageName();
 		this.activity = b.activity == null ? null : b.activity.clone();
 		this.icon = b.icon;
-		this.extras = b.extras;
+		this.extras = copyExtras(b.extras, new PersistableBundle());
 		this.shortLabel = b.shortLabel;
 		this.longLabel = b.longLabel;
 		this.disabledMessage = b.disabledMessage;
@@ -124,7 +100,7 @@ public class ShortcutInfo implements Parcelable {
 
 	private ShortcutInfo(Parcel in) {
 		int version = in.readInt();
-		if (version != PARCEL_VERSION) {
+		if (version != 1 && version != PARCEL_VERSION) {
 			throw new IllegalArgumentException("Unsupported ShortcutInfo parcel version " + version);
 		}
 		this.id = in.readString();
@@ -148,6 +124,10 @@ public class ShortcutInfo implements Parcelable {
 		    ? null : new LinkedHashSet<String>(restoredCategories);
 		this.flags = in.readInt();
 		this.longLived = in.readInt() != 0;
+		if (version >= 2) {
+			try { readExtras(new DataInputStream(new ByteArrayInputStream(in.createByteArray()))); }
+			catch (IOException e) { throw new IllegalArgumentException("Invalid shortcut extras", e); }
+		}
 	}
 
 	public String getId() {
@@ -281,7 +261,7 @@ public class ShortcutInfo implements Parcelable {
 			icon = source.icon;
 		}
 		if (source.extras != null) {
-			extras = source.extras;
+			extras = copyExtras(source.extras, new PersistableBundle());
 		}
 		if (source.rank != RANK_NOT_SET) {
 			rank = source.rank;
@@ -307,7 +287,7 @@ public class ShortcutInfo implements Parcelable {
 		copy.flags = flags;
 		copy.longLived = longLived;
 		copy.icon = icon;
-		copy.extras = extras;
+		copy.extras = copyExtras(extras, new PersistableBundle());
 		return copy;
 	}
 
@@ -335,7 +315,11 @@ public class ShortcutInfo implements Parcelable {
 		dest.writeStringList(categories == null ? null : new ArrayList<String>(categories));
 		dest.writeInt(this.flags);
 		dest.writeInt(longLived ? 1 : 0);
-		// icon and extras are intentionally not written; see the class comment.
+		try {
+			ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+			writeExtras(new DataOutputStream(bytes));
+			dest.writeByteArray(bytes.toByteArray());
+		} catch (IOException e) { throw new IllegalArgumentException("Invalid shortcut extras", e); }
 	}
 
 	public static final Creator<ShortcutInfo> CREATOR = new Creator<ShortcutInfo>() {
@@ -350,7 +334,7 @@ public class ShortcutInfo implements Parcelable {
 		}
 	};
 
-	// --- typed store codec (on-disk schema version 3) -------------------------
+	// --- typed store codec (on-disk schema version 4) -------------------------
 	//
 	// Layout of one record on the DataOutputStream, all integers big-endian:
 	//
@@ -382,9 +366,8 @@ public class ShortcutInfo implements Parcelable {
 	// utf8 = int32 byte length, -1 for null, followed by UTF-8 bytes.
 	// strlst = int32 count, -1 for null, followed by that many utf8 strings.
 	//
-	// icon and extras are excluded: neither is serializable in api-impl, and the
-	// previous format did not persist them either, so excluding them is lossless
-	// with respect to the supported field set.
+	// Version 4 adds a typed extras section after the version-3 fields. The
+	// previous format contains no extras section.
 
 	/** Writes the supported fields to the typed store stream. */
 	void writeTypedTo(DataOutputStream out) throws IOException {
@@ -404,10 +387,11 @@ public class ShortcutInfo implements Parcelable {
 		writeStringList(out, categories);
 		out.writeInt(this.flags);
 		out.writeByte(longLived ? 1 : 0);
+		writeExtras(out);
 	}
 
 	/** Reads one record written by {@link #writeTypedTo}. */
-	static ShortcutInfo readTypedFrom(DataInputStream in) throws IOException {
+	static ShortcutInfo readTypedFrom(DataInputStream in, boolean withExtras) throws IOException {
 		ShortcutInfo info = new ShortcutInfo();
 		info.id = readString(in);
 		info.packageName = readString(in);
@@ -430,6 +414,7 @@ public class ShortcutInfo implements Parcelable {
 		info.categories = readStringSet(in);
 		info.flags = in.readInt();
 		info.longLived = in.readByte() != 0;
+		if (withExtras) info.readExtras(in);
 		return info;
 	}
 
@@ -439,6 +424,7 @@ public class ShortcutInfo implements Parcelable {
 			return;
 		}
 		byte[] bytes = value.getBytes("UTF-8");
+		if (bytes.length > MAX_STRING_BYTES) throw new IOException("Shortcut string too long");
 		out.writeInt(bytes.length);
 		out.write(bytes);
 	}
@@ -521,10 +507,8 @@ public class ShortcutInfo implements Parcelable {
 		}
 		Intent intent = new Intent();
 		intent.setAction(readString(in));
-		if (in.readByte() != 0) {
-			intent.setData(Uri.parse(readString(in)));
-		}
-		intent.setType(readString(in));
+		Uri data = in.readByte() != 0 ? Uri.parse(readString(in)) : null;
+		intent.setDataAndType(data, readString(in));
 		intent.setPackage(readString(in));
 		intent.setComponent(readComponent(in));
 		intent.setFlags(in.readInt());
@@ -544,6 +528,83 @@ public class ShortcutInfo implements Parcelable {
 		writeTypedTo(out);
 		out.flush();
 		return buffer.toByteArray();
+	}
+
+	// Version 4 appends an extras section after each version-3 typed record.
+	private void writeExtras(DataOutputStream out) throws IOException {
+		writeBundle(out, extras);
+		if (intents != null) for (Intent intent : intents)
+			writeBundle(out, intent == null ? null : intent.getExtras());
+	}
+
+	private void readExtras(DataInputStream in) throws IOException {
+		extras = readBundle(in, new PersistableBundle());
+		if (intents != null) for (Intent intent : intents) {
+			Bundle values = readBundle(in, new Bundle());
+			if (intent != null && values != null) intent.putExtras(values);
+		}
+	}
+
+	private static <T extends BaseBundle> T copyExtras(BaseBundle source, T target) {
+		if (source == null) return null;
+		try {
+			ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+			writeBundle(new DataOutputStream(bytes), source);
+			return readBundle(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())), target);
+		} catch (IOException e) { throw new IllegalArgumentException("Invalid shortcut extras", e); }
+	}
+
+	private static void writeBundle(DataOutputStream out, BaseBundle bundle) throws IOException {
+		if (bundle == null) { out.writeInt(-1); return; }
+		if (bundle.keySet().size() > MAX_LIST_SIZE) throw new IOException("Too many extras");
+		out.writeInt(bundle.keySet().size());
+		for (String key : bundle.keySet()) {
+			writeString(out, key);
+			Object v = bundle.get(key);
+			if (v == null) out.writeByte(0);
+			else if (v instanceof String) { out.writeByte(1); writeString(out, (String)v); }
+			else if (v instanceof Integer) { out.writeByte(2); out.writeInt((Integer)v); }
+			else if (v instanceof Long) { out.writeByte(3); out.writeLong((Long)v); }
+			else if (v instanceof Boolean) { out.writeByte(4); out.writeBoolean((Boolean)v); }
+			else if (v instanceof Double) { out.writeByte(5); out.writeDouble((Double)v); }
+			else if (v instanceof int[]) { out.writeByte(6); int[] a=(int[])v; writeCount(out,a.length); for(int x:a) out.writeInt(x); }
+			else if (v instanceof long[]) { out.writeByte(7); long[] a=(long[])v; writeCount(out,a.length); for(long x:a) out.writeLong(x); }
+			else if (v instanceof String[]) { out.writeByte(8); String[] a=(String[])v; writeCount(out,a.length); for(String x:a) writeString(out,x); }
+			else throw new IOException("Unsupported shortcut extra type: " + v.getClass().getName());
+		}
+	}
+
+	private static void writeCount(DataOutputStream out, int count) throws IOException {
+		if (count > MAX_LIST_SIZE) throw new IOException("Too many extra elements");
+		out.writeInt(count);
+	}
+
+	private static int readCount(DataInputStream in) throws IOException {
+		int count=in.readInt();
+		if (count < 0 || count > MAX_LIST_SIZE) throw new IOException("Invalid extra count");
+		return count;
+	}
+
+	private static <T extends BaseBundle> T readBundle(DataInputStream in, T b) throws IOException {
+		int count=in.readInt();
+		if (count == -1) return null;
+		if (count < 0 || count > MAX_LIST_SIZE) throw new IOException("Invalid extras count");
+		for (int i=0;i<count;i++) {
+			String key=readString(in);
+			switch(in.readUnsignedByte()) {
+			case 0: b.putString(key,null); break;
+			case 1: b.putString(key,readString(in)); break;
+			case 2: b.putInt(key,in.readInt()); break;
+			case 3: b.putLong(key,in.readLong()); break;
+			case 4: b.putBoolean(key,in.readBoolean()); break;
+			case 5: b.putDouble(key,in.readDouble()); break;
+			case 6: { int[] a=new int[readCount(in)]; for(int j=0;j<a.length;j++) a[j]=in.readInt(); b.putIntArray(key,a); break; }
+			case 7: { long[] a=new long[readCount(in)]; for(int j=0;j<a.length;j++) a[j]=in.readLong(); b.putLongArray(key,a); break; }
+			case 8: { String[] a=new String[readCount(in)]; for(int j=0;j<a.length;j++) a[j]=readString(in); b.putStringArray(key,a); break; }
+			default: throw new IOException("Invalid shortcut extra tag");
+			}
+		}
+		return b;
 	}
 
 	// --- Parcel helpers -------------------------------------------------------
@@ -589,10 +650,8 @@ public class ShortcutInfo implements Parcelable {
 		}
 		Intent intent = new Intent();
 		intent.setAction(in.readString());
-		if (in.readInt() != 0) {
-			intent.setData(Uri.parse(in.readString()));
-		}
-		intent.setType(in.readString());
+		Uri data = in.readInt() != 0 ? Uri.parse(in.readString()) : null;
+		intent.setDataAndType(data, in.readString());
 		intent.setPackage(in.readString());
 		intent.setComponent(readComponent(in));
 		intent.setFlags(in.readInt());
@@ -613,7 +672,11 @@ public class ShortcutInfo implements Parcelable {
 		if (data != null) {
 			copy.setData(data);
 		}
-		copy.setType(source.getType());
+		copy.setDataAndType(data, source.getType());
+		Bundle copiedExtras = copyExtras(source.getExtras(), new Bundle());
+		if (copiedExtras != null) copy.putExtras(copiedExtras);
+		if (source.getSelector() != null || source.getClipData() != null)
+			throw new IllegalArgumentException("Shortcut intent selectors/ClipData are unsupported");
 		copy.setPackage(source.getPackage());
 		ComponentName component = source.getComponent();
 		if (component != null) {

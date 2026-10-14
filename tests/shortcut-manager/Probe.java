@@ -143,7 +143,7 @@ public class Probe extends Activity {
 			if (persistedStore.exists() && persistedStore.length() > 12) {
 				byte[] persisted = readAll(persistedStore);
 				List<String> persistedIds = isLegacy(persisted)
-				    ? decodeV2Ids(persisted) : decodeV3Ids(persisted);
+				    ? decodeV2Ids(persisted) : decodeV4Ids(persisted);
 				check(!persistedIds.isEmpty());
 				check(sameStrings(ids(sm.getDynamicShortcuts()),
 				    persistedIds.toArray(new String[0])));
@@ -328,6 +328,31 @@ public class Probe extends Activity {
 		check(got instanceof PersistableBundle
 		    && "1".equals(((PersistableBundle) got).getString("atl-probe")));
 
+		// Publishing and Parcel round-trips must preserve payload, not just labels.
+		Intent payload = intent().putExtra("conversation", "synthetic-42");
+		payload.setDataAndType(android.net.Uri.parse("content://synthetic/item/42"), "text/plain");
+		pb.putIntArray("ranks", new int[] {7, 9});
+		ShortcutInfo rich = builder("rich").setActivity(activity()).setShortLabel("Rich")
+		    .setIntent(payload).setExtras(pb).build();
+		check(sm.addDynamicShortcuts(list(rich)));
+		payload.putExtra("conversation", "changed");
+		pb.getIntArray("ranks")[1] = 100;
+		ShortcutInfo published = null;
+		for (ShortcutInfo item : sm.getDynamicShortcuts()) if ("rich".equals(item.getId())) published=item;
+		check(published != null && "synthetic-42".equals(published.getIntent().getStringExtra("conversation")));
+		check("1".equals(published.getExtras().getString("atl-probe")));
+		check("content://synthetic/item/42".equals(published.getIntent().getData().toString())
+		    && "text/plain".equals(published.getIntent().getType()));
+		check(published.getExtras().getIntArray("ranks")[1] == 9);
+		Parcel richParcel=Parcel.obtain();
+		rich.writeToParcel(richParcel,0); richParcel.setDataPosition(0);
+		ShortcutInfo richCopy=ShortcutInfo.CREATOR.createFromParcel(richParcel); richParcel.recycle();
+		check("synthetic-42".equals(richCopy.getIntent().getStringExtra("conversation")));
+		check(richCopy.getExtras().getIntArray("ranks")[0] == 7);
+		check("content://synthetic/item/42".equals(richCopy.getIntent().getData().toString())
+		    && "text/plain".equals(richCopy.getIntent().getType()));
+		sm.removeDynamicShortcuts(java.util.Collections.singletonList("rich"));
+
 		// --- a fresh manager for the same package reads the same state -------
 		Context samePackage = createPackageContext(getPackageName(), 0);
 		ShortcutManager fresh = (ShortcutManager) samePackage.getSystemService("shortcut");
@@ -380,13 +405,21 @@ public class Probe extends Activity {
 		check(store != null);
 		check(sm.setDynamicShortcuts(list(shortcut("s1", "S1"), shortcut("s2", "S2"))));
 
-		// --- typed version-3 schema (independent decoder) --------------------
+		// --- typed version-4 schema (independent decoder) --------------------
 		byte[] bytes = readAll(store);
-		check(storeVersion(bytes) == 3);
+		check(storeVersion(bytes) == 4);
 		check(!isLegacy(bytes));
-		check(sameStrings(decodeV3Ids(bytes), new String[] {"s1", "s2"}));
+		check(sameStrings(decodeV4Ids(bytes), new String[] {"s1", "s2"}));
 		System.out.println("SHORTCUT_MANAGER NOTE store_bytes=" + bytes.length
 		    + " version=" + storeVersion(bytes));
+
+		// Old typed stores must survive the addition of extras in schema 4.
+		writeAll(store, legacyV3(bytes));
+		check(storeVersion(readAll(store)) == 3);
+		check(sameIds(sm.getDynamicShortcuts(), "s1,s2"));
+		check(sm.updateShortcuts(list(shortcut("s1", "S1"))));
+		check(storeVersion(readAll(store)) == 4);
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"s1", "s2"}));
 
 		// --- atomic replacement leaves no temp file; lock file persists ------
 		check(!new File(store.getPath() + ".new").exists());
@@ -405,11 +438,11 @@ public class Probe extends Activity {
 			failed = true;
 		}
 		check(failed);
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"s1", "s2"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"s1", "s2"}));
 		check(sameIds(sm.getDynamicShortcuts(), "s1,s2"));
 		check(new File(obstruction, "keep").delete() && obstruction.delete());
 		check(sm.addDynamicShortcuts(list(shortcut("s3", "S3"))));
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"s1", "s2", "s3"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"s1", "s2", "s3"}));
 		check(!new File(store.getPath() + ".new").exists());
 
 		// --- same-length rename failure must not be reported as success ------
@@ -463,7 +496,7 @@ public class Probe extends Activity {
 		check(sameIds(sm.getDynamicShortcuts(), "rf"));
 		check(Arrays.equals(readAll(store), base));
 		check(sm.addDynamicShortcuts(list(shortcut("t1", "T1"))));
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"rf", "t1"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"rf", "t1"}));
 		check(!temp.exists());
 
 		// --- corruption / truncation / unknown version recovery --------------
@@ -473,28 +506,28 @@ public class Probe extends Activity {
 		check(sm.getDynamicShortcuts().isEmpty());
 		// next write recovers and quarantines the unreadable bytes
 		check(sm.setDynamicShortcuts(list(shortcut("r1", "R1"))));
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"r1"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"r1"}));
 		check(new File(store.getPath() + ".corrupt").exists());
 		new File(store.getPath() + ".corrupt").delete();
 		// truncated current store
 		writeAll(store, Arrays.copyOf(good, good.length / 2));
 		check(sm.getDynamicShortcuts().isEmpty());
 		check(sm.setDynamicShortcuts(list(shortcut("r2", "R2"))));
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"r2"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"r2"}));
 		new File(store.getPath() + ".corrupt").delete();
 		// unknown version still carries the magic
 		byte[] unknown = withStoreInt(good, 4, 99);
 		writeAll(store, unknown);
 		check(sm.getDynamicShortcuts().isEmpty());
 		check(sm.setDynamicShortcuts(list(shortcut("r3", "R3"))));
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"r3"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"r3"}));
 		new File(store.getPath() + ".corrupt").delete();
 		// checksum mismatch with a still-parseable payload
 		byte[] tampered = withStoreInt(good, good.length - 4, 0x11223344);
 		writeAll(store, tampered);
 		check(sm.getDynamicShortcuts().isEmpty());
 		check(sm.setDynamicShortcuts(list(shortcut("r4", "R4"))));
-		check(sameStrings(decodeV3Ids(readAll(store)), new String[] {"r4"}));
+		check(sameStrings(decodeV4Ids(readAll(store)), new String[] {"r4"}));
 		new File(store.getPath() + ".corrupt").delete();
 
 		// leave a known state for the following modes
@@ -518,18 +551,17 @@ public class Probe extends Activity {
 		// one write converts the store to the typed version while preserving state
 		check(sm.addDynamicShortcuts(list(shortcut("migrated", "Migrated"))));
 		byte[] now = readAll(store);
-		check(storeVersion(now) == 3);
+		check(storeVersion(now) == 4);
 		check(!isLegacy(now));
-		List<Record> migrated = decodeV3Records(now);
+		List<Record> migrated = decodeV4Records(now);
 		List<String> after = idsOfRecords(migrated);
 		check(after.size() == 15 && after.containsAll(expected) && after.contains("migrated"));
 		check(!new File(store.getPath() + ".corrupt").exists());
 		check(sameStrings(ids(sm.getDynamicShortcuts()), after.toArray(new String[0])));
 		// Every field the legacy fixture encodes is compared before (v2) and
-		// after (v3) the migration. The entries are matched by id, so the
-		// appended "migrated" entry cannot shift the comparison. Neither format
-		// persists icon or extras, so those are the only ShortcutInfo state not
-		// covered here (see README).
+		// after (v4) the migration. The entries are matched by id, so the
+		// appended "migrated" entry cannot shift the comparison. The legacy format
+		// contained no icon or extras, so these are tested separately.
 		List<Record> migratedLegacy = new ArrayList<Record>();
 		for (Record record : legacy) {
 			Record match = findRecord(migrated, record.id);
@@ -543,7 +575,7 @@ public class Probe extends Activity {
 		System.out.println("SHORTCUT_MANAGER NOTE migrate_fields_compared entries=" + legacy.size()
 		    + " fields=" + RECORD_FIELD_NAMES);
 		check(diff == null);
-		// Snapshot the committed v3 store for the post-restart field comparison.
+		// Snapshot the committed v4 store for the post-restart field comparison.
 		writeAll(new File(getFilesDir(), MIGRATION_SNAPSHOT), now);
 	}
 
@@ -551,8 +583,8 @@ public class Probe extends Activity {
 		ShortcutManager sm = (ShortcutManager) getSystemService("shortcut");
 		File store = storeFile();
 		byte[] now = readAll(store);
-		check(storeVersion(now) == 3);
-		List<Record> live = decodeV3Records(now);
+		check(storeVersion(now) == 4);
+		List<Record> live = decodeV4Records(now);
 		List<String> present = ids(sm.getDynamicShortcuts());
 		check(present.size() == 15 && present.contains("migrated"));
 		check(sameStrings(present, idsOfRecords(live).toArray(new String[0])));
@@ -562,7 +594,7 @@ public class Probe extends Activity {
 		// process reads back. Run `migrate` first (the README recipe does).
 		File snapshot = new File(getFilesDir(), MIGRATION_SNAPSHOT);
 		check(snapshot.exists());
-		List<Record> committed = decodeV3Records(readAll(snapshot));
+		List<Record> committed = decodeV4Records(readAll(snapshot));
 		String diff = diffRecords(committed, live);
 		if (diff != null) {
 			System.out.println("SHORTCUT_MANAGER NOTE migrated_restart_field_diff=" + diff);
@@ -619,8 +651,8 @@ public class Probe extends Activity {
 		File store = storeFile();
 		byte[] bytes = readAll(store);
 		check(bytes.length > 12);
-		check(storeVersion(bytes) == 3);
-		List<String> before = decodeV3Ids(bytes);
+		check(storeVersion(bytes) == 4);
+		List<String> before = decodeV4Ids(bytes);
 		check(!before.isEmpty());
 		File temp = new File(store.getPath() + ".new");
 		System.out.println("SHORTCUT_MANAGER VERIFY_STORE bytes=" + bytes.length
@@ -630,7 +662,7 @@ public class Probe extends Activity {
 		long elapsed = System.currentTimeMillis() - start;
 		check(elapsed < 10000);
 		check(!temp.exists());
-		check(decodeV3Ids(readAll(store)).contains("after-crash"));
+		check(decodeV4Ids(readAll(store)).contains("after-crash"));
 		System.out.println("SHORTCUT_MANAGER VERIFY_STORE recovered_ms=" + elapsed);
 	}
 
@@ -651,14 +683,14 @@ public class Probe extends Activity {
 		check(sentinel.length > 0);
 		if (store.exists() && store.length() > 12) {
 			byte[] bytes = readAll(store);
-			check(isLegacy(bytes) ? !decodeV2Ids(bytes).isEmpty() : !decodeV3Ids(bytes).isEmpty());
+			check(isLegacy(bytes) ? !decodeV2Ids(bytes).isEmpty() : !decodeV4Ids(bytes).isEmpty());
 		}
 		long start = System.currentTimeMillis();
 		check(sm.addDynamicShortcuts(list(peerShortcut("after-kill"))));
 		long elapsed = System.currentTimeMillis() - start;
 		check(elapsed < 10000);
 		check(Arrays.equals(readAll(lock), sentinel));
-		check(decodeV3Ids(readAll(store)).contains("after-kill"));
+		check(decodeV4Ids(readAll(store)).contains("after-kill"));
 		check(!new File(store.getPath() + ".new").exists());
 		System.out.println("SHORTCUT_MANAGER RECOVER elapsed_ms=" + elapsed
 		    + " sentinel_intact=true pid=" + android.os.Process.myPid());
@@ -777,7 +809,7 @@ public class Probe extends Activity {
 							byte[] bytes = readAll(store);
 							// a complete store is either valid v3 or legacy v2
 							if (!isLegacy(bytes)) {
-								decodeV3Ids(bytes);
+								decodeV4Ids(bytes);
 							}
 						}
 					} catch (Throwable t) {
@@ -1055,7 +1087,7 @@ public class Probe extends Activity {
 	// --- probe-side, independent decoders ------------------------------------
 	//
 	// These deliberately do not use the implementation's decoders: the typed
-	// reader below mirrors the documented version-3 layout and the legacy reader
+	// reader below mirrors the documented version-4 layout and the legacy reader
 	// mirrors the frozen PARCEL_VERSION-1 record layout, so a store the manager
 	// wrote (or the committed v2 fixture) is validated independently.
 
@@ -1095,15 +1127,15 @@ public class Probe extends Activity {
 		    && storeInt(bytes, 1) == 2;
 	}
 
-	/** Independent version-3 decoder; returns the ids in store order. */
-	private static List<String> decodeV3Ids(byte[] bytes) throws Exception {
-		return idsOfRecords(decodeV3Records(bytes));
+	/** Independent version-4 decoder; returns the ids in store order. */
+	private static List<String> decodeV4Ids(byte[] bytes) throws Exception {
+		return idsOfRecords(decodeV4Records(bytes));
 	}
 
-	/** Independent version-3 decoder; returns one record per entry, in store order. */
-	private static List<Record> decodeV3Records(byte[] bytes) throws Exception {
-		if (storeVersion(bytes) != 3) {
-			throw new IllegalStateException("not a version-3 store");
+	/** Independent version-4 decoder; returns one record per entry, in store order. */
+	private static List<Record> decodeV4Records(byte[] bytes) throws Exception {
+		if (storeVersion(bytes) != 4) {
+			throw new IllegalStateException("not a version-4 store");
 		}
 		Parcel parcel = Parcel.obtain();
 		int payloadLength;
@@ -1149,6 +1181,10 @@ public class Probe extends Activity {
 	 * structural surprise throws, which also makes it a torn-read detector.
 	 */
 	private static Record readTypedRecord(DataInputStream in) throws Exception {
+		return readTypedRecord(in, true);
+	}
+
+	private static Record readTypedRecord(DataInputStream in, boolean extras) throws Exception {
 		Record record = new Record();
 		record.id = readString(in);
 		record.pkg = readString(in);
@@ -1171,7 +1207,68 @@ public class Probe extends Activity {
 		record.categories = readStringList(in);
 		record.flags = in.readInt();
 		record.longLived = in.readByte() != 0;
+		if (extras) {
+			skipExtras(in);
+			for (int i=0;i<intentCount;i++) skipExtras(in);
+		}
 		return record;
+	}
+
+	// Independent v3 fixture conversion: retain the documented typed fields,
+	// remove the v4 extras sections, and rebuild the envelope/checksum.
+	private static byte[] legacyV3(byte[] current) throws Exception {
+		Parcel input = Parcel.obtain();
+		input.unmarshall(current, 0, current.length);
+		input.setDataPosition(8);
+		byte[] bytes = input.createByteArray();
+		input.recycle();
+		DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+		java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+		java.io.DataOutputStream out = new java.io.DataOutputStream(buffer);
+		int count = in.readInt();
+		out.writeInt(count);
+		for (int i = 0; i < count; i++) {
+			int start = bytes.length - in.available();
+			Record record = readTypedRecord(in, false);
+			out.write(bytes, start, bytes.length - in.available() - start);
+			skipExtras(in);
+			if (record.intents != null) for (String ignored : record.intents) skipExtras(in);
+		}
+		if (in.available() != 0) throw new AssertionError("fixture not consumed");
+		byte[] payload = buffer.toByteArray();
+		CRC32 crc = new CRC32();
+		crc.update(payload);
+		Parcel result = Parcel.obtain();
+		result.writeInt(STORE_MAGIC);
+		result.writeInt(3);
+		result.writeByteArray(payload);
+		result.writeInt((int) crc.getValue());
+		byte[] fixture = result.marshall();
+		result.recycle();
+		return fixture;
+	}
+
+	private static void skipExtras(DataInputStream in) throws Exception {
+		int count=in.readInt();
+		if (count < -1 || count > 4096) throw new AssertionError("Invalid extras count");
+		for(int i=0;i<count;i++) {
+			readString(in);
+			int tag=in.readUnsignedByte();
+			switch(tag) {
+			case 0: break;
+			case 1: readString(in); break;
+			case 2: in.readInt(); break;
+			case 3: in.readLong(); break;
+			case 4: in.readBoolean(); break;
+			case 5: in.readDouble(); break;
+			case 6: case 7: case 8:
+				int n=in.readInt();
+				if(n<0 || n>4096) throw new AssertionError("Invalid array");
+				for(int j=0;j<n;j++) { if(tag==6) in.readInt(); else if(tag==7) in.readLong(); else readString(in); }
+				break;
+			default: throw new AssertionError("Invalid tag");
+			}
+		}
 	}
 
 	private static String readTypedIntent(DataInputStream in) throws Exception {

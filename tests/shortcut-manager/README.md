@@ -15,55 +15,34 @@ Reference consulted while writing the implementation and this probe: AOSP
 
 ## Build
 
-Build ATL in the isolated `atl_dev` lane environment using the resource wrapper:
+After building ATL inside Alpine, compile the probe against that exact build:
 
 ```sh
-python3 /home/morten/.omp/profiles/atl-parallel-ab/agent/resources.py \
-  --team osmand --kind build --timeout 3000 -- toolbox run --container atl_dev sh -lc \
-  "ATL_WORKSPACE=/home/morten/ATL/parallel-apps-ab/osmand/env \
-   ATL_PREFIX=/home/morten/ATL/parallel-apps-ab/osmand/prefix \
-   ATL_BUILD_DIR=/home/morten/ATL/parallel-apps-ab/osmand/repo/build-mobile JOBS=2 \
-   sh /home/morten/ATL/parallel-apps-ab/osmand/repo/scripts/mobile/build.sh"
+sh tests/shortcut-manager/build.sh /absolute/path/to/build /absolute/path/to/probe
 ```
 
-Build the probe against that lane's `hax.jar` and `framework-res.apk`, then
-sign the aligned output on the host with the lane's test key:
-
-```sh
-python3 /home/morten/.omp/profiles/atl-parallel-ab/agent/resources.py \
-  --team osmand --kind build --timeout 600 -- toolbox run --container atl_dev sh -lc \
-  "ATL_WORKSPACE=/home/morten/ATL/parallel-apps-ab/osmand/env \
-   ATL_PREFIX=/home/morten/ATL/parallel-apps-ab/osmand/prefix \
-   sh /home/morten/ATL/parallel-apps-ab/osmand/repo/tests/shortcut-manager/build.sh \
-   /home/morten/ATL/parallel-apps-ab/osmand/repo/build-mobile \
-   /home/morten/ATL/agent-work/PARALLEL-APPS-AB/osmand/probe/shortcut-manager"
-
-/home/morten/Android/Sdk/build-tools/37.0.0/apksigner sign \
-  --ks /home/morten/.android/debug.keystore --ks-pass pass:android \
-  --key-pass pass:android --ks-key-alias androiddebugkey \
-  /home/morten/ATL/agent-work/PARALLEL-APPS-AB/osmand/probe/shortcut-manager/shortcut-manager.apk
-```
-
-`build.sh` runs `zipalign` before signing; do not re-align after signing. The
-probe has no special permissions. Record the final signed APK hash with `sha256sum`.
+Sign `shortcut-manager.apk` on the host using the Android SDK's `apksigner`
+and a test-only debug key when running on Android. `build.sh` aligns before
+signing; do not re-align afterward. The probe needs no special permissions.
 
 ## ATL scenario suite
 
-Run the host-side driver under the lane resource wrapper; do not wrap the driver
-again per child. It starts each probe through the shared runner while retaining
-the same lane app-data directory, including the concurrent process scenarios.
-The driver creates a fresh timestamp/PID subdirectory under the requested
-output base so stale runner logs/results cannot be mistaken for new evidence.
-Each finite scenario requires both `ATL-PROBE STATUS=OK` and a `PASS` result
-JSON. Deliberately killed processes are the only expected runner exit-3 cases.
+The host driver uses the external `run-atl-probe-lane.sh` integration harness.
+Set `ATL_PROBE_RUNNER` to its location, `ATL_LANE_ROOT` to an isolated test-data
+root, and `ATL_LANE` (default `osmand`). Select the actual build using
+`ATL_PROBE_SOURCE_DIR`, `ATL_PROBE_BUILD_DIR`, `ATL_PROBE_PREFIX` and
+`ATL_PROBE_CORE_JAR`. This harness is not bundled with ATL; without it, the
+individual probe modes can be launched with `-e mode=checks`, etc., but the
+multi-process crash/lock scenarios have not been run.
 
 ```sh
-python3 /home/morten/.omp/profiles/atl-parallel-ab/agent/resources.py \
-  --team osmand --kind atl --timeout 600 -- \
-  sh /home/morten/ATL/parallel-apps-ab/osmand/repo/tests/shortcut-manager/run-atl-scenarios.sh \
-  /home/morten/ATL/agent-work/PARALLEL-APPS-AB/osmand/probe/shortcut-manager/shortcut-manager.apk \
-  /home/morten/ATL/agent-work/PARALLEL-APPS-AB/osmand/probe/scenarios
+sh tests/shortcut-manager/run-atl-scenarios.sh /absolute/path/to/probe.apk /absolute/path/to/results
 ```
+
+Use a dedicated data root: corruption tests deliberately rewrite the probe's
+own store. The driver creates a fresh result directory per invocation, and
+checks both launcher exit status and the probe's result JSON. Deliberately
+killed processes are the only expected nonzero launcher exits.
 
 The suite covers:
 
@@ -75,7 +54,7 @@ The suite covers:
   check decodes the durable file independently and requires the fresh manager's
   `getDynamicShortcuts()` to match it exactly, so the second launch proves the
   state the first launch committed is reloaded rather than silently reset;
-* the ATL-only typed v3 schema, corrupt/truncated/unknown-version recovery,
+* the ATL-only typed v4 schema, corrupt/truncated/unknown-version recovery,
   injected interrupted-write handling and the **same-length rename-failure**
   regression;
 * two independent `peer` processes doing concurrent read/modify/write while raw
@@ -87,7 +66,7 @@ The suite covers:
   immediate successful commit that verifies the lock sentinel is intact;
 * a `crashloop` process killed during large repeated commits, followed by a
   complete-store decode and immediate successful append; and
-* an exact checked-in legacy v2 fixture migration to v3, followed by a fresh
+* an exact checked-in legacy v2 fixture migration to v4, followed by a fresh
   process comparing every encoded field after restart.
 
 The shared `run-atl-probe-lane.sh` performs an initial one-second launcher
@@ -100,7 +79,7 @@ the host driver while active; the driver waits two seconds after the ready marke
 so the shared runner is already past its startup liveness check.
 
 The app-data root is
-`/home/morten/ATL/parallel-apps-ab/osmand/data/apps`; the store filename for the
+`$ATL_LANE_ROOT/$ATL_LANE/data/apps`; the store filename for the
 probe is `files/shortcuts.bin.org.atl.shortcutmanager.bin`, with a stable sibling
 `.lock`. The cross-process probes intentionally share that data path.
 
@@ -114,11 +93,7 @@ activity, saves installation/start/logcat evidence and requires a public
 migration checks are skipped on Android.
 
 ```sh
-python3 /home/morten/.omp/profiles/atl-parallel-ab/agent/resources.py \
-  --team osmand --kind android --timeout 600 -- \
-  sh /home/morten/ATL/parallel-apps-ab/osmand/repo/tests/shortcut-manager/run-android-reference.sh \
-  /home/morten/ATL/agent-work/PARALLEL-APPS-AB/osmand/probe/shortcut-manager/shortcut-manager.apk \
-  /home/morten/ATL/agent-work/PARALLEL-APPS-AB/osmand/probe/api37-checks
+ADB=/path/to/adb sh tests/shortcut-manager/run-android-reference.sh /absolute/path/to/probe.apk /absolute/path/to/results
 ```
 
 ## Store-write regression details
@@ -151,3 +126,16 @@ implementation and compares every encoded field before and after migration.
   abrupt process death.
 * `Process.killProcess` cannot provide the required hard-kill semantics from
   inside the probe, so the host driver kills the printed app PID.
+
+## Integration scope and payload preservation
+
+Store schema 4 preserves publisher extras and Intent extras (String, int, long,
+boolean, double, int[], long[], String[], and null) using explicit typed values.
+Readers accept previous schemas 2 and 3; subsequent writes upgrade to 4. Parcel
+schema 2 preserves the same payload and reads legacy schema 1. Unsupported extra
+values and Intent selectors/ClipData fail explicitly instead of dropping data.
+Icons, launcher pinning, manifest shortcuts and launcher UI remain unsupported.
+The test checks published/read-back payload, detached arrays and Parcel round trips.
+
+The integration checks also convert typed v4 records into an independent v3
+fixture, then verify readback and upgrade without losing the published entries.

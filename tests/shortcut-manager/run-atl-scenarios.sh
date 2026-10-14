@@ -12,9 +12,9 @@ OUTPUT_BASE=$2
 RUN_ID=$(date +%Y%m%dT%H%M%S)-$$
 OUT_ROOT="$OUTPUT_BASE/$RUN_ID"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-LANE_ROOT=${ATL_LANE_ROOT:-/home/morten/ATL/parallel-apps-ab}
-LANE=osmand
-RUNNER=/home/morten/ATL/parallel-apps/tools/run-atl-probe-lane.sh
+LANE_ROOT=${ATL_LANE_ROOT:-$HOME/ATL/parallel-apps-ab}
+LANE=${ATL_LANE:-osmand}
+RUNNER=${ATL_PROBE_RUNNER:-$HOME/ATL/parallel-apps/tools/run-atl-probe-lane.sh}
 APP_DATA="$LANE_ROOT/$LANE/data/apps"
 STORE="$APP_DATA/$(basename "$APK")_/files/shortcuts.bin.org.atl.shortcutmanager.bin"
 

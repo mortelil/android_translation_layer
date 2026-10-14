@@ -41,12 +41,12 @@ import java.util.zip.CRC32;
  *
  * <p>The state is persisted to {@code <files-dir>/shortcuts.<package>.bin}.
  *
- * <h2>Store format (version 3)</h2>
- * A version-3 store is a Parcel-framed header followed by an explicitly typed
+ * <h2>Store format (version 4)</h2>
+ * A version-4 store is a Parcel-framed header followed by an explicitly typed
  * payload:
  * <pre>
  *   int32   STORE_MAGIC (&hArr;{@link #STORE_MAGIC})
- *   int32   STORE_VERSION (&hArr;{@link #STORE_VERSION}, currently 3)
+ *   int32   STORE_VERSION (&hArr;{@link #STORE_VERSION}, currently 4)
  *   byte[]  payload            (Parcel {@code writeByteArray}: int32 length + bytes)
  *   int32   crc32(payload)     ({@link java.util.zip.CRC32})
  * </pre>
@@ -62,9 +62,10 @@ import java.util.zip.CRC32;
  * {@link ShortcutInfo#writeToParcel Parcel}-encoded record each) is decoded by
  * {@link ShortcutInfo#CREATOR} - that is the one and only place the store
  * reader touches a Parcel for record data, and it is a validated one-shot
- * migration: the first write of any kind re-emits the state in version 3, so
+ * migration: the first write of any kind re-emits the state in version 4, so
  * the legacy path can never be used to produce new bytes. {@code
- * ShortcutInfo}'s parcel layout (PARCEL_VERSION {@code 1}) is therefore frozen.
+ * ShortcutInfo}'s legacy parcel schema 1 remains readable. Typed store schema 3
+ * is also readable; schema 4 adds publisher and Intent extras.
  *
  * <h2>Corruption recovery</h2>
  * A store that does not decode (bad magic, unknown version, bad CRC, truncated
@@ -145,7 +146,7 @@ public class ShortcutManager {
 	 *
 	 * @hide
 	 */
-	public static final int STORE_VERSION = 3;
+	public static final int STORE_VERSION = 4;
 
 	/** The previous ATL store version, decoded once for migration. */
 	private static final int STORE_VERSION_LEGACY = 2;
@@ -832,8 +833,8 @@ public class ShortcutManager {
 				throw new IllegalArgumentException("not an ATL shortcut store");
 			}
 			int version = parcel.readInt();
-			if (version == STORE_VERSION) {
-				decodeCurrent(parcel, loaded.dynamic);
+			if (version == STORE_VERSION || version == 3) {
+				decodeCurrent(parcel, loaded.dynamic, version >= 4);
 			} else if (version == STORE_VERSION_LEGACY) {
 				decodeLegacy(parcel, loaded.dynamic);
 			} else {
@@ -849,8 +850,8 @@ public class ShortcutManager {
 		return loaded;
 	}
 
-	/** Decodes a version-3 store: typed payload framed by a length and a CRC. */
-	private static void decodeCurrent(Parcel parcel, LinkedHashMap<String, ShortcutInfo> out) {
+	/** Decodes a version-3 or version-4 store: typed payload framed by a length and a CRC. */
+	private static void decodeCurrent(Parcel parcel, LinkedHashMap<String, ShortcutInfo> out, boolean withExtras) {
 		int payloadLength = parcel.readInt();
 		if (payloadLength < 0 || payloadLength > parcel.dataAvail()) {
 			throw new IllegalArgumentException("bad shortcut store payload length " + payloadLength);
@@ -872,13 +873,13 @@ public class ShortcutManager {
 				throw new IllegalArgumentException("bad shortcut count " + count);
 			}
 			for (int i = 0; i < count; i++) {
-				ShortcutInfo info = ShortcutInfo.readTypedFrom(in);
+				ShortcutInfo info = ShortcutInfo.readTypedFrom(in, withExtras);
 				if (info.getId() == null) {
 					throw new IllegalArgumentException("shortcut without id");
 				}
 				out.put(info.getId(), info);
 			}
-			if (in.read() != -1) {
+			if (parcel.dataAvail() != 0 || in.read() != -1) {
 				throw new IllegalArgumentException("trailing bytes in shortcut store payload");
 			}
 		} catch (IOException e) {
@@ -890,7 +891,7 @@ public class ShortcutManager {
 	 * Decodes a version-2 (legacy) store. The record bytes are Parcel-encoded and
 	 * are read with {@link ShortcutInfo#CREATOR}, the exact decoder the previous
 	 * format wrote with; this is the only Parcel-coded record path and it is
-	 * read-only. The next write re-emits the state in version 3.
+	 * read-only. The next write re-emits the state in version 4.
 	 */
 	private static void decodeLegacy(Parcel parcel, LinkedHashMap<String, ShortcutInfo> out) {
 		int count = parcel.readInt();
@@ -906,7 +907,7 @@ public class ShortcutManager {
 		}
 	}
 
-	/** Encodes a version-3 store (see the class comment for the layout). */
+	/** Encodes a version-4 store (see the class comment for the layout). */
 	private static byte[] encode(LinkedHashMap<String, ShortcutInfo> dynamic) throws IOException {
 		ByteArrayOutputStream payloadBuffer = new ByteArrayOutputStream();
 		DataOutputStream payload = new DataOutputStream(payloadBuffer);
