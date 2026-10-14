@@ -58,6 +58,8 @@ public class AudioProbeActivity extends Activity {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(new TextView(this));
+		checkThemeAttributeReferences();
+		checkThemeStylesAcrossAssetManagerCopy();
 		new Thread(new Runnable() {
 			public void run() {
 				try {
@@ -75,6 +77,110 @@ public class AudioProbeActivity extends Activity {
 				// and a self-exiting process as a launcher failure.
 			}
 		}, "audio-probe").start();
+	}
+
+	/**
+	 * Styled-attribute contract for theme values that are themselves attribute
+	 * references (Res_value::TYPE_ATTRIBUTE).  AOSP resolves such a reference
+	 * against the theme while the style is applied -- AttributeResolution.cpp
+	 * ApplyStyle()/ResolveAttrs() and AssetManager2.cpp Theme::GetAttribute(),
+	 * whose chain walk is bounded to kMaxIterations == 20 -- so TypedArray's
+	 * getters never receive an unresolved attribute.  A reference the theme
+	 * cannot resolve stays absent (TYPE_NULL), which is what the getters
+	 * document ("Returns null if the attribute is not defined").
+	 *
+	 * This reproduces org.videolan.vlc's VideoPlayerActivity onCreate(), which
+	 * threw
+	 *   java.lang.UnsupportedOperationException: Failed to resolve attribute at index 13
+	 *   TypedValue{t=0x2/d=0x7f0404f5 a=-1}   (getDrawable(TypedArray.java:894))
+	 * and
+	 *   ... at index 5: TypedValue{t=0x2/d=0x101009b a=1} (getColorStateList(TypedArray.java:518))
+	 * while inflating android:background="?attr/selectableItemBackgroundBorderless".
+	 */
+	private void checkThemeAttributeReferences() {
+		android.content.res.Resources res = getResources();
+		String pkg = getPackageName();
+		int attrRef = res.getIdentifier("probeAttrRef", "attr", pkg);
+		int attrSelf = res.getIdentifier("probeAttrSelf", "attr", pkg);
+		check("theme_attr_ids_visible", attrRef != 0 && attrSelf != 0,
+		      "probeAttrRef=0x" + Integer.toHexString(attrRef)
+		      + " probeAttrSelf=0x" + Integer.toHexString(attrSelf));
+
+		// (1) Resolvable chain: ?attr/probeAttrRef -> ?attr/probeAttrConcrete
+		//     -> @color/probe_chain_color.  Must yield the concrete color.
+		try {
+			android.content.res.TypedArray a =
+				getTheme().obtainStyledAttributes(new int[] { attrRef });
+			android.content.res.ColorStateList csl = a.getColorStateList(0);
+			int color = csl == null ? 0 : csl.getDefaultColor();
+			check("theme_attr_chain_resolves", csl != null && color == 0xffff0000,
+			      "getColorStateList(0)=" + (csl == null ? "null" : "0x" + Integer.toHexString(color)));
+			a.recycle();
+		} catch (Throwable t) {
+			fail("theme_attr_chain_resolves", t);
+		}
+
+		// (2) Unresolvable chain (the item references itself, exactly like the
+		//     framework's own base styles): the value must be absent, never an
+		//     unresolved TYPE_ATTRIBUTE for the getters to throw on.
+		try {
+			android.content.res.TypedArray a =
+				getTheme().obtainStyledAttributes(new int[] { attrSelf });
+			boolean has = a.hasValue(0);
+			android.content.res.ColorStateList csl = a.getColorStateList(0);
+			android.graphics.drawable.Drawable d = a.getDrawable(0);
+			check("theme_attr_unresolvable_is_absent",
+			      !has && csl == null && d == null,
+			      "hasValue=" + has + " getColorStateList=" + csl + " getDrawable=" + d);
+			a.recycle();
+		} catch (Throwable t) {
+			fail("theme_attr_unresolvable_is_absent", t);
+		}
+	}
+
+	/**
+	 * Resources.Theme.setTo() across two Resources objects - i.e. two
+	 * AssetManagers - must keep the styles the source theme applied.
+	 *
+	 * AOSP's Theme.setTo() carries the applied styles: that is what
+	 * ContextThemeWrapper.setTheme() relies on when it copies the base
+	 * context's theme into its own (configuration-copy) Resources, the path
+	 * AppCompat takes for every Activity.  Context.createConfigurationContext()
+	 * builds that copy through AssetManager.createConfigurationCopy(), a
+	 * different AssetManager, so a native theme copy that only transferred the
+	 * values the destination table can already resolve would drop every style
+	 * value.  In org.videolan.vlc's VideoPlayerActivity that was
+	 * android:textColorLink (0x0101009b) out of the applied AppCompat theme,
+	 * which then threw UnsupportedOperationException from
+	 * TypedArray.getColorStateList(TypedArray.java:518) during layout.
+	 *
+	 * AOSP keeps the applied styles in the theme's ThemeKey and re-applies them
+	 * (ResourcesImpl.ThemeImpl.applyStyle/setTo/rebase, android-17.0.0_r1 /
+	 * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).  This check pins that
+	 * behaviour by asking the copied theme for a value only the applied style
+	 * defines (ProbeTheme's probeAttrRef -> ?attr/probeAttrConcrete ->
+	 * @color/probe_chain_color), which the destination table cannot resolve on
+	 * its own.
+	 */
+	private void checkThemeStylesAcrossAssetManagerCopy() {
+		String pkg = getPackageName();
+		int attrRef = getResources().getIdentifier("probeAttrRef", "attr", pkg);
+		String what = "theme_styles_survive_assetmanager_copy";
+		try {
+			android.content.Context copy =
+				createConfigurationContext(new android.content.res.Configuration());
+			android.content.res.Resources.Theme dst = copy.getResources().newTheme();
+			dst.setTo(getTheme());
+			android.content.res.TypedArray a = dst.obtainStyledAttributes(new int[] { attrRef });
+			android.content.res.ColorStateList csl = a.getColorStateList(0);
+			int color = csl == null ? 0 : csl.getDefaultColor();
+			check(what, csl != null && color == 0xffff0000,
+			      "copied-theme getColorStateList(0)="
+			      + (csl == null ? "null" : "0x" + Integer.toHexString(color)));
+			a.recycle();
+		} catch (Throwable t) {
+			fail(what, t);
+		}
 	}
 
 	private static void check(String what, boolean ok, String detail) {

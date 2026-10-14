@@ -13,7 +13,7 @@ mkdir -p "$out/classes"
 "${JAVAC:-javac}" -source 8 -target 8 -cp "$atl_build/src/api-impl/hax.jar:$art_java/core-all_classes.jar" \
 	-d "$out/classes" "$src/AudioProbeActivity.java"
 dx --dex --output="$out/classes.dex" "$out/classes"
-aapt package -f -M "$src/AndroidManifest.xml" -I "$atl_build/res/framework-res/framework-res.apk" \
+aapt package -f -M "$src/AndroidManifest.xml" -S "$src/res" -I "$atl_build/res/framework-res/framework-res.apk" \
 	-F "$out/audio-probe.apk"
 (cd "$out" && aapt add audio-probe.apk classes.dex)
 printf '%s\n' "$out/audio-probe.apk"
