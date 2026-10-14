@@ -2046,6 +2046,17 @@ public class View implements Drawable.Callback {
 		return callOnClick();
 	}
 
+	private boolean soundEffectsEnabled = true;
+
+	public void setSoundEffectsEnabled(boolean enabled) {
+		soundEffectsEnabled = enabled;
+	}
+
+	public boolean isSoundEffectsEnabled() {
+		return soundEffectsEnabled;
+	}
+
+	// UI sound playback is not implemented yet; preserve the per-view preference.
 	public void playSoundEffect(int soundConstant) {}
 
 	public void computeScroll() {}

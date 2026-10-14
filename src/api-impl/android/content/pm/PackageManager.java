@@ -2219,7 +2219,11 @@ public class PackageManager {
 	 */
 	public boolean hasSystemFeature(String name) {
 		switch (name) {
-			case "android.hardware.touchscreen.multitouch.distinct":
+			// ATL exposes Android touch input through its GTK input translation.
+			// Advertising distinct multitouch also implies the base touch feature.
+			case FEATURE_TOUCHSCREEN:
+			case FEATURE_TOUCHSCREEN_MULTITOUCH:
+			case FEATURE_TOUCHSCREEN_MULTITOUCH_DISTINCT:
 				return true;
 			case FEATURE_AUTOMOTIVE:
 				return System.getenv("ATL_IS_AUTOMOTIVE") != null;
