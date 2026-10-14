@@ -28,10 +28,14 @@ for name in libart libart-compiler libutils libandroidfw; do
     test -s "$libs/$name.so" || { echo "Missing built library: $libs/$name.so" >&2; exit 1; }
 done
 mkdir -p "$atl_prefix/lib" "$atl_prefix/java/dex"
+: > "$atl_prefix/native-libraries.txt.new"
 for library in "$libs"/*.so; do
 	# Retain private-build symbols; no system install or stripping is performed.
+	test -s "$library"
 	ln -sfn "$library" "$atl_prefix/lib/$(basename "$library")"
+	basename "$library" >> "$atl_prefix/native-libraries.txt.new"
 done
+mv "$atl_prefix/native-libraries.txt.new" "$atl_prefix/native-libraries.txt"
 # ART locates packaged JNI libraries relative to libart.so's load directory.
 test -d "$atl_art_dex/natives"
 if test -e "$atl_prefix/java/dex/art" && test ! -L "$atl_prefix/java/dex/art"; then
