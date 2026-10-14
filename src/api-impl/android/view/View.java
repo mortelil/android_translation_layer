@@ -1965,6 +1965,18 @@ public class View implements Drawable.Callback {
 		setTranslationY(y - top);
 	}
 
+	/**
+	 * Returns whether this View has content which overlaps.
+	 *
+	 * <p>This function, intended to be overridden by subclasses, should return
+	 * false if the view does not have overlapping rendering. The default
+	 * implementation returns true, matching AOSP
+	 * {@code android-37.0 android/view/View.java}.</p>
+	 */
+	public boolean hasOverlappingRendering() {
+		return true;
+	}
+
 	public void setAlpha(float alpha) {
 		native_setVisibility(widget, visibility, alpha, atl_enabled);
 		this.alpha = alpha;
