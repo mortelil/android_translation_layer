@@ -4,6 +4,7 @@
 #include "../util.h"
 
 #include "WrapperWidget.h"
+#include "AndroidLineBox.h"
 #include "../graphics/AndroidTextAttributes.h"
 #include "../graphics/AndroidTypeface.h"
 
@@ -12,8 +13,9 @@
 static GtkLabel *box_get_label(JNIEnv *env, GtkWidget *box)
 {
 	GtkWidget *label = gtk_widget_get_last_child(GTK_WIDGET(box));
-	if (!GTK_IS_LABEL(label))
+	if (!GTK_IS_LABEL(label) && !ATL_IS_LINE_BOX(label))
 		label = gtk_widget_get_prev_sibling(label);
+	if (ATL_IS_LINE_BOX(label)) label = atl_line_box_get_label(ATL_LINE_BOX(label));
 	return GTK_LABEL(label);
 }
 
@@ -162,7 +164,9 @@ JNIEXPORT jlong JNICALL Java_android_widget_TextView_native_1constructor(JNIEnv 
 	gtk_label_set_xalign(GTK_LABEL(label), 0.f);
 	gtk_label_set_yalign(GTK_LABEL(label), 0.f);
 	gtk_widget_set_hexpand(label, TRUE);
-	gtk_box_append(GTK_BOX(box), label);
+	GtkWidget *line_box = atl_line_box_new(label);
+	gtk_widget_set_hexpand(line_box, TRUE);
+	gtk_box_append(GTK_BOX(box), line_box);
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), box);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
 
@@ -276,4 +280,17 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTypeface(JNIEnv *
 	if (label) gtk_label_set_attributes(label, attrs);
 	else gtk_text_set_attributes(GTK_TEXT(widget), attrs);
 	pango_attr_list_unref(attrs);
+}
+
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setLineSpacing(JNIEnv *env, jobject this, jlong ptr, jfloat add, jfloat mult)
+{
+	GtkWidget *widget = _PTR(ptr);
+	/* GtkText is a single visual line. Android does not add spacing after
+	 * the last line; storing the property must not enlarge this editor. */
+	if (GTK_IS_TEXT(widget)) return;
+	GtkLabel *label = GTK_IS_BOX(widget) ? box_get_label(env, widget) : NULL;
+	GtkWidget *parent = label ? gtk_widget_get_parent(GTK_WIDGET(label)) : NULL;
+	if (parent && ATL_IS_LINE_BOX(parent)) atl_line_box_set_spacing(ATL_LINE_BOX(parent), add, mult);
+	else if (add != 0 || mult != 1)
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsupportedOperationException"), "Line spacing requires an ATL text label");
 }

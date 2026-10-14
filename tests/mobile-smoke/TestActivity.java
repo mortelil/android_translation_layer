@@ -56,6 +56,7 @@ public class TestActivity extends android.app.Activity {
 			System.out.println("PASS: Resources resolves app classes through the owning class loader");
 			TestBitmap.main(new String[0]);
 			TestDynamicLayout.run();
+			TestLineSpacing.run(this);
 			TestLayoutLines.run();
 			TestQwerty.run();
 			TestEditText.run(this);

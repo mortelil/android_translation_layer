@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <pango/pango.h>
+#include "AndroidLineGeometry.h"
 
 #include "../defines.h"
 #include "../util.h"
@@ -16,6 +17,11 @@ static int utf16_prefix_length(const char *text, const char *end)
 	for (const char *p = text; p < end; p = g_utf8_next_char(p))
 		units += g_utf8_get_char(p) > 0xffff ? 2 : 1;
 	return units;
+}
+
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1spacing(JNIEnv *env, jclass cls, jlong ptr, jfloat add, jfloat mult)
+{
+	atl_layout_set_spacing(_PTR(ptr), add, mult);
 }
 
 JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes(JNIEnv *env, jclass this, jlong ptr, jintArray encoded)
@@ -62,10 +68,7 @@ JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1width(JNIEnv *env, 
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1height(JNIEnv *env, jobject object, jlong layout)
 {
-	PangoLayout *pango_layout = _PTR(layout);
-	PangoRectangle logical_rect;
-	pango_layout_get_extents(pango_layout, NULL, &logical_rect);
-	return logical_rect.height / PANGO_SCALE;
+	return atl_layout_geometry(_PTR(layout))->height;
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1count(JNIEnv *env, jobject object, jlong layout)
@@ -92,30 +95,16 @@ JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1end(JNIEnv *e
 	return utf16_prefix_length(text, text + byte_index);
 }
 
-static void get_line_metrics(PangoLayout *pango_layout, jint line, int *baseline, PangoRectangle *logical_rect)
-{
-	PangoLayoutIter *pango_iter = pango_layout_get_iter(pango_layout);
-	while (line--)
-		pango_layout_iter_next_line(pango_iter);
-	*baseline = pango_layout_iter_get_baseline(pango_iter) / PANGO_SCALE;
-	pango_layout_line_get_extents(pango_layout_iter_get_line_readonly(pango_iter), NULL, logical_rect);
-	pango_layout_iter_free(pango_iter);
-}
-
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1top(JNIEnv *env, jobject object, jlong layout, jint line)
 {
-	int baseline;
-	PangoRectangle logical_rect;
-	get_line_metrics(_PTR(layout), line, &baseline, &logical_rect);
-	return baseline - PANGO_ASCENT(logical_rect) / PANGO_SCALE;
+	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
+	return g_array_index(g->lines, AtlTextLine, line).top;
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1bottom(JNIEnv *env, jobject object, jlong layout, jint line)
 {
-	int baseline;
-	PangoRectangle logical_rect;
-	get_line_metrics(_PTR(layout), line, &baseline, &logical_rect);
-	return baseline + PANGO_DESCENT(logical_rect) / PANGO_SCALE;
+	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
+	return g_array_index(g->lines, AtlTextLine, line).bottom;
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1left(JNIEnv *env, jobject object, jlong layout, jint line)
@@ -144,37 +133,27 @@ JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1width(JNIEnv 
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1baseline(JNIEnv *env, jobject object, jlong layout, jint line)
 {
-	int baseline;
-	PangoRectangle logical_rect;
-	get_line_metrics(_PTR(layout), line, &baseline, &logical_rect);
-	return baseline;
+	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
+	return g_array_index(g->lines, AtlTextLine, line).baseline;
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1ascent(JNIEnv *env, jobject object, jlong layout, jint line)
 {
-	PangoLayout *pango_layout = _PTR(layout);
-	PangoLayoutLine *pango_line = pango_layout_get_line_readonly(pango_layout, line);
-	PangoRectangle logical_rect;
-	pango_layout_line_get_extents(pango_line, NULL, &logical_rect);
-	return -PANGO_ASCENT(logical_rect) / PANGO_SCALE;
+	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
+	return g_array_index(g->lines, AtlTextLine, line).ascent;
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1descent(JNIEnv *env, jobject object, jlong layout, jint line)
 {
-	PangoLayout *pango_layout = _PTR(layout);
-	PangoLayoutLine *pango_line = pango_layout_get_line_readonly(pango_layout, line);
-	PangoRectangle logical_rect;
-	pango_layout_line_get_extents(pango_line, NULL, &logical_rect);
-	return PANGO_DESCENT(logical_rect) / PANGO_SCALE;
+	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
+	return g_array_index(g->lines, AtlTextLine, line).descent;
 }
 
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1for_1vertical(JNIEnv *env, jobject object, jlong layout, jint y)
 {
-	PangoLayout *pango_layout = _PTR(layout);
-	int index_, trailing;
-	pango_layout_xy_to_index(pango_layout, 0, y * PANGO_SCALE, &index_, &trailing);
-	int line, x_pos;
-	pango_layout_index_to_line_x(pango_layout, index_, trailing, &line, &x_pos);
+	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
+	int line = 0;
+	while (line + 1 < g->lines->len && y >= g_array_index(g->lines, AtlTextLine, line + 1).top) line++;
 	return line;
 }
 
@@ -197,7 +176,7 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw(JNIEnv *env, jobjec
 	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	struct AndroidPaint *android_paint = _PTR(paint_ptr);
 
-	gtk_snapshot_append_layout(snapshot, pango_layout, &android_paint->color);
+	atl_layout_snapshot(snapshot, pango_layout, &android_paint->color);
 }
 
 JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw_1custom_1canvas(JNIEnv *env, jobject object, jlong layout, jobject canvas, jobject paint)
@@ -206,6 +185,8 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw_1custom_1canvas(JNI
 
 	const gchar *text = pango_layout_get_text(pango_layout);
 	PangoLayoutIter *pango_iter = pango_layout_get_iter(pango_layout);
+	const AtlLineGeometry *geometry = atl_layout_geometry(pango_layout);
+	int index = 0;
 	do {
 		PangoLayoutLine *pango_line = pango_layout_iter_get_line_readonly(pango_iter);
 
@@ -213,7 +194,7 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw_1custom_1canvas(JNI
 		jint end = (*env)->GetStringLength(env, text_jstr);
 		if (pango_line->length < end)
 			end = pango_line->length;
-		jfloat y = (float)pango_layout_iter_get_baseline(pango_iter) / PANGO_SCALE;
+		jfloat y = g_array_index(geometry->lines, AtlTextLine, index++).baseline;
 		(*env)->CallVoidMethod(env, canvas, handle_cache.canvas.drawText, text_jstr, (jint)0, end, (jfloat)0, y, paint);
 		(*env)->DeleteLocalRef(env, text_jstr);
 	} while (pango_layout_iter_next_line(pango_iter));

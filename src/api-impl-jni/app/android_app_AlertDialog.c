@@ -4,6 +4,7 @@
 #include "../defines.h"
 #include "../util.h"
 #include "../android_view_Window.h"
+#include "../widgets/AndroidLineBox.h"
 #include "../generated_headers/android_app_AlertDialog.h"
 
 struct _ListEntry {
@@ -47,6 +48,7 @@ JNIEXPORT void JNICALL Java_android_app_AlertDialog_nativeConstruct(JNIEnv *env,
 
 	GtkWidget *message_box = GTK_WIDGET(_PTR(message_ptr));
 	GtkWidget *label = gtk_widget_get_first_child(message_box);
+	if (ATL_IS_LINE_BOX(label)) label = atl_line_box_get_label(ATL_LINE_BOX(label));
 	gtk_label_set_max_width_chars(GTK_LABEL(label), 50);
 	/* Keep the message in the real Java decor hierarchy. Retain the decor
 	 * while replacing the window's old (possibly scaled) content root. */

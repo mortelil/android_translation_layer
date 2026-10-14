@@ -17,6 +17,14 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1text_1attributes
 
 /*
  * Class:     android_text_Layout
+ * Method:    native_set_spacing
+ * Signature: (JFF)V
+ */
+JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1spacing
+  (JNIEnv *, jclass, jlong, jfloat, jfloat);
+
+/*
+ * Class:     android_text_Layout
  * Method:    native_constructor
  * Signature: (Ljava/lang/String;JI)J
  */
