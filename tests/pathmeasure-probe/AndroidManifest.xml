@@ -1,0 +1,13 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="org.atl.tests.pathmeasure">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="26" />
+    <application android:label="ATL pathmeasure probe">
+        <activity android:name=".PathMeasureProbeActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

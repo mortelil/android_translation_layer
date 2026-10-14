@@ -246,3 +246,19 @@ JNIEXPORT jboolean JNICALL Java_android_graphics_Path_native_1is_1empty(JNIEnv *
 {
 	return !path || gsk_path_is_empty(_PTR(path));
 }
+
+/* Four rational quadratic quarter-arcs form an exact circle. Start at the
+ * rightmost point, as Android/Skia does, and preserve the requested winding. */
+JNIEXPORT void JNICALL Java_android_graphics_Path_native_1add_1circle(JNIEnv *env, jclass klass,
+    jlong builder_ptr, jfloat x, jfloat y, jfloat radius, jboolean clockwise)
+{
+	GskPathBuilder *builder = _PTR(builder_ptr);
+	float dy = clockwise ? radius : -radius;
+	const float weight = 0.7071067811865475f;
+	gsk_path_builder_move_to(builder, x + radius, y);
+	gsk_path_builder_conic_to(builder, x + radius, y + dy, x, y + dy, weight);
+	gsk_path_builder_conic_to(builder, x - radius, y + dy, x - radius, y, weight);
+	gsk_path_builder_conic_to(builder, x - radius, y - dy, x, y - dy, weight);
+	gsk_path_builder_conic_to(builder, x + radius, y - dy, x + radius, y, weight);
+	gsk_path_builder_close(builder);
+}
