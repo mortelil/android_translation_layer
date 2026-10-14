@@ -16,6 +16,7 @@ extern GtkWindow *window;
 typedef struct {
 	GtkWidget parent;
 	GtkWidget *child;
+	GskRenderNode *presented;
 	double scale;
 } ATLScaleRoot;
 typedef GtkWidgetClass ATLScaleRootClass;
@@ -56,14 +57,35 @@ static void scale_root_allocate(GtkWidget *widget, int width, int height, int ba
 	                    gsk_transform_scale(NULL, 1.0 / root->scale, 1.0 / root->scale));
 }
 
+/* AOSP ViewRootImpl.performTraversals() dispatches the window's OnPreDraw
+ * listeners before drawing and skips the draw when one cancels it. The whole
+ * window content is presented through this root, so dispatching here runs
+ * before any of the hierarchy is snapshotted. */
+extern gboolean atl_view_tree_observer_dispatch_pre_draw(GtkWidget *window);
+
 static void scale_root_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 {
-	gtk_widget_snapshot_child(widget, ((ATLScaleRoot *)widget)->child, snapshot);
+	ATLScaleRoot *root = (ATLScaleRoot *)widget;
+	GtkRoot *window_root = gtk_widget_get_root(widget);
+
+	if (!window_root || atl_view_tree_observer_dispatch_pre_draw(GTK_WIDGET(window_root))) {
+		GtkSnapshot *next = gtk_snapshot_new();
+		gtk_widget_snapshot_child(widget, root->child, next);
+		GskRenderNode *node = gtk_snapshot_free_to_node(next);
+		g_clear_pointer(&root->presented, gsk_render_node_unref);
+		root->presented = node;
+	}
+	/* A cancelled traversal leaves the last presented frame on screen. Returning
+	 * an empty snapshot would erase it, unlike Android's skipped draw. The node
+	 * is immutable, so later child invalidations cannot change this saved frame. */
+	if (root->presented)
+		gtk_snapshot_append_node(snapshot, root->presented);
 }
 
 static void scale_root_dispose(GObject *object)
 {
 	ATLScaleRoot *root = (ATLScaleRoot *)object;
+	g_clear_pointer(&root->presented, gsk_render_node_unref);
 	if (root->child) {
 		gtk_widget_unparent(root->child);
 		root->child = NULL;
