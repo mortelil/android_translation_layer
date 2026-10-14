@@ -77,7 +77,6 @@ public final class ATLServiceRegistry {
 		public final Context context;
 		/** Set once onServiceConnected()/onNullBinding() was delivered. */
 		public boolean delivered;
-		public IBinder deliveredBinder;
 		/** Set once this bind request has been processed on the main looper. */
 		public boolean requested;
 		/** Set when onServiceConnected() must be followed by onRebind(). */
@@ -132,8 +131,6 @@ public final class ATLServiceRegistry {
 		 * onBind() while this instance survives.
 		 */
 		public final ArrayList<Intent> rebindPending = new ArrayList<>();
-		/** Connections already notified for the current instance. */
-		public final ArrayList<BoundClient> deliveredConnections = new ArrayList<>();
 
 		/**
 		 * The manifest-declared process this component is placed in when it is
@@ -409,7 +406,6 @@ public final class ATLServiceRegistry {
 			record.identityBinders.clear();
 			record.boundIdentities.clear();
 			record.rebindPending.clear();
-			record.deliveredConnections.clear();
 		}
 	}
 
@@ -537,24 +533,6 @@ public final class ATLServiceRegistry {
 		}
 	}
 
-	/** Last binder delivered to this context's dispatcher for this component. */
-	public BoundClient deliveredConnection(ServiceRecord record, BoundClient client) {
-		synchronized (lock) {
-			for (BoundClient old : record.deliveredConnections)
-				if (old.connection == client.connection && old.context == client.context) return old;
-			return null;
-		}
-	}
-
-	public void markConnectionDelivered(ServiceRecord record, BoundClient client, IBinder binder) {
-		synchronized (lock) {
-			BoundClient old = deliveredConnection(record, client);
-			if (old != null) record.deliveredConnections.remove(old);
-			client.deliveredBinder = binder;
-			record.deliveredConnections.add(client);
-		}
-	}
-
 	/** True when {@code intent}'s identity is pending an onRebind() delivery. */
 	public boolean consumeRebindPending(ServiceRecord record, Intent intent) {
 		synchronized (lock) {
@@ -678,10 +656,6 @@ public final class ATLServiceRegistry {
 					}
 				}
 				if (!removed) continue;
-				for (Iterator<BoundClient> it = record.deliveredConnections.iterator(); it.hasNext();) {
-					BoundClient client = it.next();
-					if (client.connection == connection && client.context == context) it.remove();
-				}
 				boolean destroy = !record.started && record.bindings.isEmpty();
 				if (destroy) {
 					records.remove(record.component);
@@ -733,8 +707,6 @@ public final class ATLServiceRegistry {
 				if (!removed) {
 					continue;
 				}
-				for (Iterator<BoundClient> it = record.deliveredConnections.iterator(); it.hasNext();)
-					if (it.next().context == context) it.remove();
 				boolean destroy = !record.started && record.bindings.isEmpty();
 				if (destroy) {
 					records.remove(record.component);

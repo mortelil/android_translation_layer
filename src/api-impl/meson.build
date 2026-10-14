@@ -94,6 +94,8 @@ srcs = [
 	'android/atl/ATLProcessBackend.java',
 	'android/atl/ATLProcessControl.java',
 	'android/atl/ATLProcessHost.java',
+	'android/atl/ATLServiceController.java',
+	'android/atl/ATLServiceDispatcher.java',
 	'android/atl/ChildHost.java',
     'android/atl/EarlyPackageParser.java',
 	'android/atl/ATLLoadedAppManager.java',
