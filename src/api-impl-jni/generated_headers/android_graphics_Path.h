@@ -9,6 +9,14 @@ extern "C" {
 #endif
 /*
  * Class:     android_graphics_Path
+ * Method:    native_add_circle
+ * Signature: (JFFFZ)V
+ */
+JNIEXPORT void JNICALL Java_android_graphics_Path_native_1add_1circle
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jboolean);
+
+/*
+ * Class:     android_graphics_Path
  * Method:    native_create_builder
  * Signature: (JJ)J
  */
