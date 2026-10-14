@@ -67,7 +67,12 @@ int AndroidBitmap_unlockPixels(JNIEnv *env, jobject bitmap)
 	}
 	GdkTexture *texture = gdk_memory_texture_new(width, height, format, bytes, stride);
 	g_bytes_unref(bytes);
-	(*env)->CallVoidMethod(env, bitmap, _METHOD(_CLASS(bitmap), "recycle", "()V"));
+	/* Do NOT call Bitmap.recycle() here: AOSP's AndroidBitmap_unlockPixels leaves the
+	 * bitmap usable, and apps rely on that (they commonly check Bitmap.isRecycled()
+	 * before drawing, and keep writing pixels afterwards). recycle() would mark this
+	 * bitmap permanently recycled, while here only the *previous* native buffer has to
+	 * be dropped, which the new texture already replaces. */
+	(*env)->CallVoidMethod(env, bitmap, _METHOD(_CLASS(bitmap), "releaseNativeBuffers", "()V"));
 	_SET_LONG_FIELD(bitmap, "texture", _INTPTR(texture));
 	_SET_LONG_FIELD(bitmap, "bytes", 0);
 	return ANDROID_BITMAP_RESULT_SUCCESS;
