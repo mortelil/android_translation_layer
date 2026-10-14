@@ -1,10 +1,29 @@
+/*
+ * Defines the transformation to be applied at one point in time of an
+ * Animation.
+ *
+ * Adapted from AOSP platform/frameworks/base
+ *   tag     android-17.0.0_r1
+ *   commit  94b4c163b7dfe5ce3607f7bb8456f9573f7de57d
+ *   file    core/java/android/view/animation/Transformation.java
+ *   members mMatrix / getMatrix()
+ * AOSP is licensed under the Apache License, Version 2.0
+ * (http://www.apache.org/licenses/LICENSE-2.0); see this repository's LICENSE.txt.
+ *
+ * AOSP's Transformation owns the matrix an animation's applyTransformation()
+ * fills in: getMatrix() hands back mMatrix itself, so the transform survives
+ * the call. This port originally returned a fresh Matrix on every call, which
+ * discarded whatever an animation had built.
+ */
 package android.view.animation;
 
 import android.graphics.Matrix;
 
 public class Transformation {
 
+	private final Matrix mMatrix = new Matrix();
+
 	public Matrix getMatrix() {
-		return new Matrix();
+		return mMatrix;
 	}
 }

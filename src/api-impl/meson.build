@@ -710,6 +710,7 @@ srcs = [
 	'android/view/animation/LinearInterpolator.java',
 	'android/view/animation/OvershootInterpolator.java',
 	'android/view/animation/PathInterpolator.java',
+	'android/view/animation/RotateAnimation.java',
 	'android/view/animation/ScaleAnimation.java',
 	'android/view/animation/Transformation.java',
 	'android/view/animation/TranslateAnimation.java',
