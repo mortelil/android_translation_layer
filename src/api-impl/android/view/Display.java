@@ -69,6 +69,26 @@ public final class Display {
 		return 0 /*ROTATION_0*/;
 	}
 
+	/**
+	 * Gets the pixel format of the display.
+	 *
+	 * <p>ATL composes all of its windows through a 32-bit ARGB surface (the
+	 * GTK/GSK render target), so this reports the same format that current AOSP
+	 * reports for its displays:
+	 * {@code Display.getPixelFormat()} there is hardcoded to
+	 * {@link android.graphics.PixelFormat#RGBA_8888} (frameworks/base
+	 * core/java/android/view/Display.java, android-17.0.0_r1).
+	 *
+	 * @return One of the constants defined in {@link android.graphics.PixelFormat}.
+	 *
+	 * @deprecated This method is no longer supported.
+	 * The result is always {@link android.graphics.PixelFormat#RGBA_8888}.
+	 */
+	@Deprecated
+	public int getPixelFormat() {
+		return android.graphics.PixelFormat.RGBA_8888;
+	}
+
 	public float getRefreshRate() {
 		return 60; // FIXME
 	}
