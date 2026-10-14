@@ -21,8 +21,8 @@ import android.os.IBinder;
  *
  * <p>A {@code null} result from {@link #bindService} means the service
  * returned null from {@code onBind()}, which is a successful call;
- * {@link Callback#onHostUnavailable()} means the hosting process could not be
- * spawned.
+ * {@link Callback#onHostUnavailable()} means the hosting process could not
+ * be spawned.
  *
  * <p>This in-loader interface maps one-to-one onto the lane-D ChildHost wire
  * transactions (frozen codes: READY=1, START=2, BIND=3, UNBIND=4, DESTROY=5,
@@ -45,9 +45,11 @@ public interface ATLProcessBackend {
 
 	/**
 	 * Reports that a hosting process died while it hosted at least one
-	 * instance. {@code generation} is the backend's per-process generation
-	 * after this death (monotonic from 1); callbacks belonging to an earlier
-	 * generation are stale and must be ignored by the controller.
+	 * instance. {@code generation} is the DYING child's per-process
+	 * generation, assigned at spawn and monotonic from 1 per process name:
+	 * the first child of a name is 1, its death reports 1, its respawn is 2.
+	 * Controller callbacks captured for a generation &lt;= the reported one
+	 * are stale and must be ignored.
 	 */
 	interface ProcessDeathListener {
 		void onProcessDied(String processName, int generation);
