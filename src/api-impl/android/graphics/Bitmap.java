@@ -192,10 +192,18 @@ public final class Bitmap implements Parcelable {
 		}
 	}
 
-	public void recycle() {
+	/* Drops the native buffer this bitmap currently owns, without marking it recycled.
+	 * The native pixel-buffer API (AndroidBitmap_lockPixels/unlockPixels, see
+	 * libandroid/bitmap.c) replaces the texture in place, and AOSP leaves the bitmap
+	 * fully usable there; only recycle() may set the recycled flag. */
+	void releaseNativeBuffers() {
 		native_recycle(texture, snapshot);
 		texture = 0;
 		snapshot = 0;
+	}
+
+	public void recycle() {
+		releaseNativeBuffers();
 		recycled = true;
 	}
 
