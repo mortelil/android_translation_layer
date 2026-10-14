@@ -431,6 +431,7 @@ srcs = [
 	'android/os/BaseBundle.java',
 	'android/os/BatteryManager.java',
 	'android/os/Binder.java',
+	'android/os/ATLBinderConnection.java',
 	'android/os/Build.java',
 	'android/os/Bundle.java',
 	'android/os/CancellationSignal.java',
