@@ -8,12 +8,9 @@ out=$(cd "$2" && pwd)
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 python3 "$source_dir/font-fixtures.py" "$out/assets/fonts"
 art_java=$(pkg-config --variable=libdir art-standalone)/java
-# Compile against the runtime's own core API, never the host JDK platform.
-# android.jar (and therefore every real app) declares the Java-8 java.nio
-# signatures, e.g. `Buffer position(int)`.  A modern host javac without
-# -bootclasspath silently compiles against the Java 9+ platform instead, whose
-# covariant `ByteBuffer position(int)` the runtime does not have; the resulting
-# test would then fail with NoSuchMethodError that no app can ever hit.
+# Compile java.* against the target runtime API. -source/-target alone select
+# language/bytecode versions, not platform signatures: a newer host JDK can
+# otherwise emit methods (e.g. covariant NIO buffer methods) absent at runtime.
 "${JAVAC:-javac}" -source 8 -target 8 -Xlint:-options \
 	-bootclasspath "$art_java/core-all_classes.jar" \
 	-cp "$build/src/api-impl/hax.jar:$art_java/core-all_classes.jar" \
