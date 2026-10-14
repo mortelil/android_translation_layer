@@ -19,23 +19,11 @@ build=$(cd "$1" && pwd)
 out=$(mkdir -p "$2" && cd "$2" && pwd)
 src=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 art_java=$(pkg-config --variable=libdir art-standalone)/java
-ANDROID_JAR=${ANDROID_JAR:-/home/morten/Android/Sdk/platforms/android-37.0/android.jar}
-BUILD_TOOLS=${BUILD_TOOLS:-/home/morten/Android/Sdk/build-tools/37.0.0}
-KEYSTORE=${KEYSTORE:-/home/morten/ATL/font-tests/debug.keystore}
-KS_ALIAS=${KS_ALIAS:-fontprobe}
-
 mkdir -p "$out/classes"
-"${JAVAC:-/usr/lib/jvm/java-1.8-openjdk/bin/javac}" -source 8 -target 8 \
-	-cp "$build/src/api-impl/hax.jar:$art_java/core-all_classes.jar" \
-	-d "$out/classes" "$src/Probe.java"
+"${JAVAC:-javac}" -source 8 -target 8 \
+    -bootclasspath "$art_java/core-all_classes.jar" -cp "$build/src/api-impl/hax.jar" \
+    -d "$out/classes" "$src/Probe.java"
 dx --min-sdk-version=26 --dex --output="$out/classes.dex" "$out/classes"
-
-"$BUILD_TOOLS/aapt" package -f -M "$src/AndroidManifest.xml" -I "$ANDROID_JAR" \
-	-F "$out/on-pre-draw-unsigned.apk"
-(cd "$out" && "$BUILD_TOOLS/aapt" add "$out/on-pre-draw-unsigned.apk" classes.dex)
-"$BUILD_TOOLS/zipalign" -f 4 "$out/on-pre-draw-unsigned.apk" "$out/on-pre-draw-aligned.apk"
-"$BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-key-alias "$KS_ALIAS" \
-	--ks-pass pass:android --key-pass pass:android \
-	--out "$out/on-pre-draw.apk" "$out/on-pre-draw-aligned.apk"
-
-printf 'built: %s\n' "$out/on-pre-draw.apk"
+aapt package -f -M "$src/AndroidManifest.xml" -I "$build/res/framework-res/framework-res.apk" -F "$out/on-pre-draw.apk"
+(cd "$out" && aapt add on-pre-draw.apk classes.dex)
+printf 'Unsigned probe: %s\n' "$out/on-pre-draw.apk"

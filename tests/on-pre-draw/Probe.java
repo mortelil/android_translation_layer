@@ -32,14 +32,16 @@ public class Probe extends Activity {
 	/** Opaque magenta: distinctive full-window content colour. */
 	static final int COLOUR = 0xFFFF00FF;
 	/** Keep cancelling until this many ms after start, so the colour is withheld first. */
-	static final long ALLOW_AFTER_MS = 3000;
+	static final long ALLOW_AFTER_MS = 6000;
 	/** Report (FAIL) even if nothing ran, so a run never ends without results.json. */
-	static final long WATCHDOG_MS = 12000;
+	static final long WATCHDOG_MS = 25000;
 
 	View content;
 	final Handler handler = new Handler();
 
 	boolean allow;
+	boolean allowReplacement;
+	int replacementCancelled, replacementAllowed;
 	boolean control;
 	boolean sawFirstFrame;
 	int dispatchCalls, cancelledCalls, allowedCalls;
@@ -163,13 +165,26 @@ public class Probe extends Activity {
 
 	final Runnable stageE = new Runnable() {
 		@Override public void run() {
-			// Leave one listener registered for the rest of the run: window teardown
-			// (the extended recipe's `close:` step, or process exit) must release the
-			// window-owned registration without crashing.
+			// A cancelled replacement must preserve the previously presented magenta
+			// frame, not clear the window. Verify actual pixels in the UI capture.
 			content.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-				@Override public boolean onPreDraw() { return true; }
+				@Override public boolean onPreDraw() {
+					if (!allowReplacement) { replacementCancelled++; return false; }
+					replacementAllowed++;
+					return true;
+				}
 			});
-			report();
+			content.setBackgroundColor(0xFF00FF00);
+			content.invalidate();
+			handler.postDelayed(new Runnable() {
+				@Override public void run() {
+					allowReplacement = true;
+					content.invalidate();
+					handler.postDelayed(new Runnable() {
+						@Override public void run() { report(); }
+					}, 1000);
+				}
+			}, 7000);
 		}
 	};
 
@@ -184,7 +199,8 @@ public class Probe extends Activity {
 		boolean churnOk = adderCalls == 1 && victimCalls == 1 && lateCalls == 1;
 		boolean lastOk = lastCalls == 1;
 		boolean ok = failure == null && cancelledCalls >= 1 && allowedCalls >= 1
-				&& selfOk && churnOk && lastOk;
+				&& selfOk && churnOk && lastOk
+				&& replacementCancelled > 0 && replacementAllowed > 0;
 		String status = ok ? "PASS" : "FAIL";
 		String detail = "ONPREDRAW " + status
 				+ " failure=" + (failure == null ? "none" : failure)
