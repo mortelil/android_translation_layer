@@ -348,7 +348,7 @@ public final class ATLLoadedApp {
 			Slog.w(TAG, "startService: no matching service found for intent: " + intent);
 			return null;
 		}
-		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateStart(component);
+		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateStart(component, intent, null);
 		final int startId = record.lastStartId;
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
@@ -454,10 +454,10 @@ public final class ATLLoadedApp {
 			Slog.w(TAG, "bindService: no matching service found for intent: " + intent);
 			return null;
 		}
-		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component);
-		final ATLServiceRegistry.BoundClient client =
-		    service_registry.registerBinding(record, serviceConnection, intent, bindContext);
 		final boolean autoCreate = (flags & Context.BIND_AUTO_CREATE) != 0;
+		final ATLServiceRegistry.ServiceRecord record = service_registry.allocateBind(component, null);
+		final ATLServiceRegistry.BoundClient client =
+		    service_registry.registerBinding(record, serviceConnection, intent, bindContext, autoCreate);
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
