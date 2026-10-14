@@ -21,7 +21,6 @@ import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -54,8 +53,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
-
-class WindowId {}
 
 public class View implements Drawable.Callback {
 
@@ -1558,7 +1555,14 @@ public class View implements Drawable.Callback {
 	public void setOnGenericMotionListener(View.OnGenericMotionListener l) {}
 
 	public IBinder getWindowToken() {
-		return new Binder();
+		/* AOSP: null when this View is not attached to a window, otherwise the
+		 * token of the window that owns the attached tree. The token lives on the
+		 * Window (see Window.getWindowToken()), which native_get_window() resolves
+		 * from this widget's GTK root, so all Views of one window share it. */
+		if (widget == 0)
+			return null;
+		Window window = native_get_window(widget);
+		return window != null ? window.getWindowToken() : null;
 	}
 
 	public void getLocationInWindow(int[] location) {
@@ -2394,7 +2398,18 @@ public class View implements Drawable.Callback {
 
 	public String getTransitionName() { return null; }
 
-	public WindowId getWindowId() { return null; }
+	/**
+	 * Returns the {@link WindowId} of this view's window, or null when the view is
+	 * not attached to a window. AOSP returns the attach info's window id; ATL has no
+	 * attach info, so the id is the owning {@link Window}'s, shared by every View of
+	 * that window.
+	 */
+	public WindowId getWindowId() {
+		if (widget == 0)
+			return null;
+		Window window = native_get_window(widget);
+		return window != null ? window.getWindowId() : null;
+	}
 
 	public boolean isInLayout() {
 		return false; // FIXME

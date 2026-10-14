@@ -4,6 +4,8 @@ import android.R;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Binder;
+import android.os.IBinder;
 import android.transition.Transition;
 import android.widget.FrameLayout;
 import android.widget.Toolbar;
@@ -36,6 +38,29 @@ public class Window {
 
 	public long native_window;
 	private ViewGroup decorView;
+
+	/* The window's identity, owned by the window itself (not re-created per call or
+	 * per View). AOSP's token is the IWindow binder supplied by WindowManager; ATL
+	 * has no IWindow binder, so a Binder allocated once per Window carries the same
+	 * token-identity semantics. Every View of this window returns this same token
+	 * from View.getWindowToken() / View.getWindowId(). */
+	private IBinder windowToken;
+	private WindowId windowId;
+
+	/** @hide The stable identity token of this window. */
+	public IBinder getWindowToken() {
+		if (windowToken == null)
+			windowToken = new Binder();
+		return windowToken;
+	}
+
+	/** @hide The {@link WindowId} of this window; the same instance for every View
+	 *  attached to it, so sibling Views compare equal. */
+	public WindowId getWindowId() {
+		if (windowId == null)
+			windowId = new WindowId(getWindowToken());
+		return windowId;
+	}
 
 	private Window.Callback callback;
 	private Context context;
