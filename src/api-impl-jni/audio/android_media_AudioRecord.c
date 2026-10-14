@@ -9,7 +9,7 @@ JNIEXPORT jlong JNICALL Java_android_media_AudioRecord_native_1constructor(JNIEn
 {
 	snd_pcm_t *pcm_handle;
 	snd_pcm_hw_params_t *params;
-	unsigned int channels;
+	unsigned int channels = 0;
 	unsigned int channels_out;
 	int ret;
 
@@ -22,7 +22,10 @@ JNIEXPORT jlong JNICALL Java_android_media_AudioRecord_native_1constructor(JNIEn
 		printf("ERROR: Can't open \"%s\" PCM device. %s\n", PCM_DEVICE, snd_strerror(ret));
 
 	snd_pcm_hw_params_alloca(&params);
-	helper_hw_params_init(pcm_handle, params, rate, channel_config, SND_PCM_FORMAT_S16_LE, &channels);
+	if (helper_hw_params_init(pcm_handle, params, rate, channel_config, SND_PCM_FORMAT_S16_LE, &channels) < 0) {
+		snd_pcm_close(pcm_handle);
+		return 0;
+	}
 
 	snd_pcm_uframes_t buffer_size_as_uframes_t = buffer_size / channels / 2; // 2 means PCM16
 	snd_pcm_hw_params_set_buffer_size_near(pcm_handle, params, &buffer_size_as_uframes_t);
