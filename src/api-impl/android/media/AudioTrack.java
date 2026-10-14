@@ -5,15 +5,30 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Streaming AudioTrack backed by the ATL ALSA/PulseAudio sink.
+ *
+ * Public semantics (error codes, blocking/non-blocking writes, play state and
+ * playback head position) follow AOSP android-15.0.0_r1
+ * frameworks/base media/java/android/media/AudioTrack.java; the native side owns
+ * the PCM state (see api-impl-jni/audio/android_media_AudioTrack.c).
+ */
 public class AudioTrack implements AudioRouting {
 
-	// AOSP frameworks/base android-15.0.0_r1 AudioTrack.java.
 	public static final int WRITE_BLOCKING = 0;
 	public static final int WRITE_NON_BLOCKING = 1;
 	public static final int MODE_STATIC = 0;
 	public static final int MODE_STREAM = 1;
 	public static final int SUCCESS = 0;
 	public static final int ERROR = -1;
+	public static final int ERROR_BAD_VALUE = -2; // basically EINVAL
+	public static final int ERROR_INVALID_OPERATION = -3;
+	public static final int STATE_UNINITIALIZED = 0;
+	public static final int STATE_INITIALIZED = 1;
+
+	public static final int PLAYSTATE_STOPPED = 1;
+	public static final int PLAYSTATE_PAUSED = 2;
+	public static final int PLAYSTATE_PLAYING = 3;
 
 	private final Map<AudioRouting.OnRoutingChangedListener, Handler> routingListeners = new HashMap<>();
 
@@ -35,19 +50,11 @@ public class AudioTrack implements AudioRouting {
 	public AudioDeviceInfo getRoutedDevice() { return null; }
 	@Override
 	public boolean setPreferredDevice(AudioDeviceInfo device) { return device == null; }
+
 	public interface OnPlaybackPositionUpdateListener {
 		void onMarkerReached(AudioTrack track);
 		void onPeriodicNotification(AudioTrack track);
 	}
-
-	public static final int ERROR_BAD_VALUE = -2; // basically EINVAL
-	public static final int ERROR_INVALID_OPERATION = -3;
-	public static final int STATE_UNINITIALIZED = 0;
-	public static final int STATE_INITIALIZED = 1;
-
-	public static final int PLAYSTATE_STOPPED = 1;
-	public static final int PLAYSTATE_PAUSED = 2;
-	public static final int PLAYSTATE_PLAYING = 3;
 
 	int streamType;
 	int sampleRateInHz;
@@ -57,13 +64,13 @@ public class AudioTrack implements AudioRouting {
 	int mode;
 	private int sessionId;
 	private int playbackState = PLAYSTATE_STOPPED;
-	private int playbackHeadPosition = 0;
+	/** Frames handed to the sink since the last stop()/flush(). */
 	private float volume = 1.f;
 	private int underrunCount;
 	public int getUnderrunCount() { return underrunCount; }
 
 	// for native code's use
-	long pcm_handle;
+	volatile long pcm_handle;
 	long params;
 	int channels;
 	int period_time;
@@ -80,7 +87,7 @@ public class AudioTrack implements AudioRouting {
 		this.bufferSizeInBytes = bufferSizeInBytes;
 		this.mode = mode;
 
-		System.out.println("\n\n\nAudioTrack(" + streamType + ", " + sampleRateInHz + ", " + channelConfig + ", " + audioFormat + ", " + bufferSizeInBytes + ", " + mode + "); called\n\n\n\n");
+		System.out.println("AudioTrack(" + streamType + ", " + sampleRateInHz + ", " + channelConfig + ", " + audioFormat + ", " + bufferSizeInBytes + ", " + mode + ")");
 		native_constructor(streamType, sampleRateInHz, channelConfig, audioFormat, bufferSizeInBytes, mode);
 	}
 
@@ -100,7 +107,6 @@ public class AudioTrack implements AudioRouting {
 	}
 
 	public int setPositionNotificationPeriod(int periodInFrames) {
-		System.out.println("\n\nAudioTrack.nsetPositionNotificationPeriod(" + periodInFrames + "); called\n\n\n\n");
 		return 0; // SUCCESS
 	}
 
@@ -111,23 +117,36 @@ public class AudioTrack implements AudioRouting {
 	public void play() {
 		if (pcm_handle == 0)
 			throw new IllegalStateException("AudioTrack is not initialized");
-		System.out.println("calling AudioTrack.play()\n");
 		playbackState = PLAYSTATE_PLAYING;
 		native_play();
 	}
 
 	public void stop() {
-		System.out.println("STUB: AudioTrack.stop()\n");
+		if (pcm_handle == 0)
+			throw new IllegalStateException("AudioTrack is not initialized");
+		native_stop();
 		playbackState = PLAYSTATE_STOPPED;
 	}
 
+	public void pause() {
+		if (pcm_handle == 0)
+			throw new IllegalStateException("AudioTrack is not initialized");
+		native_pause();
+		playbackState = PLAYSTATE_PAUSED;
+	}
+
+	/** Discards queued PCM; no-op unless stopped or paused, or if uninitialized. */
 	public void flush() {
-		System.out.println("STUB: AudioTrack.flush()\n");
+		if (pcm_handle == 0)
+			return; // AOSP: no-op if not initialized
+		if (playbackState == PLAYSTATE_PLAYING)
+			return; // AOSP: no-op while playing
+		native_flush();
 	}
 
 	public void release() {
-		System.out.println("calling AudioTrack.release()\n");
 		native_release();
+		playbackState = PLAYSTATE_STOPPED;
 		synchronized (this) { routingListeners.clear(); }
 	}
 
@@ -135,48 +154,88 @@ public class AudioTrack implements AudioRouting {
 		return pcm_handle == 0 ? STATE_UNINITIALIZED : STATE_INITIALIZED;
 	}
 
+	/** Equivalent to write(audioData, offsetInBytes, sizeInBytes, WRITE_BLOCKING). */
 	public int write(byte[] audioData, int offsetInBytes, int sizeInBytes) {
-		if (pcm_handle == 0)
-			return ERROR_INVALID_OPERATION;
-		/* sanity check the parameters before calling native_write */
-		if ((audioData == null)
-		    || (offsetInBytes < 0) || (sizeInBytes < 0)
-		    || (offsetInBytes + sizeInBytes < 0)
-		    || (offsetInBytes + sizeInBytes > audioData.length)) {
-			return ERROR_BAD_VALUE;
-		}
-
-		int framesToWrite = sizeInBytes / channels / 2; // 2 means PCM16
-		int ret = native_write(audioData, offsetInBytes, framesToWrite, volume);
-		if (ret > 0) {
-			playbackHeadPosition += ret;
-		}
-		return ret * channels * 2; // 2 means PCM16
+		return write(audioData, offsetInBytes, sizeInBytes, WRITE_BLOCKING);
 	}
 
+	/**
+	 * Writes interleaved PCM16 to the sink. Returns the number of bytes written
+	 * (possibly a short count in WRITE_NON_BLOCKING mode, when the track is not
+	 * playing, or when another thread interrupts the write), or one of
+	 * {@link #ERROR_INVALID_OPERATION}/ {@link #ERROR_BAD_VALUE}/ {@link #ERROR}.
+	 */
+	public int write(byte[] audioData, int offsetInBytes, int sizeInBytes, int writeMode) {
+		if (pcm_handle == 0 || audioFormat != AudioFormat.ENCODING_PCM_16BIT)
+			return ERROR_INVALID_OPERATION;
+		if (writeMode != WRITE_BLOCKING && writeMode != WRITE_NON_BLOCKING)
+			return ERROR_BAD_VALUE;
+		if (audioData == null || offsetInBytes < 0 || sizeInBytes < 0
+		    || offsetInBytes + sizeInBytes < 0
+		    || offsetInBytes + sizeInBytes > audioData.length)
+			return ERROR_BAD_VALUE;
+
+		return native_write_bytes(audioData, offsetInBytes, sizeInBytes, writeMode == WRITE_BLOCKING);
+	}
+
+	/** Equivalent to write(audioData, offsetInShorts, sizeInShorts, WRITE_BLOCKING). */
+	public int write(short[] audioData, int offsetInShorts, int sizeInShorts) {
+		return write(audioData, offsetInShorts, sizeInShorts, WRITE_BLOCKING);
+	}
+
+	/** Writes interleaved PCM16; see {@link #write(byte[], int, int, int)}. */
+	public int write(short[] audioData, int offsetInShorts, int sizeInShorts, int writeMode) {
+		if (pcm_handle == 0 || audioFormat != AudioFormat.ENCODING_PCM_16BIT)
+			return ERROR_INVALID_OPERATION;
+		if (writeMode != WRITE_BLOCKING && writeMode != WRITE_NON_BLOCKING)
+			return ERROR_BAD_VALUE;
+		if (audioData == null || offsetInShorts < 0 || sizeInShorts < 0
+		    || offsetInShorts + sizeInShorts < 0
+		    || offsetInShorts + sizeInShorts > audioData.length)
+			return ERROR_BAD_VALUE;
+
+		return native_write_shorts(audioData, offsetInShorts, sizeInShorts, writeMode == WRITE_BLOCKING);
+	}
+
+	/**
+	 * Writes interleaved PCM16 from a ByteBuffer in the requested mode.
+	 * <p>
+	 * Mirrors AOSP's branch exactly (android-17.0.0_r1
+	 * media/java/android/media/AudioTrack.java:3772-3781): a <b>direct</b>
+	 * buffer, read-only or not, goes through the native direct-buffer path; a
+	 * <b>non-direct</b> buffer is handed the backing array obtained from
+	 * {@link ByteBuffer#array()}. A read-only <i>heap</i> buffer therefore
+	 * throws {@link java.nio.ReadOnlyBufferException} (AOSP reaches it through
+	 * {@code NioUtils.unsafeArray}, which is the same {@code array()} call) and
+	 * is rejected, while a read-only <i>direct</i> buffer is accepted.
+	 */
 	public int write(ByteBuffer audioData, int sizeInBytes, int writeMode) {
-		int ret = write(audioData.array(), audioData.arrayOffset() + audioData.position(), sizeInBytes);
-		audioData.position(audioData.position() + ret);
-		return ret;
-	}
-
-	public int write(short audioData[], int offsetInShorts, int sizeInShorts) {
-		if (pcm_handle == 0)
+		if (pcm_handle == 0 || audioFormat != AudioFormat.ENCODING_PCM_16BIT)
 			return ERROR_INVALID_OPERATION;
-		/* sanity check the parameters before calling native_write */
-		if ((audioData == null)
-		    || (offsetInShorts < 0) || (sizeInShorts < 0)
-		    || (offsetInShorts + sizeInShorts < 0)
-		    || (offsetInShorts + sizeInShorts > audioData.length)) {
+		if (writeMode != WRITE_BLOCKING && writeMode != WRITE_NON_BLOCKING)
 			return ERROR_BAD_VALUE;
-		}
+		if (audioData == null || sizeInBytes < 0 || sizeInBytes > audioData.remaining())
+			return ERROR_BAD_VALUE;
 
-		int framesToWrite = sizeInShorts / channels;
-		int ret = native_write(audioData, offsetInShorts, framesToWrite, volume);
-		if (ret > 0) {
-			playbackHeadPosition += ret;
+		boolean blocking = writeMode == WRITE_BLOCKING;
+		int ret;
+		if (audioData.isDirect()) {
+			ret = native_write_nio(audioData, sizeInBytes, blocking);
+		} else {
+			// ByteBuffer.array() throws java.nio.ReadOnlyBufferException for a
+			// read-only heap buffer. Do not catch or convert it: that is the
+			// documented Android behaviour.
+			ret = native_write_bytes(audioData.array(),
+			                         audioData.arrayOffset() + audioData.position(),
+			                         sizeInBytes, blocking);
 		}
-		return ret * channels;
+		if (ret > 0) {
+			// java.nio.Buffer explicitly: the covariant ByteBuffer overrides
+			// added in Java 9 are not part of the runtime core library here.
+			java.nio.Buffer b = audioData;
+			b.position(b.position() + ret);
+		}
+		return ret;
 	}
 
 	public int getAudioSessionId() {
@@ -188,7 +247,12 @@ public class AudioTrack implements AudioRouting {
 	}
 
 	public int setStereoVolume(float leftVolume, float rightVolume) {
-		this.volume = (leftVolume + rightVolume) / 2;
+		return setVolume((leftVolume + rightVolume) / 2);
+	}
+
+	public int setVolume(float volume) {
+		this.volume = volume;
+		native_setVolume(volume);
 		return 0;
 	}
 
@@ -196,39 +260,53 @@ public class AudioTrack implements AudioRouting {
 		return playbackState;
 	}
 
-	public void pause() {
-		if (pcm_handle == 0)
-			throw new IllegalStateException("AudioTrack is not initialized");
-		System.out.println("calling AudioTrack.pause()\n");
-		playbackState = PLAYSTATE_PAUSED;
-		native_pause();
-	}
-
+	/**
+	 * Frames rendered since the last stop()/flush().
+	 * <p>
+	 * AOSP (android-17.0.0_r1 media/java/android/media/AudioTrack.java:2577-2589)
+	 * defines the return value as the hardware frame counter whose signed int
+	 * must be {@link #headPositionFromFrames reinterpreted as unsigned 32-bit}:
+	 * the next position after 0x7FFFFFFF is (int) 0x80000000, it wraps at 2^32,
+	 * and it is reset to zero by stop() and flush().
+	 */
 	public int getPlaybackHeadPosition() {
 		if (pcm_handle == 0)
 			return 0;
-		return playbackHeadPosition - native_getPlaybackHeadPosition();
+		return headPositionFromFrames(native_getPlaybackHeadPosition());
 	}
 
-	public int setVolume(float volume) {
-		this.volume = volume;
-		return 0;
+	/**
+	 * Applies AOSP's 32-bit wrap to the native frame counter: the backend
+	 * tracks a continuously advancing 64-bit frame count, but the public
+	 * position is its low 32 bits interpreted as unsigned, so
+	 * 0x7FFFFFFF -> 2147483647, 0x80000000 -> -2147483648, 0xFFFFFFFF -> -1
+	 * and 0x100000000 -> 0. Package-private: the conversion is a production
+	 * behaviour that the contract probe pins at the exact boundaries without a
+	 * real ~12-hour playback.
+	 */
+	static int headPositionFromFrames(long frames) {
+		return (int) frames;
 	}
 
 	public boolean getTimestamp(AudioTimestamp timestamp) {
 		return false;
 	}
 
-	private native int native_getPlaybackHeadPosition();
-	public native void native_play();
-	public native void native_pause();
-	private native int native_write(byte[] audioData, int offsetInBytes, int framesToWrite, float volume);
-	private native int native_write(short[] audioData, int offsetInShorts, int framesToWrite, float volume);
-	public native void native_release();
-
 	public static int getNativeOutputSampleRate(int i) {
-		return -1;
+		return native_getOutputSampleRate(i);
 	}
+
+	private static native int native_getOutputSampleRate(int streamType);
+	private native long native_getPlaybackHeadPosition();
+	private native void native_play();
+	private native void native_pause();
+	private native void native_stop();
+	private native void native_flush();
+	private native void native_setVolume(float volume);
+	private native int native_write_bytes(byte[] audioData, int offsetInBytes, int sizeInBytes, boolean blocking);
+	private native int native_write_shorts(short[] audioData, int offsetInShorts, int sizeInShorts, boolean blocking);
+	private native int native_write_nio(ByteBuffer audioData, int sizeInBytes, boolean blocking);
+	public native void native_release();
 
 	// nested classes
 	public static class Builder {

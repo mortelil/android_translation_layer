@@ -1314,6 +1314,7 @@ public class Resources {
 			}
 
 			mAssets.applyThemeStyle(theme, resid, force);
+			mKey.append(resid, force);
 		}
 
 		/**
@@ -1327,6 +1328,7 @@ public class Resources {
 		 */
 		public void setTo(Theme other) {
 			getAssets().copyTheme(this.theme, other.theme);
+			mKey.setTo(other.getKey());
 		}
 
 		/**

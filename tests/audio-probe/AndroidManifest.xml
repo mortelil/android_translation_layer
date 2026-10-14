@@ -1,0 +1,14 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="org.atl.tests.audio">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="26" />
+    <application android:label="ATL audio probe">
+        <activity android:name=".AudioProbeActivity" android:exported="true"
+                  android:theme="@style/ProbeTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,19 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- Styled-attribute fixtures for the theme-attribute-reference contract check
+     in AudioProbeActivity.  A theme value that is itself an attribute reference
+     (Res_value::TYPE_ATTRIBUTE) must be resolved by ATL while the style is
+     applied: TypedArray's getters never receive an unresolved attribute. -->
+<resources>
+    <color name="probe_chain_color">#ffff0000</color>
+    <!-- Resolvable two-step chain: ?attr/probeAttrRef -> ?attr/probeAttrConcrete -> @color -->
+    <attr name="probeAttrConcrete" format="reference|color" />
+    <attr name="probeAttrRef" format="reference" />
+    <!-- Unresolvable chain: the entry references itself, exactly like the
+         framework's own base-style items (e.g. <item name="textColorLink">?textColorLink</item>). -->
+    <attr name="probeAttrSelf" format="reference|color" />
+    <style name="ProbeTheme" parent="@android:style/Theme">
+        <item name="probeAttrConcrete">@color/probe_chain_color</item>
+        <item name="probeAttrRef">?attr/probeAttrConcrete</item>
+        <item name="probeAttrSelf">?attr/probeAttrSelf</item>
+    </style>
+</resources>

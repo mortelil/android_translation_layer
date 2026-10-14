@@ -51,10 +51,18 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_getMinBufferSize
 
 /*
  * Class:     android_media_AudioTrack
- * Method:    native_getPlaybackHeadPosition
- * Signature: ()I
+ * Method:    native_getOutputSampleRate
+ * Signature: (I)I
  */
-JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition
+JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1getOutputSampleRate
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     android_media_AudioTrack
+ * Method:    native_getPlaybackHeadPosition
+ * Signature: ()J
+ */
+JNIEXPORT jlong JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition
   (JNIEnv *, jobject);
 
 /*
@@ -75,19 +83,51 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1pause
 
 /*
  * Class:     android_media_AudioTrack
- * Method:    native_write
- * Signature: ([BIIF)I
+ * Method:    native_stop
+ * Signature: ()V
  */
-JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write___3BIIF
-  (JNIEnv *, jobject, jbyteArray, jint, jint, jfloat);
+JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1stop
+  (JNIEnv *, jobject);
 
 /*
  * Class:     android_media_AudioTrack
- * Method:    native_write
- * Signature: ([SIIF)I
+ * Method:    native_flush
+ * Signature: ()V
  */
-JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write___3SIIF
-  (JNIEnv *, jobject, jshortArray, jint, jint, jfloat);
+JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1flush
+  (JNIEnv *, jobject);
+
+/*
+ * Class:     android_media_AudioTrack
+ * Method:    native_setVolume
+ * Signature: (F)V
+ */
+JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1setVolume
+  (JNIEnv *, jobject, jfloat);
+
+/*
+ * Class:     android_media_AudioTrack
+ * Method:    native_write_bytes
+ * Signature: ([BIIZ)I
+ */
+JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1bytes
+  (JNIEnv *, jobject, jbyteArray, jint, jint, jboolean);
+
+/*
+ * Class:     android_media_AudioTrack
+ * Method:    native_write_shorts
+ * Signature: ([SIIZ)I
+ */
+JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1shorts
+  (JNIEnv *, jobject, jshortArray, jint, jint, jboolean);
+
+/*
+ * Class:     android_media_AudioTrack
+ * Method:    native_write_nio
+ * Signature: (Ljava/nio/ByteBuffer;IZ)I
+ */
+JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1nio
+  (JNIEnv *, jobject, jobject, jint, jboolean);
 
 /*
  * Class:     android_media_AudioTrack

@@ -32,7 +32,8 @@ public class AudioManager {
 			case PROPERTY_OUTPUT_FRAMES_PER_BUFFER:
 				return "256"; // FIXME arbitrary
 			case PROPERTY_OUTPUT_SAMPLE_RATE:
-				return "44100"; // FIXME arbitrary
+				// The real sink rate, not a hard-coded guess.
+				return Integer.toString(AudioTrack.getNativeOutputSampleRate(STREAM_MUSIC));
 			default:
 				System.out.println("AudioManager.getProperty: >" + name + "< not handled");
 				return "";
