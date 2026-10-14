@@ -60,6 +60,7 @@ public class AudioProbeActivity extends Activity {
 		setContentView(new TextView(this));
 		checkThemeAttributeReferences();
 		checkThemeStylesAcrossAssetManagerCopy();
+		checkRotation();
 		new Thread(new Runnable() {
 			public void run() {
 				try {
@@ -139,28 +140,11 @@ public class AudioProbeActivity extends Activity {
 	}
 
 	/**
-	 * Resources.Theme.setTo() across two Resources objects - i.e. two
-	 * AssetManagers - must keep the styles the source theme applied.
-	 *
-	 * AOSP's Theme.setTo() carries the applied styles: that is what
-	 * ContextThemeWrapper.setTheme() relies on when it copies the base
-	 * context's theme into its own (configuration-copy) Resources, the path
-	 * AppCompat takes for every Activity.  Context.createConfigurationContext()
-	 * builds that copy through AssetManager.createConfigurationCopy(), a
-	 * different AssetManager, so a native theme copy that only transferred the
-	 * values the destination table can already resolve would drop every style
-	 * value.  In org.videolan.vlc's VideoPlayerActivity that was
-	 * android:textColorLink (0x0101009b) out of the applied AppCompat theme,
-	 * which then threw UnsupportedOperationException from
-	 * TypedArray.getColorStateList(TypedArray.java:518) during layout.
-	 *
-	 * AOSP keeps the applied styles in the theme's ThemeKey and re-applies them
-	 * (ResourcesImpl.ThemeImpl.applyStyle/setTo/rebase, android-17.0.0_r1 /
-	 * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).  This check pins that
-	 * behaviour by asking the copied theme for a value only the applied style
-	 * defines (ProbeTheme's probeAttrRef -> ?attr/probeAttrConcrete ->
-	 * @color/probe_chain_color), which the destination table cannot resolve on
-	 * its own.
+	 * Configuration copies share ApkAssets identity (as required by AOSP
+	 * AssetManager2 Theme::SetTo). Applied values must survive the copy without
+	 * replaying styles with possibly unrelated resource IDs. ThemeKey records
+	 * the style history separately, as ResourcesImpl.ThemeImpl does in AOSP
+	 * android-17.0.0_r1 / 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d.
 	 */
 	private void checkThemeStylesAcrossAssetManagerCopy() {
 		String pkg = getPackageName();
@@ -242,6 +226,26 @@ public class AudioProbeActivity extends Activity {
 		                      bufBytes, AudioTrack.MODE_STREAM);
 	}
 
+	private static class Rotation extends android.view.animation.RotateAnimation {
+		Rotation() { super(0, 180, ABSOLUTE, 2, ABSOLUTE, 3); }
+		void sample(float fraction, android.view.animation.Transformation target) {
+			super.applyTransformation(fraction, target);
+		}
+	}
+
+	private void checkRotation() {
+		try {
+			Rotation animation = new Rotation();
+			animation.initialize(10, 10, 20, 20);
+			android.view.animation.Transformation t = new android.view.animation.Transformation();
+			animation.sample(0.5f, t);
+			float[] point = {3, 3};
+			t.getMatrix().mapPoints(point);
+			check("rotation_retains_pivot_matrix", Math.abs(point[0]-2) < 0.001f
+			    && Math.abs(point[1]-4) < 0.001f, "point=" + point[0] + "," + point[1]);
+		} catch (Throwable error) { fail("rotation_retains_pivot_matrix", error); }
+	}
+
 	private void runProbe() throws Exception {
 		int rate = AudioTrack.getNativeOutputSampleRate(STREAM_MUSIC);
 		check("native_output_sample_rate", rate > 0, "rate=" + rate);
@@ -310,6 +314,8 @@ public class AudioProbeActivity extends Activity {
 		int framesPerChunk = rate / 50;                 // 20 ms
 		int chunkBytes = framesPerChunk * 4;            // stereo s16
 		byte[] chunk = toneBytes(1000.0, rate, framesPerChunk, 12000);
+		byte[] oddOffsetChunk = new byte[chunk.length + 1];
+		System.arraycopy(chunk, 0, oddOffsetChunk, 1, chunk.length);
 		try {
 			int nw = t.write(chunk, 0, chunkBytes, AudioTrack.WRITE_NON_BLOCKING);
 			check("write_nonblocking_accepts", nw >= 0 && nw <= chunkBytes, "wrote=" + nw);
@@ -333,6 +339,12 @@ public class AudioProbeActivity extends Activity {
 			fail("write_nonblocking_short", e);
 		}
 
+		// A filled stopped queue must remain silent; the earlier immediate
+		// head check could miss ALSA automatically starting after buffer fill.
+		Thread.sleep(180);
+		check("full_stopped_queue_does_not_render", t.getPlaybackHeadPosition() == 0,
+		      "head=" + t.getPlaybackHeadPosition());
+
 		// stop discards the queue and resets the head
 		try {
 			t.stop();
@@ -350,7 +362,7 @@ public class AudioProbeActivity extends Activity {
 			int totalChunks = 4 * 50;
 			int broke = -1;
 			for (int i = 0; i < totalChunks; i++) {
-				int r = t.write(chunk, 0, chunkBytes, AudioTrack.WRITE_BLOCKING);
+				int r = t.write(oddOffsetChunk, 1, chunkBytes, AudioTrack.WRITE_BLOCKING);
 				if (r > 0)
 					writtenBytes += r;
 				else {

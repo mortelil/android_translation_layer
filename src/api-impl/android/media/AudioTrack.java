@@ -70,7 +70,7 @@ public class AudioTrack implements AudioRouting {
 	public int getUnderrunCount() { return underrunCount; }
 
 	// for native code's use
-	long pcm_handle;
+	volatile long pcm_handle;
 	long params;
 	int channels;
 	int period_time;
@@ -146,6 +146,7 @@ public class AudioTrack implements AudioRouting {
 
 	public void release() {
 		native_release();
+		playbackState = PLAYSTATE_STOPPED;
 		synchronized (this) { routingListeners.clear(); }
 	}
 

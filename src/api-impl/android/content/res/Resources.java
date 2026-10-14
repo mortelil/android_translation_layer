@@ -1329,7 +1329,6 @@ public class Resources {
 		public void setTo(Theme other) {
 			getAssets().copyTheme(this.theme, other.theme);
 			mKey.setTo(other.getKey());
-			replayStyles();
 		}
 
 		/**
@@ -1569,41 +1568,6 @@ public class Resources {
 
 		/*package*/ ThemeKey getKey() {
 			return mKey;
-		}
-
-		/**
-		 * Re-apply the styles recorded in {@link #mKey} to this theme's own
-		 * AssetManager.
-		 *
-		 * <p>The native theme copy in {@link #setTo} only transfers the values
-		 * that the destination table can already resolve, so a theme copied
-		 * between two AssetManagers - for example the configuration copy that
-		 * {@link android.content.Context#createConfigurationContext} builds and
-		 * that AppCompat wraps around an Activity's base context - would
-		 * otherwise silently lose every style the source theme had applied.
-		 * Its first casualty was the framework attribute
-		 * android:textColorLink (TYPE_ATTRIBUTE 0x0101009b), which then threw
-		 * UnsupportedOperationException out of
-		 * TypedArray.getColorStateList() during Activity layout.
-		 *
-		 * <p>This mirrors AOSP, where ResourcesImpl.ThemeImpl.applyStyle()
-		 * records every applied style in the theme's ThemeKey and
-		 * ThemeImpl.rebase() re-applies exactly those styles to a new
-		 * AssetManager; ThemeImpl.setTo() likewise copies the key so the
-		 * destination theme knows what to replay. This port already carried
-		 * the ThemeKey machinery but never fed it.
-		 *
-		 * <p>frameworks/base/core/java/android/content/res/ResourcesImpl.java
-		 * (ThemeImpl.applyStyle() :1551-1555, ThemeImpl.setTo() :1557-1561,
-		 * ThemeImpl.rebase() :1641-1653) and
-		 * frameworks/base/core/java/android/content/res/Resources.java
-		 * (Theme.applyStyle()/Theme.setTo()/Theme.rebase()), AOSP
-		 * android-17.0.0_r1 / 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d.
-		 */
-		private void replayStyles() {
-			for (int i = 0; i < mKey.mCount; i++) {
-				mAssets.applyThemeStyle(theme, mKey.mResId[i], mKey.mForce[i]);
-			}
 		}
 
 		private final AssetManager mAssets;

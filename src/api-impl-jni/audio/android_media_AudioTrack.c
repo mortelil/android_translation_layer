@@ -9,11 +9,10 @@
  * blocking write wait for room in the device buffer without holding the ALSA
  * call open, so pause()/stop()/flush()/release() can interrupt it.
  *
- * Lifetime: `released` is set by native_release() and never cleared; in-flight
- * writes observe it, stop, and let release() proceed. The struct itself is not
- * freed: a concurrent writer may already hold the pointer and would then lock a
- * freed mutex (use-after-free). Keeping the (small, one-per-track) struct alive
- * makes every late call fail safely with ERROR_INVALID_OPERATION instead.
+ * Lifetime: the Java handle owns one reference. Acquiring an in-flight
+ * reference and detaching that handle are serialized by handles_lock. Release
+ * closes the PCM under its own lock; the final caller frees the state, mutex
+ * and condition variable. No tombstone allocation survives a released track.
  *
  * Error reporting: native writes return the CALLER's unit (bytes for byte[] and
  * ByteBuffer, shorts for short[]) and map ALSA failures onto the Android error
@@ -51,7 +50,10 @@ struct atl_audio_track {
 	snd_pcm_uframes_t buffer_frames;
 	float volume;
 	int released;
-	int interrupted;
+	int playing;
+	int draining;
+	unsigned int generation;
+	gint references;
 	int underruns;
 	/* Frames handed to the device, and frames the device has finished
 	 * rendering, both since the last drop. The playback head reported to Java
@@ -60,6 +62,28 @@ struct atl_audio_track {
 	snd_pcm_uframes_t accepted;
 	snd_pcm_uframes_t rendered;
 };
+
+static pthread_mutex_t handles_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static struct atl_audio_track *track_acquire(JNIEnv *env, jobject this)
+{
+	pthread_mutex_lock(&handles_lock);
+	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	if (t) g_atomic_int_inc(&t->references);
+	pthread_mutex_unlock(&handles_lock);
+	return t;
+}
+
+/* Used as a scoped cleanup so error returns cannot leak acquired references. */
+static void track_unref(struct atl_audio_track **reference)
+{
+	struct atl_audio_track *t = *reference;
+	if (t && g_atomic_int_dec_and_test(&t->references)) {
+		pthread_cond_destroy(&t->cond);
+		pthread_mutex_destroy(&t->lock);
+		free(t);
+	}
+}
 
 /* Forget the queued audio (stop()/flush()/release()): the device buffer is
  * dropped and the playback position starts again from zero. */
@@ -106,7 +130,7 @@ static int audio_error(int err)
  *
  * `lock` is held on entry and on every return; it is dropped only around the
  * condvar wait. */
-static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, int frames, int blocking)
+static int write_frames_locked(struct atl_audio_track *t, const void *src, int frames, int blocking)
 {
 	int done = 0;
 	int rc = 0;
@@ -115,7 +139,7 @@ static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, in
 	float volume = t->volume;
 	unsigned int channels = t->channels;
 
-	if (frames <= 0)
+	if (t->draining || frames <= 0)
 		return 0;
 	if (chunk <= 0 || chunk > 4096)
 		chunk = 4096;
@@ -126,41 +150,40 @@ static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, in
 			return -1;
 	}
 
-	if (t->released)
-		return 0;
+	if (t->released) { free(scaled); return 0; }
 
-	/* A pause()/stop()/flush() that happened before this call must not poison
-	 * it: `interrupted` only aborts a blocking write that was already waiting
-	 * when the flag was set (AOSP unblocks such a writer with a short count).
-	 * Non-blocking writes must never be turned into a spurious zero by it. */
-	t->interrupted = 0;
+	/* An interruption belongs to existing writers; a new write must not
+	 * clear it before a sleeping writer gets to observe it. */
+	unsigned int generation = t->generation;
 
 	while (done < frames) {
 		int n = frames - done;
 		int wrote;
 		snd_pcm_sframes_t ret;
-		const int16_t *in;
+		const uint8_t *in;
 
 		if (t->released)
 			break;
-		if (blocking && t->interrupted)
+		if (blocking && (t->generation != generation))
 			break;
 
 		if (n > chunk)
 			n = chunk;
 
-		in = src + (size_t)done * channels;
+		in = (const uint8_t *)src + (size_t)done * channels * sizeof(int16_t);
 		if (scaled) {
 			int i, samples = n * (int)channels;
 			for (i = 0; i < samples; i++) {
-				int v = (int)(in[i] * volume);
+				int16_t sample;
+				memcpy(&sample, in + i * sizeof(sample), sizeof(sample));
+				int v = (int)(sample * volume);
 				if (v > 32767)
 					v = 32767;
 				else if (v < -32768)
 					v = -32768;
 				scaled[i] = (int16_t)v;
 			}
-			in = scaled;
+			in = (const uint8_t *)scaled;
 		}
 
 		ret = snd_pcm_writei(t->pcm, in, (snd_pcm_uframes_t)n);
@@ -176,7 +199,7 @@ static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, in
 		}
 		if (ret == -EBADFD) {
 			/* the device was paused/dropped under us */
-			if (t->interrupted || t->released)
+			if ((t->generation != generation) || t->released)
 				break;
 			rc = (int)ret;
 			break;
@@ -184,7 +207,7 @@ static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, in
 		if (ret == -EAGAIN) {
 			struct timespec ts;
 
-			if (!blocking || t->interrupted || t->released)
+			if (!blocking || (t->generation != generation) || t->released)
 				break; /* short count: nothing more fits right now */
 
 			clock_gettime(CLOCK_REALTIME, &ts);
@@ -204,6 +227,10 @@ static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, in
 		wrote = (int)ret;
 		done += wrote;
 		t->accepted += (snd_pcm_uframes_t)wrote;
+		if (wrote > 0 && t->playing && snd_pcm_state(t->pcm) == SND_PCM_STATE_PREPARED) {
+			int start = snd_pcm_start(t->pcm);
+			if (start < 0) { rc = start; break; }
+		}
 		if (!blocking || wrote == 0)
 			break;
 	}
@@ -215,8 +242,7 @@ static int write_frames_locked(struct atl_audio_track *t, const int16_t *src, in
 	return rc == 0 ? 0 : audio_error(rc);
 }
 
-/* Publish the native underrun counter to the Java field. Called with `t` still
- * valid, outside the lock. */
+/* Publish counters while holding the PCM lock. */
 static void sync_underruns(JNIEnv *env, jobject this, struct atl_audio_track *t, int before)
 {
 	if (t->underruns != before)
@@ -233,7 +259,9 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1constructor(JNIEnv 
 	int ret;
 
 	(void)streamType;
-	(void)mode;
+	/* This backend implements streaming PCM16 only. Do not initialize a
+	 * static/compressed track that we cannot play according to its contract. */
+	if (audioFormat != 2 || mode != 1) return;
 
 	t = calloc(1, sizeof(*t));
 	if (!t)
@@ -242,6 +270,7 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1constructor(JNIEnv 
 	pthread_mutex_init(&t->lock, NULL);
 	pthread_cond_init(&t->cond, NULL);
 	t->volume = 1.0f;
+	t->references = 1;
 
 	ret = snd_pcm_open(&pcm, helper_pcm_device(), SND_PCM_STREAM_PLAYBACK, 0);
 	if (ret < 0) {
@@ -276,9 +305,11 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1constructor(JNIEnv 
 	snd_pcm_sw_params_alloca(&sw_params);
 	ret = snd_pcm_sw_params_current(pcm, sw_params);
 	if (ret == 0) {
-		/* Start only once the buffer has been filled: PCM written while the
-		 * track is stopped must not be rendered before play(). */
-		snd_pcm_sw_params_set_start_threshold(pcm, sw_params, t->buffer_frames ? t->buffer_frames : t->period);
+		/* Disable ALSA's automatic start, including when a stopped track's
+		 * buffer fills. Only an Android play() request may start rendering. */
+		snd_pcm_uframes_t boundary;
+		snd_pcm_sw_params_get_boundary(sw_params, &boundary);
+		snd_pcm_sw_params_set_start_threshold(pcm, sw_params, boundary);
 		snd_pcm_sw_params_set_avail_min(pcm, sw_params, t->period);
 		snd_pcm_sw_params(pcm, sw_params);
 	}
@@ -291,7 +322,9 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1constructor(JNIEnv 
 	t->channels = channels;
 	t->rate = (unsigned int)rate;
 
+	pthread_mutex_lock(&handles_lock);
 	_SET_LONG_FIELD(this, "pcm_handle", _INTPTR(t));
+	pthread_mutex_unlock(&handles_lock);
 	_SET_INT_FIELD(this, "channels", (jint)channels);
 	printf("AudioTrack: opened \"%s\": rate=%u channels=%u period=%lu buffer=%lu frames\n",
 	       helper_pcm_device(), t->rate, t->channels,
@@ -326,7 +359,7 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_getMinBufferSize(JNIEnv *en
 	unsigned int channels = 0;
 	int ret;
 
-	(void)audioFormat;
+	if (audioFormat != 2) return -2; /* unsupported PCM format */
 
 
 	/* AOSP checks the parameters first: an invalid channel mask or rate is
@@ -358,7 +391,7 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_getMinBufferSize(JNIEnv *en
 
 JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1bytes(JNIEnv *env, jobject this, jbyteArray audio_data, jint offset_in_bytes, jint size_in_bytes, jboolean blocking)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 	jbyte *buffer;
 	int frames, rc, underruns;
 
@@ -379,11 +412,11 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1bytes(JNIEnv
 	}
 	underruns = t->underruns;
 	frames = size_in_bytes / (int)(t->channels * 2);
-	rc = write_frames_locked(t, (const int16_t *)buffer + offset_in_bytes / 2, frames, blocking ? 1 : 0);
+	rc = write_frames_locked(t, (const uint8_t *)buffer + offset_in_bytes, frames, blocking ? 1 : 0);
+	sync_underruns(env, this, t, underruns);
 	pthread_mutex_unlock(&t->lock);
 
 	(*env)->ReleaseByteArrayElements(env, audio_data, buffer, JNI_ABORT);
-	sync_underruns(env, this, t, underruns);
 
 	if (rc > 0)
 		return rc * (int)(t->channels * 2);
@@ -392,7 +425,7 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1bytes(JNIEnv
 
 JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1shorts(JNIEnv *env, jobject this, jshortArray audio_data, jint offset_in_shorts, jint size_in_shorts, jboolean blocking)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 	jshort *buffer;
 	int frames, rc, underruns;
 
@@ -414,10 +447,10 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1shorts(JNIEn
 	underruns = t->underruns;
 	frames = size_in_shorts / (int)t->channels;
 	rc = write_frames_locked(t, (const int16_t *)buffer + offset_in_shorts, frames, blocking ? 1 : 0);
+	sync_underruns(env, this, t, underruns);
 	pthread_mutex_unlock(&t->lock);
 
 	(*env)->ReleaseShortArrayElements(env, audio_data, buffer, JNI_ABORT);
-	sync_underruns(env, this, t, underruns);
 
 	if (rc > 0)
 		return rc * (int)t->channels;
@@ -426,7 +459,7 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1shorts(JNIEn
 
 JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1nio(JNIEnv *env, jobject this, jobject buffer, jint size_in_bytes, jboolean blocking)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 	jarray array_ref = NULL;
 	jbyte *array = NULL;
 	int16_t *data;
@@ -452,10 +485,10 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1nio(JNIEnv *
 	underruns = t->underruns;
 	frames = size_in_bytes / (int)(t->channels * 2);
 	rc = write_frames_locked(t, data, frames, blocking ? 1 : 0);
+	sync_underruns(env, this, t, underruns);
 	pthread_mutex_unlock(&t->lock);
 
 	release_nio_buffer(env, array_ref, array);
-	sync_underruns(env, this, t, underruns);
 
 	if (rc > 0)
 		return rc * (int)(t->channels * 2);
@@ -464,7 +497,7 @@ JNIEXPORT jint JNICALL Java_android_media_AudioTrack_native_1write_1nio(JNIEnv *
 
 JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1setVolume(JNIEnv *env, jobject this, jfloat volume)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 
 	(void)env;
 
@@ -478,7 +511,7 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1setVolume(JNIEnv *e
 
 JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1play(JNIEnv *env, jobject this)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 	int state;
 
 	(void)env;
@@ -490,7 +523,8 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1play(JNIEnv *env, j
 		pthread_mutex_unlock(&t->lock);
 		return;
 	}
-	t->interrupted = 0;
+	t->playing = 1;
+	/* Do not reset the interruption generation on play. */
 	state = snd_pcm_state(t->pcm);
 	if (state == SND_PCM_STATE_PAUSED) {
 		snd_pcm_pause(t->pcm, 0);
@@ -508,7 +542,7 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1play(JNIEnv *env, j
 
 JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1pause(JNIEnv *env, jobject this)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 
 	(void)env;
 
@@ -516,7 +550,8 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1pause(JNIEnv *env, 
 		return;
 	pthread_mutex_lock(&t->lock);
 	if (!t->released) {
-		t->interrupted = 1; /* break an in-flight blocking write */
+		t->generation++; /* break an in-flight blocking write */
+		t->playing = 0;
 		if (snd_pcm_state(t->pcm) == SND_PCM_STATE_RUNNING)
 			snd_pcm_pause(t->pcm, 1);
 	}
@@ -524,36 +559,38 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1pause(JNIEnv *env, 
 	pthread_mutex_unlock(&t->lock);
 }
 
-/* AOSP stop(): "audio will stop playing after the last buffer that was written
- * has been played" (use pause()+flush() for an immediate stop). The queued PCM
- * is therefore drained, not dropped. The drain runs with the lock held, so it
- * cannot race a writer; the lock is released by the blocking wait of drain only
- * through ALSA, never through our condvar. */
+/* Drain queued streaming PCM without holding the lock across a blocking
+ * ALSA call. Release/pause/flush can interrupt this wait; a competing write
+ * receives a short count while the drain is active. */
 JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1stop(JNIEnv *env, jobject this)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
-	int state;
-
-	(void)env;
-
-	if (!t)
-		return;
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
+	if (!t) return;
 	pthread_mutex_lock(&t->lock);
 	if (!t->released) {
-		t->interrupted = 1;
+		unsigned int generation = ++t->generation;
+		t->playing = 0;
+		t->draining = 1;
 		pthread_cond_broadcast(&t->cond);
-		state = snd_pcm_state(t->pcm);
-		if (state == SND_PCM_STATE_RUNNING || state == SND_PCM_STATE_PAUSED) {
-			/* snd_pcm_drain() must block, so temporarily leave nonblocking
-			 * mode for the duration of the drain. */
-			snd_pcm_nonblock(t->pcm, 0);
-			snd_pcm_drain(t->pcm);
-			snd_pcm_nonblock(t->pcm, 1);
-		} else {
+		int state = snd_pcm_state(t->pcm);
+		if (state == SND_PCM_STATE_PAUSED) snd_pcm_pause(t->pcm, 0);
+		int rc;
+		do {
+			rc = (state == SND_PCM_STATE_PREPARED || state == SND_PCM_STATE_SETUP)
+			    ? snd_pcm_drop(t->pcm) : snd_pcm_drain(t->pcm); /* always nonblocking */
+			if (rc != -EAGAIN) break;
+			struct timespec ts;
+			clock_gettime(CLOCK_REALTIME, &ts);
+			ts.tv_nsec += 20 * 1000 * 1000;
+			if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
+			pthread_cond_timedwait(&t->cond, &t->lock, &ts);
+		} while (!t->released && generation == t->generation);
+		t->draining = 0;
+		if (!t->released && generation == t->generation) {
 			snd_pcm_drop(t->pcm);
+			snd_pcm_prepare(t->pcm);
+			reset_counters(t);
 		}
-		snd_pcm_prepare(t->pcm);
-		reset_counters(t);
 	}
 	pthread_cond_broadcast(&t->cond);
 	pthread_mutex_unlock(&t->lock);
@@ -563,7 +600,7 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1stop(JNIEnv *env, j
  * running (the app must stop/pause first). */
 JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1flush(JNIEnv *env, jobject this)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 	int state;
 
 	(void)env;
@@ -574,7 +611,7 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1flush(JNIEnv *env, 
 	if (!t->released) {
 		state = snd_pcm_state(t->pcm);
 		if (state != SND_PCM_STATE_RUNNING) {
-			t->interrupted = 1;
+			t->generation++;
 			snd_pcm_drop(t->pcm);
 			snd_pcm_prepare(t->pcm);
 			reset_counters(t);
@@ -586,14 +623,18 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1flush(JNIEnv *env, 
 
 JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1release(JNIEnv *env, jobject this)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	pthread_mutex_lock(&handles_lock);
+	/* Take ownership of the handle's reference, rather than acquiring another. */
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	_SET_LONG_FIELD(this, "pcm_handle", 0);
+	pthread_mutex_unlock(&handles_lock);
 
 	if (!t)
 		return;
 
 	pthread_mutex_lock(&t->lock);
 	t->released = 1;
-	t->interrupted = 1;
+	t->generation++;
 	pthread_cond_broadcast(&t->cond);
 	if (t->pcm) {
 		snd_pcm_drop(t->pcm);
@@ -603,7 +644,6 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1release(JNIEnv *env
 	reset_counters(t);
 	pthread_mutex_unlock(&t->lock);
 
-	_SET_LONG_FIELD(this, "pcm_handle", 0);
 }
 
 /* Frames the device has finished rendering since the last stop()/flush(),
@@ -612,7 +652,7 @@ JNIEXPORT void JNICALL Java_android_media_AudioTrack_native_1release(JNIEnv *env
  * getPlaybackHeadPosition() reinterprets the low 32 bits as unsigned. */
 JNIEXPORT jlong JNICALL Java_android_media_AudioTrack_native_1getPlaybackHeadPosition(JNIEnv *env, jobject this)
 {
-	struct atl_audio_track *t = _PTR(_GET_LONG_FIELD(this, "pcm_handle"));
+	struct atl_audio_track *t __attribute__((cleanup(track_unref))) = track_acquire(env, this);
 	jlong rendered_frames;
 
 	(void)env;
