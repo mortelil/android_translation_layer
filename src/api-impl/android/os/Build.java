@@ -86,6 +86,28 @@ public class Build {
 	public static final String MODEL = getString("ro.product.model");
 
 	/**
+	 * The manufacturer of the device's primary system-on-chip.
+	 *
+	 * <p>AOSP (frameworks/base core/java/android/os/Build.java, android-17.0.0_r1)
+	 * defines this as {@code SocProperties.soc_manufacturer().orElse(UNKNOWN)},
+	 * the readonly system property {@code ro.soc.manufacturer}
+	 * (system/libsysprop srcs/android/sysprop/SocProperties.sysprop). ATL runs on
+	 * host hardware and publishes no SoC identity, so the property is not
+	 * provisioned and this is {@link #UNKNOWN}, which is what AOSP itself
+	 * returns for an unset SoC property. Native Gecko caches this field through
+	 * the JNI AndroidBuild wrapper and MOZ_CRASHes when the lookup fails.
+	 */
+	public static final String SOC_MANUFACTURER = getString("ro.soc.manufacturer");
+
+	/**
+	 * The model name of the device's primary system-on-chip.
+	 *
+	 * <p>{@code SocProperties.soc_model().orElse(UNKNOWN)} in AOSP, i.e. the
+	 * readonly system property {@code ro.soc.model}; not provisioned by ATL.
+	 */
+	public static final String SOC_MODEL = getString("ro.soc.model");
+
+	/**
 	 * The system bootloader version number.
 	 */
 	public static final String BOOTLOADER = getString("ro.bootloader");
