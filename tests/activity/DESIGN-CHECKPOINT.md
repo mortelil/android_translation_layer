@@ -338,3 +338,40 @@ restore. No process-death restore is claimed.
    restored from the window hierarchy, new intent delivered to a resumed top
    (no recreate, no instance change), and both targetSdk save orderings around
    onStop (27 vs 28).
+
+## Session 5 (lane C) - seam built and unit-green
+
+Commits (branch lifecycle/activity, in order):
+- `d8d07766` controller owns lifecycle dispatch; Activity delegates.
+- `1e915925` C layer becomes GTK window ops + one host-event seam.
+- `e3deb943` startActivity pauses the covered activity only when it is resumed
+  (review finding: the guard was `prev.state >= ON_RESUME`, which is also true
+  for the ON_PAUSE/ON_STOP/ON_DESTROY ladder values and emitted a second
+  onPause for a reentrant launch out of the covered activity's own onPause/onStop).
+- `ac8274bc` regenerated JNI headers (javac -h output only).
+
+Build + seam verification (evidence dir
+/home/morten/ATL/agent-work/LIFECYCLE-FOUNDATION/activity/seam-v1/):
+- `build-seam.log` - scripts/mobile/build.sh, EXIT=0, marker `Built ATL in ...`.
+- `symbols.txt` - libtranslation_layer_main.so exports activity_start /
+  activity_window_ready / activity_close_all / current_activity_back_pressed
+  (signatures unchanged for lane D) plus the five
+  Java_android_atl_ATLActivityController_native* entries; the four retired
+  Java_android_app_Activity_* natives are gone.
+- `unit-path-invariants.log` - tests/activity/run-unit.sh against the rebuilt
+  hax.jar: `ACTLPATH ALL_DONE 191 PASS 0 FAIL` (A01/A02 regression + the A06
+  path-level unit assertions).
+
+Not yet done (exact next actions, in order):
+1. Generalize `atl_transform` in tests/lifecycle-probe to scenario-derived
+   observers (Session 3 list) and regenerate baseline-atl.trace with the
+   AOSP-alignment rationale beside the artifact.
+2. Run lifecycle-probe v2.1 against the real ATL binary (A04) with a
+   lane-private ANDROID_APP_DATA_DIR; poll for LIFE_ALL_DONE /
+   TERMINAL_THROW_DONE, then verify_lifecycle.py.
+3. Probe APKs for A05 (finish-in-callback exactly-once), A07 (new intent on a
+   resumed top), A08 (real recreate: distinct instance + restored editable
+   state), A09 (saved state, targetSdk 27 vs 28 orderings).
+4. A03 single-dispatch code-review evidence (grep: the only native -> Java
+   lifecycle entry is controller_host_event), P11 classloader-probe rerun with
+   the clean-diff assertion, A10 limitation note.
