@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -113,8 +114,38 @@ public final class ATLBinderConnection {
 			return thread;
 		}
 	};
-	private final ExecutorService workers = new ThreadPoolExecutor(0, 16, 30, TimeUnit.SECONDS,
-	                                                               new SynchronousQueue<Runnable>(), WORKER_THREADS);
+	/**
+	 * Server-side dispatch pool. It must do two things that pull in opposite
+	 * directions, and only one shape does both:
+	 *
+	 * - A well-formed call is never failed because every worker is busy: T09
+	 *   saturates 256 outstanding calls while 16 handlers block, and the 257th
+	 *   is refused by the peer's own cap, not by the pool. So no zero-capacity
+	 *   hand-off queue (that rejects the 17th call out of the reader - which used
+	 *   to close the whole link and lose all 256) and no bounded queue either.
+	 * - Dispatch really is concurrent: 16 handlers can block at once. With
+	 *   corePoolSize 0 and a queue that always accepts, ThreadPoolExecutor only
+	 *   ever starts a worker when no worker exists, so the pool silently
+	 *   collapsed to one thread and serialized every call on the connection -
+	 *   one slow handler stalled all other targets. Hence core size == max size
+	 *   with core-thread timeouts, which creates up to 16 workers on demand and
+	 *   lets an idle connection hold none.
+	 *
+	 * Queued depth stays bounded by the peer's own limits (<=256 outstanding sync
+	 * calls per connection, <=256 global oneway), the reader never runs work
+	 * inline (that would stall every other frame), and queued work is abandoned
+	 * on link death, never run.
+	 */
+	private static final int DISPATCH_WORKERS = 16;
+	private final BlockingQueue<Runnable> dispatchQueue = new LinkedBlockingQueue<Runnable>();
+	private final ThreadPoolExecutor workers = dispatchPool(dispatchQueue);
+
+	private static ThreadPoolExecutor dispatchPool(BlockingQueue<Runnable> queue) {
+		ThreadPoolExecutor pool = new ThreadPoolExecutor(DISPATCH_WORKERS, DISPATCH_WORKERS,
+		                                                 30L, TimeUnit.SECONDS, queue, WORKER_THREADS);
+		pool.allowCoreThreadTimeOut(true);
+		return pool;
+	}
 	private final HashMap<Integer, ArrayDeque<Runnable>> oneways = new HashMap<>();
 	private final ArrayList<Runnable> deathListeners = new ArrayList<>();
 	private static final class Pending {
@@ -506,15 +537,8 @@ public final class ATLBinderConnection {
 						pinned = NO_PINS;
 						final int heldCount = pins;
 						pins = 0;
-						Runnable task = new Runnable() {
-							public void run() {
-								try {
-									dispatch(id, target, code, flags, callChain, request);
-								} finally {
-									releasePins(held, heldCount);
-								}
-							}
-						};
+						DispatchTask task = new DispatchTask(id, target, code, flags, callChain,
+						                                     request, held, heldCount);
 						try {
 							if ((flags & IBinder.FLAG_ONEWAY) != 0)
 								enqueueOneway(target, task);
@@ -527,13 +551,13 @@ public final class ATLBinderConnection {
 											waiter.callbacks.add(task);
 											waiter.notifyAll();
 										} else
-											request.recycle();
+											task.abandon();
 									}
 								else
 									workers.execute(task);
 							}
 						} catch (RuntimeException rejected) {
-							request.recycle();
+							task.abandon();
 							throw rejected;
 						}
 						break;
@@ -664,7 +688,10 @@ public final class ATLBinderConnection {
             while (true) {
                 Runnable next;
                 synchronized (ATLBinderConnection.this) {
-                    next = oneways.get(target).poll();
+                    // close() clears the map under the same lock: a drainer that
+                    // outlives the link must see an empty lookup, not an NPE.
+                    ArrayDeque<Runnable> queue = oneways.get(target);
+                    next = queue == null ? null : queue.poll();
                     if (next == null) { oneways.remove(target); return; }
                     --queuedOneway;
                 }
@@ -672,6 +699,52 @@ public final class ATLBinderConnection {
             }
         } });
 	}
+	/**
+	 * One received call waiting for a worker. Ownership is exactly-once: either a
+	 * worker runs it (releasePins in the finally) or close() abandons it (request
+	 * recycled, the same pins released) - never both, never neither. Without the
+	 * exactly-once rule a queue would leak the request Parcel and the pins that
+	 * keep the caller's handles alive when the link dies under load.
+	 */
+	private final class DispatchTask implements Runnable {
+		private final int id, target, code, flags;
+		private final long callChain;
+		private final Parcel request;
+		private final int[] held;
+		private final int heldCount;
+		private final AtomicBoolean claimed = new AtomicBoolean();
+
+		DispatchTask(int id, int target, int code, int flags, long callChain, Parcel request,
+		             int[] held, int heldCount) {
+			this.id = id;
+			this.target = target;
+			this.code = code;
+			this.flags = flags;
+			this.callChain = callChain;
+			this.request = request;
+			this.held = held;
+			this.heldCount = heldCount;
+		}
+
+		public void run() {
+			if (!claimed.compareAndSet(false, true))
+				return; // abandoned by close(): the request is already recycled
+			try {
+				dispatch(id, target, code, flags, callChain, request);
+			} finally {
+				releasePins(held, heldCount);
+			}
+		}
+
+		/** Never ran and never will: give back the request and the pins, once. */
+		void abandon() {
+			if (!claimed.compareAndSet(false, true))
+				return;
+			request.recycle();
+			releasePins(held, heldCount);
+		}
+	}
+
 	private void dispatch(int id, int target, int code, int flags, long callChain, Parcel request) {
 		if (!alive) {
 			request.recycle();
@@ -773,7 +846,31 @@ public final class ATLBinderConnection {
 				android.util.Log.w("ATLBinder", "Death listener failed");
 			}
 		}
+		// Queued work is abandoned, never run: the link is gone, so no reply can
+		// be delivered, and a queued request still owns its Parcel and the pins
+		// that keep the caller's handles alive. The queue is emptied *before*
+		// shutdown (which would still run everything already queued), and the
+		// pool is stopped with shutdown() rather than shutdownNow(): a handler
+		// that is already executing is never interrupted by a caller's timeout or
+		// by link death - only its reply becomes undeliverable (AOSP semantics).
+		// Every abandonment is exactly-once against the worker that may have just
+		// taken the same task; a task that runs anyway sees !alive and recycles.
+		ArrayList<DispatchTask> dropped = new ArrayList<>();
+		for (Runnable queued : dispatchQueue)
+			if (queued instanceof DispatchTask)
+				dropped.add((DispatchTask)queued);
+		dispatchQueue.clear();
 		workers.shutdown();
+		synchronized (this) {
+			for (ArrayDeque<Runnable> queue : oneways.values())
+				for (Runnable queued : queue)
+					if (queued instanceof DispatchTask)
+						dropped.add((DispatchTask)queued);
+			oneways.clear();
+			queuedOneway = 0;
+		}
+		for (DispatchTask queued : dropped)
+			queued.abandon();
 	}
 	private final class RemoteBinder implements IBinder {
 		final int id;

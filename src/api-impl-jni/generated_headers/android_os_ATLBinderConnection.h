@@ -25,6 +25,8 @@ extern "C" {
 #define android_os_ATLBinderConnection_KIND_RELEASE 3L
 #undef android_os_ATLBinderConnection_FLAG_RELEASE_REPLY
 #define android_os_ATLBinderConnection_FLAG_RELEASE_REPLY 1L
+#undef android_os_ATLBinderConnection_DISPATCH_WORKERS
+#define android_os_ATLBinderConnection_DISPATCH_WORKERS 16L
 #undef android_os_ATLBinderConnection_FIXED_HEADER
 #define android_os_ATLBinderConnection_FIXED_HEADER 36L
 /*
