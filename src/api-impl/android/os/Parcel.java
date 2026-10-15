@@ -492,8 +492,11 @@ public class Parcel {
 		if (className == null)
 			return null;
 		try {
-			Parcelable.Creator<?> creator = (Parcelable.Creator<?>)loader.loadClass(className).getField("CREATOR").get(null);
-			return (Parcelable)creator.createFromParcel(this);
+			ClassLoader effectiveLoader = loader != null ? loader : Parcel.class.getClassLoader();
+			Parcelable.Creator<?> creator = (Parcelable.Creator<?>)Class.forName(className, true, effectiveLoader).getField("CREATOR").get(null);
+			return (Parcelable)(creator instanceof Parcelable.ClassLoaderCreator
+				? ((Parcelable.ClassLoaderCreator<?>)creator).createFromParcel(this, loader)
+				: creator.createFromParcel(this));
 		} catch (ReflectiveOperationException | IllegalArgumentException e) {
 			throw new BadParcelableException(e);
 		}

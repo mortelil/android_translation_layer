@@ -25,7 +25,7 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		super.dispatchSaveInstanceState(container);
 		if (children != null) {
 			for (View child : children)
-				child.dispatchSaveInstanceState(container);
+				if (child.isSaveFromParentEnabled()) child.dispatchSaveInstanceState(container);
 		}
 	}
 
@@ -34,8 +34,17 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		super.dispatchRestoreInstanceState(container);
 		if (children != null) {
 			for (View child : children)
-				child.dispatchRestoreInstanceState(container);
+				if (child.isSaveFromParentEnabled()) child.dispatchRestoreInstanceState(container);
 		}
+	}
+
+	// RecyclerView and other containers save child state through their own
+	// adapters. These entry points deliberately bypass child traversal.
+	protected void dispatchFreezeSelfOnly(SparseArray<Parcelable> container) {
+		super.dispatchSaveInstanceState(container);
+	}
+	protected void dispatchThawSelfOnly(SparseArray<Parcelable> container) {
+		super.dispatchRestoreInstanceState(container);
 	}
 
 	/* clang-format off */
