@@ -651,9 +651,10 @@ public final class ATLServiceController {
 	 * not the policy authority: the call is reported to the loader over the existing
 	 * STOP_SELF receiver and nothing is stopped or unregistered here (AOSP: the
 	 * child's stopSelf only marks the AMS-side record, and the teardown that brings
-	 * the service down is what drives the child's onDestroy). The return then means
-	 * "reported to the authority": the loader's verdict -- an older start ID must not
-	 * stop newer work -- is applied there, asynchronously.
+	 * the service down is what drives the child's onDestroy). The return is the
+	 * loader's own decision on that report -- an older start ID must not stop newer
+	 * work and is refused there (false) -- and a report that cannot be delivered is
+	 * false too: a broken control link must never look like a successful stop.
 	 */
 	public boolean stopServiceFromSelf(Service service, int startId) {
 		ATLServiceRegistry.ServiceRecord record = service_registry.findByInstance(service);
@@ -669,8 +670,7 @@ public final class ATLServiceController {
 				// alive until the loader's teardown (DESTROY) arrives, which drives
 				// onDestroy() exactly as AOSP's bringDownServiceLocked does.
 				if (isServiceChild()) {
-					reportStopSelfToLoader(service.getClass().getName(), startId);
-					return true;
+					return reportStopSelfToLoader(service.getClass().getName(), startId);
 				}
 				// Not started / never started, or already stopped (a dead
 				// instance's stopSelf is a no-op).
@@ -709,21 +709,25 @@ public final class ATLServiceController {
 	 * Reports a hosted instance's stopSelf*() to the loader through the lane-D
 	 * service-child runtime's STOP_SELF sender, looked up reflectively for the same
 	 * reason as {@link #ATL_PROCESS_HOST_CLASS}: a direct reference would not build in
-	 * a tree without the lane-D transport. A missing receiver is loud, never a silent
-	 * degradation -- this process is a service child, so the runtime it was spawned
-	 * under must provide it.
+	 * a tree without the lane-D transport. The sender returns the loader's decision,
+	 * which is what {@code Service.stopSelfResult(int)} must return; a report that
+	 * cannot be delivered is false there, never a fabricated success. A missing
+	 * receiver is loud, never a silent degradation -- this process is a service child,
+	 * so the runtime it was spawned under must provide it.
 	 */
-	private static void reportStopSelfToLoader(String componentClass, int startId) {
+	private static boolean reportStopSelfToLoader(String componentClass, int startId) {
+		Object decision;
 		try {
-			Class.forName(ATL_CHILD_HOST_CLASS)
-			    .getMethod(ATL_CHILD_HOST_REPORT_STOP_SELF, String.class, int.class)
-			    .invoke(null, componentClass, startId);
+			decision = Class.forName(ATL_CHILD_HOST_CLASS)
+			               .getMethod(ATL_CHILD_HOST_REPORT_STOP_SELF, String.class, int.class)
+			               .invoke(null, componentClass, startId);
 		} catch (ClassNotFoundException e) {
 			throw new IllegalStateException("service child without " + ATL_CHILD_HOST_CLASS, e);
 		} catch (ReflectiveOperationException e) {
 			throw new IllegalStateException(ATL_CHILD_HOST_CLASS + "." + ATL_CHILD_HOST_REPORT_STOP_SELF
 			                                + " for " + componentClass + " startId=" + startId + " failed", e);
 		}
+		return Boolean.TRUE.equals(decision);
 	}
 
 	// ---------------------------------------------------------------------
@@ -758,19 +762,18 @@ public final class ATLServiceController {
 		});
 		backend.setChildEventListener(new ATLProcessBackend.ChildEventListener() {
 			@Override
-			public void onStopSelf(final String processName, final String componentClass, final int startId) {
-				// Real child hosts report stopSelf() over the wire; a fake
-				// (in-loader) instance routes through Service.stopSelf()
-				// directly instead.
-				main().post(new Runnable() {
-					@Override
-					public void run() {
-						ATLServiceRegistry.ServiceRecord record =
-						    service_registry.findByComponent(new ComponentName(app.pkg.packageName, componentClass));
-						if (record != null && record.isRemote())
-							stopServiceFromSelfRemote(record, startId);
-					}
-				});
+			public boolean onStopSelf(final String processName, final String componentClass, final int startId) {
+				// Real child hosts report stopSelf() over the wire and park in the
+				// call; a fake (in-loader) instance routes through Service.stopSelf()
+				// directly instead. The decision is the record's (stopServiceFromSelfRemote
+				// below), computed here rather than posted: the record state it reads is
+				// under the registry's own lock and the teardown it triggers is posted,
+				// so this never blocks on the main looper -- which is what keeps a child's
+				// stopSelfResult() from deadlocking against a parent->child call the main
+				// looper is parked in. No record, or one that is not remote, is a refusal.
+				ATLServiceRegistry.ServiceRecord record =
+				    service_registry.findByComponent(new ComponentName(app.pkg.packageName, componentClass));
+				return record != null && record.isRemote() && stopServiceFromSelfRemote(record, startId);
 			}
 
 			@Override
@@ -825,7 +828,18 @@ public final class ATLServiceController {
 	 * Authoritative stop from a hosted remote instance (S09): the registry
 	 * decides whether the start ID may stop the record and whether bound
 	 * clients keep it alive; the child-side instance is destroyed through the
-	 * backend only when the record is really stopped.
+	 * backend only when the record is really stopped. Returns the decision the
+	 * child's {@code Service.stopSelfResult(int)} reports: false when the
+	 * registry refused (a stale start ID or no record at all), true when the
+	 * record was brought down -- also when bound clients keep it running, as in
+	 * AOSP's {@code stopServiceTokenLocked}, which returns true after
+	 * {@code bringDownServiceIfNeededLocked} however that leaves the record.
+	 *
+	 * <p>Runs wherever the report arrives: in-loader (a fake backend's instance
+	 * calls stopSelf() on its own thread) or on the transport worker that
+	 * received the child's STOP_SELF. Only the registry's lock-guarded state is
+	 * read here and the teardown is posted to the main looper, so this never
+	 * waits on the main looper and a parked child cannot deadlock it.
 	 */
 	private boolean stopServiceFromSelfRemote(ATLServiceRegistry.ServiceRecord record, int startId) {
 		ATLServiceRegistry.StopResult result = service_registry.stopSelf(record, startId);

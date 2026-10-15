@@ -16,7 +16,8 @@
  *
  * New in this file: the frozen wire handlers (START/BIND/UNBIND/DESTROY/REBIND/
  * STATUS, READY and STOP_SELF reports), op-time manifest refusals, the mirrored
- * bind counter and the fault seams crash-before-ready / stall-before-ready.
+ * bind counter and the fault seams crash-before-ready / stall-before-ready /
+ * stopself-broken-link (see reportStopSelf()).
  */
 package android.atl;
 
@@ -56,6 +57,8 @@ public class ChildHost {
 	private static final Object lock = new Object();
 	private static volatile ATLBinderConnection link;
 	private static volatile Handler main;
+	/** The manifest process name this child hosts; set by init(), read by the fault seam. */
+	private static volatile String processName;
 
 	/** Touched only on the main looper. */
 	private static final HashMap<String, Hosted> instances = new HashMap<>();
@@ -94,6 +97,7 @@ public class ChildHost {
 	}
 
 	private static void init(final int fd, final String process) throws Throwable {
+		processName = process;
 		if (ATLProcessControl.faultApplies("crash-before-ready", process))
 			throw new IllegalStateException("fault injection: crash-before-ready");
 
@@ -159,30 +163,50 @@ public class ChildHost {
 	}
 
 	/**
-	 * Reports a Service.stopSelf*() call to the loader (STOP_SELF). Synchronous:
-	 * the loader answers immediately on its transport worker and decides on its
-	 * own main looper. A failed transaction means the link is dying; it is
-	 * reported here and the link's death handler ends the process.
+	 * Reports a Service.stopSelf*() call to the loader (STOP_SELF) and returns the
+	 * loader's decision: true only when the record accepted the stop. Synchronous:
+	 * the loader answers on its transport worker and decides on its own schedule,
+	 * never by waiting for the main looper, so this call cannot deadlock against a
+	 * main-looper thread parked in a call into this child.
+	 *
+	 * <p>A link that is gone, a refused transaction or a failed report is false, never
+	 * a fabricated success (AOSP {@code Service.stopSelfResult} returns false when the
+	 * call cannot be delivered - pinned 94b4c163b7df
+	 * {@code core/java/android/app/Service.java:662-673}). Both failures are loud on
+	 * stderr. Only the failed-transaction path is followed by the link's own death
+	 * handler; when there is no link at all (the child is already tearing down, or the
+	 * test seam took that path) nothing ends this process, and the false is exactly the
+	 * answer a caller whose report could not be delivered must see.
 	 */
-	public static void reportStopSelf(String componentClass, int startId) {
+	public static boolean reportStopSelf(String componentClass, int startId) {
 		ATLBinderConnection connection;
 		synchronized (lock) {
 			connection = link;
 		}
-		if (connection == null)
-			throw new IllegalStateException("child control link is not established");
+		if (connection == null || ATLProcessControl.faultApplies("stopself-broken-link", processName)) {
+			// Test seam ATL_SERVICE_PROCESS_FAULT=stopself-broken-link[:proc]: report as
+			// if the control link were already gone, i.e. take the real no-link path.
+			System.err.println("ChildHost: no control link for the STOP_SELF report of " + componentClass
+			                   + " startId=" + startId + "; reporting no decision");
+			return false;
+		}
 		Parcel data = Parcel.obtain();
 		Parcel reply = Parcel.obtain();
 		try {
 			data.writeString(componentClass);
 			data.writeInt(startId);
-			if (!connection.remote(1).transact(ATLProcessControl.STOP_SELF, data, reply, 0))
-				throw new IllegalStateException("loader rejected STOP_SELF");
+			if (!connection.remote(1).transact(ATLProcessControl.STOP_SELF, data, reply, 0)) {
+				System.err.println("ChildHost: the loader rejected the STOP_SELF report of " + componentClass
+				                   + " startId=" + startId + "; reporting no decision");
+				return false;
+			}
 			reply.readException();
+			return reply.readInt() != 0;
 		} catch (RuntimeException e) {
 			System.err.println("ChildHost: STOP_SELF report for " + componentClass + " startId=" + startId
 			                   + " failed (link dying): " + e);
 			e.printStackTrace();
+			return false;
 		} finally {
 			data.recycle();
 			reply.recycle();

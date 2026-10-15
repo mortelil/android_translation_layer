@@ -57,8 +57,13 @@ public interface ATLProcessBackend {
 
 	/** Reports events that originate inside the hosting side rather than from a controller call. */
 	interface ChildEventListener {
-		/** Child-side stopSelf()/stopSelfResult() report (S09); controller decides authoritatively. */
-		void onStopSelf(String processName, String componentClass, int startId);
+		/**
+		 * Child-side stopSelf()/stopSelfResult() report; the controller decides authoritatively and
+		 * the returned decision is the reply the child's {@code Service.stopSelfResult(int)} returns
+		 * (false when it cannot be authorised). Called on a transport worker thread the child is
+		 * parked in: decide from thread-safe state, never wait on the main looper.
+		 */
+		boolean onStopSelf(String processName, String componentClass, int startId);
 
 		/**
 		 * In-loader backends (fake) report live instances so Service.stopSelf() routes to the

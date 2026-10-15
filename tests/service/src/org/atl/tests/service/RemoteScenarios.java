@@ -9,7 +9,7 @@
  *   ladder - S13a                                          (fake, MIN_CRASH_INTERVAL_MS=1000)
  *   fault  - S11b                                          (fake, ATL_SERVICE_PROCESS_FAULT=spawn)
  *   child  - S14c                                          (ATL_SERVICE_PROCESS: this loader IS a child)
- *   realhost - S09, S10, S11c, S15 (NO ATL_PROCESS_BACKEND: real spawned children
+ *   realhost - S09, S09x, S10, S11c, S15 (NO ATL_PROCESS_BACKEND: real spawned children
  *              through android.atl.ATLProcessHost, one child per android:process)
  *
  * Rows S11a, S11b, S11d, S12, S13a, S13b and S13c are NOT run in the realhost
@@ -17,7 +17,8 @@
  * or the fake fault-arming seam (armProcessFault), which the real host does not
  * expose. run.sh reports them `not-run` for that launch - never PASS, never FAIL.
  * S09, S11c and S15 need no change for it: they only use production calls and
- * event counts, so they run unmodified against real children. S10 gets its own
+ * event counts, so they run unmodified against real children (S09x is the one row that
+ * carries a seam into that launch, and it is scoped to its own process). S10 gets its own
  * body ({@link #s10Real()}), because in that arm the child exits ITSELF instead
  * of being killed through the fake seam.
  *
@@ -46,7 +47,12 @@
  *
  * What each row asserts and why (frozen anchors):
  *   S09  Service.stopSelf(int)/(), remote: the record's start-id rule
- *        (`startId >= 0 && lastStartId != startId`) - the same contract as S01.
+ *        (`startId >= 0 && lastStartId != startId`) - the same contract as S01 -
+ *        plus the return value of that route: stopSelfResult(stale id) is false,
+ *        stopSelfResult(current id) is true (phase 2).
+ *   S09x stopSelfResult() with the control link to the authority gone (scoped
+ *        `stopself-broken-link` seam, :s09x only): false, and nothing is stopped -
+ *        the record keeps serving, so the loader was never told (realhost launch).
  *   S10  START_STICKY: the onStartCommand() return code is captured, the record
  *        survives the child's death and is redelivered with a fabricated null
  *        intent, with a bound client and after that client left (fake arm: the
@@ -116,10 +122,12 @@ final class RemoteScenarios {
         } else if ("child".equals(gate)) {
             rows.add(r.s14c());
         } else if ("realhost".equals(gate)) {
-            // No fake, no fault, no ATL_SERVICE_PROCESS: the remote fixtures resolve
-            // the REAL android.atl.ATLProcessHost, so every row's component runs in
-            // a really spawned child and S09/S11c/S15 need no change for that.
+            // No fake, no fault beyond the scoped S09x seam, no ATL_SERVICE_PROCESS: the
+            // remote fixtures resolve the REAL android.atl.ATLProcessHost, so every row's
+            // component runs in a really spawned child and S09/S11c/S15 need no change
+            // for that.
             rows.add(r.s09(REAL));
+            rows.add(r.s09x());
             rows.add(r.s10Real());
             rows.add(r.s11c());
             rows.add(r.s15());
@@ -414,16 +422,18 @@ final class RemoteScenarios {
     }
 
     // ---------------------------------------------------------------------
-    // S09 - a remote record's stopSelf(olderId) must be refused, stopSelf() stops
+    // S09 - a remote record's stopSelf(olderId) must be refused, stopSelf() stops, and
+    //       stopSelfResult() returns the authority's own decision (phase 2)
     // ---------------------------------------------------------------------
     private Scenario s09(final HostView host) {
-        final Scenario row = new Scenario("S09").budget(30000);
+        final Scenario row = new Scenario("S09").budget(45000);
         final Class<?> cls = SvcStopSelf.class;
         final String process = processOf(cls);
         final Intent plain = svc(cls);
         final Intent stopOlder = svc(cls).putExtra("cmd", "stopOld").putExtra("oldId", 2);
         final Intent stopCurrent = svc(cls).putExtra("cmd", "stopNow");
 
+        // Phase 1 - the start-id rule of stopSelf(int)/stopSelf(), unchanged.
         start(row, "start1", plain, "#1");
         row.observe(800);
         start(row, "start2", plain, "#2");
@@ -433,23 +443,51 @@ final class RemoteScenarios {
         start(row, "start4", stopCurrent, "#4 (stopSelf())");
         row.observe(2500);
 
+        // Phase 2 - the return value of stopSelfResult(int). Phase 1 ended with the
+        // record torn down, so #5 is a NEW instance whose start ids begin at 1 again.
+        final Intent stopResultOlder = svc(cls).putExtra("cmd", "stopResOld").putExtra("oldId", 1);
+        final Intent stopResultCurrent = svc(cls).putExtra("cmd", "stopResNow");
+        start(row, "start5", plain, "#5 (new instance after the phase-1 teardown)");
+        row.observe(800);
+        start(row, "start6", stopResultOlder, "#6 (stopSelfResult(1): stale id of the new record)");
+        row.observe(800);
+        start(row, "start7", stopResultCurrent, "#7 (stopSelfResult(current))");
+        row.observe(2500);
+
         row.verdictChecks.add(new Action() {
             public void run(Checks checks) {
-                expectCount(checks, "S09", "SvcStopSelf.onCreate", "", 1);
-                expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "", 4);
-                expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=1 flags=0 cmd=none", 1);
+                expectCount(checks, "S09", "SvcStopSelf.onCreate", "", 2);
+                expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "", 7);
+                expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=1 flags=0 cmd=none", 2);
                 expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=2 flags=0 cmd=none", 1);
                 expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=3 flags=0 cmd=stopOld", 1);
                 expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=4 flags=0 cmd=stopNow", 1);
+                expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=2 flags=0 cmd=stopResOld", 1);
+                expectCount(checks, "S09", "SvcStopSelf.onStartCommand", "id=3 flags=0 cmd=stopResNow", 1);
                 expectCount(checks, "S09", "SvcStopSelf.stopSelf", "startId=2 ", 1);
                 expectCount(checks, "S09", "SvcStopSelf.stopSelf", "startId=current", 1);
-                // The refused older id left the record alive: start #4 got the next
-                // id of the SAME record, so the child never ran a second onCreate().
+                // The two stopSelfResult arms: the call's own return value is the
+                // authority's decision - false for the stale id, true for the current one.
+                // A child that decided on its own could not tell these two apart.
+                expectCount(checks, "S09", "SvcStopSelf.stopSelfResult",
+                    "startId=1 ret=false (older start id", 1);
+                expectCount(checks, "S09", "SvcStopSelf.stopSelfResult",
+                    "startId=3 ret=true (current start", 1);
+                expectCount(checks, "S09", "SvcStopSelf.stopSelfResult", "", 2);
+                // The refused older id left the record alive: start #4/#7 got the next
+                // id of the SAME record, so the child ran one onCreate() per instance.
                 expectBefore(checks, "S09", "SvcStopSelf.stopSelf", "startId=2 ",
                     "SvcStopSelf.onStartCommand", "id=4 ");
                 expectBefore(checks, "S09", "SvcStopSelf.stopSelf", "startId=current",
                     "SvcStopSelf.onDestroy", "");
-                expectCount(checks, "S09", "SvcStopSelf.onDestroy", "", 1);
+                expectBeforeContaining(checks, "S09", "SvcStopSelf.stopSelfResult", "ret=false",
+                    "SvcStopSelf.onStartCommand", "id=3 flags=0 cmd=stopResNow");
+                // Phase 2's accepted stop is followed by phase 2's own teardown: the
+                // SECOND onDestroy. The first one belongs to phase 1's stopSelf(), and
+                // it precedes this call by design, so it cannot be the anchor.
+                expectNthContainingAfter(checks, "S09", "SvcStopSelf.stopSelfResult", "ret=true",
+                    "SvcStopSelf.onDestroy", "", 1);
+                expectCount(checks, "S09", "SvcStopSelf.onDestroy", "", 2);
                 Liveness live = host.liveness(process,
                     "S09 needs the fake backend to observe the process going down");
                 if (!live.usable) {
@@ -458,6 +496,47 @@ final class RemoteScenarios {
                     checks.ok("the hosting process must be gone after the teardown, observed up="
                         + live.up, !live.up);
                 }
+            }
+        });
+        return row;
+    }
+
+    // ---------------------------------------------------------------------
+    // S09x - stopSelfResult() with the control link to the authority GONE must return
+    //        false and tear nothing down. Armed only for :s09x by run.sh's realhost
+    //        launch (ATL_SERVICE_PROCESS_FAULT=stopself-broken-link:<process>), so the
+    //        other rows of that launch keep a working link.
+    // ---------------------------------------------------------------------
+    private Scenario s09x() {
+        final Scenario row = new Scenario("S09x").budget(30000);
+        final Class<?> cls = SvcStopSelfGone.class;
+        final Intent plain = svc(cls);
+        final Intent stopResultCurrent = svc(cls).putExtra("cmd", "stopResNow");
+
+        start(row, "start1", plain, "#1");
+        row.observe(800);
+        start(row, "start2", stopResultCurrent, "#2 (stopSelfResult(current), no control link)");
+        row.observe(1500);
+        start(row, "start3", plain, "#3 (same instance: the record was never told)");
+        row.observe(800);
+
+        row.verdictChecks.add(new Action() {
+            public void run(Checks checks) {
+                expectCount(checks, "S09x", "SvcStopSelfGone.onCreate", "", 1);
+                expectCount(checks, "S09x", "SvcStopSelfGone.onStartCommand", "", 3);
+                expectCount(checks, "S09x", "SvcStopSelfGone.onStartCommand", "id=1 flags=0 cmd=none", 1);
+                expectCount(checks, "S09x", "SvcStopSelfGone.onStartCommand", "id=2 flags=0 cmd=stopResNow", 1);
+                expectCount(checks, "S09x", "SvcStopSelfGone.onStartCommand", "id=3 flags=0 cmd=none", 1);
+                // The one thing the child could get wrong alone: answering true for a
+                // report it could not deliver.
+                expectCount(checks, "S09x", "SvcStopSelfGone.stopSelfResult",
+                    "startId=2 ret=false (no control link", 1);
+                expectCount(checks, "S09x", "SvcStopSelfGone.stopSelfResult", "", 1);
+                // ... and nothing was stopped: the record kept serving (start #3 is the
+                // same instance's third start id) and no teardown ever arrived.
+                expectCount(checks, "S09x", "SvcStopSelfGone.onDestroy", "", 0);
+                expectBeforeContaining(checks, "S09x", "SvcStopSelfGone.stopSelfResult", "ret=false",
+                    "SvcStopSelfGone.onStartCommand", "id=3 flags=0 cmd=none");
             }
         });
         return row;

@@ -49,6 +49,9 @@ import java.util.concurrent.TimeUnit;
  * there, serially, so at most one spawn per name is in flight and operations
  * arriving during a spawn run after it. Every {@link Callback} and listener
  * delivery is posted to the main looper, never made from the caller's stack.
+ * The one exception is {@code ChildEventListener#onStopSelf}: it answers a
+ * child that is parked in its own {@code Service.stopSelfResult(int)} call, so
+ * it runs on the receiving worker thread and returns the decision.
  */
 public class ATLProcessHost implements ATLProcessBackend {
 	private static final String TAG = "ATLProcessHost";
@@ -583,20 +586,19 @@ public class ATLProcessHost implements ATLProcessBackend {
 		}
 
 		@Override
-		public void onStopSelf(final String componentClass, final int startId) {
-			post(new Runnable() {
-				public void run() {
-					synchronized (lock) {
-						if (entries.get(processName) != Entry.this) {
-							Slog.w(TAG, "dropping stopSelf of " + componentClass + " from a stale process " + processName);
-							return;
-						}
-					}
-					ChildEventListener listener = childEventListener;
-					if (listener != null)
-						listener.onStopSelf(processName, componentClass, startId);
+		public boolean onStopSelf(final String componentClass, final int startId) {
+			synchronized (lock) {
+				if (entries.get(processName) != Entry.this) {
+					Slog.w(TAG, "dropping stopSelf of " + componentClass + " from a stale process " + processName);
+					return false;
 				}
-			});
+			}
+			// Decided on the worker that received the message, not posted: the child's
+			// Service.stopSelfResult() is parked in this call until this value returns.
+			// The listener decides from thread-safe state (never the main looper) and
+			// returns false when it cannot authorise the stop.
+			ChildEventListener listener = childEventListener;
+			return listener != null && listener.onStopSelf(processName, componentClass, startId);
 		}
 
 		@Override

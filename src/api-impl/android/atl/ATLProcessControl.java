@@ -43,8 +43,17 @@ import java.util.Set;
  * DESTROY   parent -> child : String componentClass          reply: int 1
  * STATUS    parent -> child : -                              reply: String pkg, String process,
  *                                                            int pid, String dataDir, String[] fd names
- * STOP_SELF child -> parent : String componentClass, int startId
+ * STOP_SELF child -> parent : String componentClass, int startId  reply: int decision (1/0)
  * </pre>
+ *
+ * <p>STOP_SELF is the one child-initiated message whose reply carries a payload: the sender is
+ * {@code Service.stopSelfResult(int)}, which must return the authority's decision synchronously
+ * (AOSP {@code Service.stopSelfResult} returns {@code stopServiceToken}'s result, and returns
+ * false when that call cannot be delivered - pinned 94b4c163b7df {@code
+ * core/java/android/app/Service.java:662-673}). The decision is therefore computed on the
+ * transport worker that handles the message, never handed to the main looper to await: the child
+ * is parked in this call, and a loader that answered from its main looper could deadlock against
+ * its own synchronous parent-&gt;child call ({@code ParentEntry#onStopSelf}).
  *
  * <p>Every parent->child intent payload starts with the target {@link ComponentName} and an int
  * presence marker: {@code 0} - no intent follows, {@code 1} - the intent fields follow (see
@@ -204,8 +213,16 @@ public final class ATLProcessControl {
 		/** Marks the child ready and releases the spawn waiter; throws IllegalStateException if it already was or is torn down. */
 		void onReady(String firstHostedComponent);
 
-		/** Hands a child stopSelf report on to the loader's main looper; never blocks. */
-		void onStopSelf(String componentClass, int startId);
+		/**
+		 * Decides a child's {@code Service.stopSelf*()} report and returns the decision: true when
+		 * this loader's record accepted the stop (AOSP {@code stopServiceTokenLocked}, pinned
+		 * 94b4c163b7df {@code ActiveServices.java:1895-1952}: false for a stale start ID - {@code
+		 * r.getLastStartId() != startId} - or no record, true once the record is brought down, also
+		 * when bound clients keep it running). Called on the transport worker thread that received
+		 * the message, which the child is parked in, so it must decide from thread-safe state and
+		 * must never wait on the main looper; the teardown it triggers is posted instead.
+		 */
+		boolean onStopSelf(String componentClass, int startId);
 
 		/**
 		 * A control message of this child was rejected at the decode site: logs it and closes
@@ -273,8 +290,12 @@ public final class ATLProcessControl {
 				int caller = Binder.getCallingPid();
 				if (caller != entry.pid())
 					throw new SecurityException("STOP_SELF from pid " + caller + ", expected " + entry.pid());
+				// The sender is Service.stopSelfResult(), parked in this call until the
+				// reply arrives: decide here (thread-safe, no main-looper wait) and carry
+				// the decision back. A refusal or a dead link must never look like a stop.
+				boolean stopped = entry.onStopSelf(componentClass, startId);
 				reply.writeNoException();
-				entry.onStopSelf(componentClass, startId);
+				reply.writeInt(stopped ? 1 : 0);
 				return true;
 			}
 			default:

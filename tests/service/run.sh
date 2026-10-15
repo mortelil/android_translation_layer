@@ -8,6 +8,13 @@
 # stdout.log and prints ONE summary. Modeled on references/pr31/tests/remote-services/run.sh.
 # ATL never self-exits GUI apps: a run is finished when its SVC_GATE_DONE marker shows up
 # (or the 300 s timeout expires); the launch group is then killed.
+#
+# FOCUSED MODE: SVC_GATE_LAUNCHES=<subset of the launch names below> runs only those
+# launches and claims only the rows they emit - a row whose launch was not selected is
+# reported NOTCLAIMED and never counted, so the exit code still means "every claimed row
+# passed". Unset (the default) is the full matrix: every launch, every row.
+# tests/service/run-focused.sh uses it for the STOP_SELF rows (S09 + S09x, launches
+# `fake` and `realhost`) instead of the seven-launch gate.
 set -eu
 test "$#" -eq 3 || { echo 'Usage: run.sh BUILD_DIR SIGNED_APK OUT_DIR' >&2; exit 2; }
 build=$(realpath "$1")
@@ -16,6 +23,9 @@ mkdir -p "$3"
 out=$(realpath "$3")
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 RUN_TIMEOUT=${SVC_GATE_RUN_TIMEOUT:-300}
+# The APK's package (tests/service/AndroidManifest.xml): a component's process name is
+# this plus its android:process tag, which is what a scoped fault seam names.
+PROBE_PACKAGE=${SVC_GATE_PACKAGE:-org.atl.tests.service}
 
 # Every launch that runs against the in-loader fake process host (ATLFakeProcessBackend).
 COMMON_ENV="ATL_PROCESS_BACKEND=fake"
@@ -32,11 +42,37 @@ ATL_SERVICE_BOUND_CRASH_RESTART_DURATION_MS=1000 ATL_SERVICE_MIN_CRASH_INTERVAL_
 # default, hence its own launch instead of one shared env.
 LADDER_ENV="$RESTART_ENV ATL_SERVICE_MIN_CRASH_INTERVAL_MS=1000"
 
+# Every launch this gate knows, in run order. SVC_GATE_LAUNCHES may name a subset of it.
+LAUNCHES="local fake caps fault child ladder realhost"
+SVC_GATE_LAUNCHES=${SVC_GATE_LAUNCHES:-$LAUNCHES}
+# A typo must never look like a run that claimed nothing: the rows of an unknown
+# token's launch would all be NOTCLAIMED, and "0 claimed rows: 0 pass 0 fail" would
+# still exit 0. Refuse the whole request instead.
+for want in $SVC_GATE_LAUNCHES; do
+	case " $LAUNCHES " in
+		*" $want "*) ;;
+		*) echo "run.sh: unknown launch '$want' in SVC_GATE_LAUNCHES (known: $LAUNCHES)" >&2; exit 2;;
+	esac
+done
+
+# selected NAME -> 0 when NAME's launch is in SVC_GATE_LAUNCHES.
+selected() {
+	case " $SVC_GATE_LAUNCHES " in
+		*" $1 "*) return 0;;
+		*) return 1;;
+	esac
+}
+
 # name | gate | env (empty = none) | scenario markers expected
 launch() {
 	name=$1
 	gate=$2
 	extra=$3
+	if ! selected "$name"; then
+		# Focused mode: the row's own launch was not selected, so nothing of it runs.
+		echo "SVC_RUN $name SKIPPED (not in SVC_GATE_LAUNCHES=$SVC_GATE_LAUNCHES)"
+		return 0
+	fi
 	# The process backend this launch actually runs against, taken from the launch's own env:
 	# every row log must name the backend the row ran against.
 	backend="none (loader-resident, no child host)"
@@ -105,11 +141,13 @@ launch child child "ATL_SERVICE_PROCESS=:simchild"
 # Sixth launch: S13a's restart ladder, which needs MIN_CRASH_INTERVAL_MS below the 300 ms
 # first restart delay instead of the 120000 default the other launches keep.
 launch ladder ladder "$COMMON_ENV $LADDER_ENV"
-# Seventh launch, the real host arm: no ATL_PROCESS_BACKEND, no fault, no
-# ATL_SERVICE_PROCESS, so the remote fixtures resolve the REAL
-# android.atl.ATLProcessHost (ATLServiceController.selectProcessBackend) and every
-# row's component runs in a really spawned child.
-launch realhost realhost "$RESTART_ENV"
+# Seventh launch, the real host arm: no ATL_PROCESS_BACKEND and no ATL_SERVICE_PROCESS,
+# so the remote fixtures resolve the REAL android.atl.ATLProcessHost and every row's
+# component runs in a really spawned child. The one fault seam this launch carries is
+# S09x's, and it is scoped to that row's own process, so every other row of the launch
+# keeps a working control link.
+REALHOST_ENV="$RESTART_ENV ATL_SERVICE_PROCESS_FAULT=stopself-broken-link:$PROBE_PACKAGE:s09x"
+launch realhost realhost "$REALHOST_ENV"
 
 # status SCENARIO RUN -> PASS | FAIL <reason> | MISSING
 status() {
@@ -142,7 +180,7 @@ say "SVC_GATE MATRIX effective ATL_SERVICE_MIN_CRASH_INTERVAL_MS=120000 (fake,ca
 # sub-scenarios and the run each one is emitted by
 subs="S01:local S02:local S03:local S04:local S05:local S06:local S07:local S08:local \
 S14a:local S14b:local S09:fake S10:fake S11a:fake S11c:fake S11d:fake S12:fake S13c:fake S15:fake \
-S13b:caps S13a:ladder S11b:fault S14c:child"
+S13b:caps S13a:ladder S11b:fault S14c:child S09x:realhost"
 # The real-host arm claims only the rows whose path uses production calls alone.
 # The others need the fake kill (ATLFakeProcessBackend.killProcess) or the fake
 # fault-arming seam (armProcessFault), which the real host does not expose at all:
@@ -152,7 +190,11 @@ realnotrun="S11a S11b S11d S12 S13a S13b S13c"
 for s in $subs; do
 	id=${s%%:*}
 	r=${s##*:}
-	st=$(status "$id" "$r")
+	if selected "$r"; then
+		st=$(status "$id" "$r")
+	else
+		st="NOTCLAIMED"
+	fi
 	eval "ST_$id=\$st"
 	say "SVC_SUB $id ($r) $st"
 done
@@ -164,9 +206,14 @@ combine() {
 	res=PASS
 	for c in "$@"; do
 		eval "v=\$ST_$c"
+		# Focused mode: a constituent whose launch was not selected makes the whole
+		# row unclaimable - it is reported NOTCLAIMED and counted neither way.
+		case "$v" in NOTCLAIMED) res=NOTCLAIMED; break;; esac
 		case "$v" in PASS) ;; *) res="${v%% *}"; [ "$res" = PASS ] || res="$c:$v" ;; esac
 	done
-	if [ "$res" = PASS ]; then
+	if [ "$res" = NOTCLAIMED ]; then
+		say "SVC $id NOTCLAIMED (a constituent launch was not selected)"
+	elif [ "$res" = PASS ]; then
 		say "SVC $id PASS"
 		pass=$((pass + 1))
 	else
@@ -174,7 +221,10 @@ combine() {
 		fail=$((fail + 1))
 	fi
 }
-for id in S01 S02 S03 S04 S05 S06 S07 S08 S09 S10; do combine "$id" "$id"; done
+for id in S01 S02 S03 S04 S05 S06 S07 S08 S10; do combine "$id" "$id"; done
+# S09 claims both arms of the child-originated stopSelf contract: the owning record's
+# start-id rule (fake and realhost launches) and the no-link refusal of S09x.
+combine S09 S09 S09x
 combine S11 S11a S11b S11c S11d
 combine S12 S12
 combine S13 S13a S13b S13c
@@ -194,6 +244,10 @@ for s in $subs; do
 	{
 		echo "# row $id - extracted from run-$r/stdout.log"
 		echo "# full scenario log: $log"
+		if ! selected "$r"; then
+			echo "# NOTCLAIMED: launch $r was not selected in this run"
+			continue
+		fi
 		grep -m1 "^SVC_GATE BACKEND " "$log" 2>/dev/null || echo "# backend: NOT RECORDED in $log"
 		# The app's own lines of that run, between the driver's annotation and the
 		# row's events: which loader process produced them and with which backend.
@@ -215,26 +269,30 @@ say "SVC_GATE ROWS $rows"
 realrows="$out/rows-realhost"
 rm -rf "$realrows"
 mkdir -p "$realrows"
-for id in $real_subs; do
-	log="$out/run-realhost/stdout.log"
-	{
-		echo "# row $id - extracted from run-realhost/stdout.log"
-		echo "# full scenario log: $log"
-		grep -m1 "^SVC_GATE BACKEND " "$log" 2>/dev/null || echo "# backend: NOT RECORDED in $log"
-		grep -m1 "^SVC_APP_BACKEND " "$log" 2>/dev/null || echo "# app backend: NOT RECORDED in $log"
-		grep -m1 "^SVC_APP_PID " "$log" 2>/dev/null || echo "# app pid: NOT RECORDED in $log"
-		grep "^ATL_SERVICE_PROCESS_READY " "$log" 2>/dev/null \
-			|| echo "# spawn: no ATL_SERVICE_PROCESS_READY line in $log"
-		grep "^SVC $id " "$log" 2>/dev/null \
-			|| echo "SVC $id MISSING (no event of this row in $log)"
-	} > "$realrows/$id.log"
-done
-{
-	for id in $realnotrun; do
-		echo "$id not-run (fake kill/fault-arming seam)"
+if selected realhost; then
+	for id in $real_subs; do
+		log="$out/run-realhost/stdout.log"
+		{
+			echo "# row $id - extracted from run-realhost/stdout.log"
+			echo "# full scenario log: $log"
+			grep -m1 "^SVC_GATE BACKEND " "$log" 2>/dev/null || echo "# backend: NOT RECORDED in $log"
+			grep -m1 "^SVC_APP_BACKEND " "$log" 2>/dev/null || echo "# app backend: NOT RECORDED in $log"
+			grep -m1 "^SVC_APP_PID " "$log" 2>/dev/null || echo "# app pid: NOT RECORDED in $log"
+			grep "^ATL_SERVICE_PROCESS_READY " "$log" 2>/dev/null \
+				|| echo "# spawn: no ATL_SERVICE_PROCESS_READY line in $log"
+			grep "^SVC $id " "$log" 2>/dev/null \
+				|| echo "SVC $id MISSING (no event of this row in $log)"
+		} > "$realrows/$id.log"
 	done
-} > "$realrows/NOTRUN.log"
-say "SVC_GATE REALHOST ROWS $realrows"
+	{
+		for id in $realnotrun; do
+			echo "$id not-run (fake kill/fault-arming seam)"
+		done
+	} > "$realrows/NOTRUN.log"
+	say "SVC_GATE REALHOST ROWS $realrows"
+else
+	say "SVC_GATE REALHOST ROWS not extracted (launch not selected)"
+fi
 
 say "SVC_GATE SUMMARY $pass pass $fail fail"
 test "$fail" -eq 0
@@ -242,21 +300,26 @@ test "$fail" -eq 0
 # Real-host arm: the rows that need no fake seam, run against really spawned
 # children. A real-arm FAIL exits non-zero and changes no baseline row verdict;
 # the rows of $realnotrun are reported not-run, never as a PASS nobody earned.
+# Focused mode without the realhost launch claims no real-arm row at all.
 rp=0
 rf=0
 rn=0
-for id in $real_subs; do
-	st=$(status "$id" realhost)
-	case "$st" in
-		PASS) rp=$((rp + 1));;
-		*) rf=$((rf + 1));;
-	esac
-	say "SVC_REALSUB $id realhost $st"
-done
-for id in $realnotrun; do
-	rn=$((rn + 1))
-	say "SVC_GATE REALHOST NOTRUN $id (fake kill/fault-arming seam)"
-done
-say "SVC_GATE REALHOST SUMMARY $rp pass $rf fail $rn not-run"
+if selected realhost; then
+	for id in $real_subs; do
+		st=$(status "$id" realhost)
+		case "$st" in
+			PASS) rp=$((rp + 1));;
+			*) rf=$((rf + 1));;
+		esac
+		say "SVC_REALSUB $id realhost $st"
+	done
+	for id in $realnotrun; do
+		rn=$((rn + 1))
+		say "SVC_GATE REALHOST NOTRUN $id (fake kill/fault-arming seam)"
+	done
+	say "SVC_GATE REALHOST SUMMARY $rp pass $rf fail $rn not-run"
+else
+	say "SVC_GATE REALHOST SUMMARY not run (launch not selected)"
+fi
 say "SVC_GATE COMBINED $((pass + fail + rp + rf)) claimed rows: $((pass + rp)) pass $((fail + rf)) fail $rn not-run (real arm: $real_subs; not-run rows need the fake seam: $realnotrun)"
 test "$fail" -eq 0 && test "$rf" -eq 0
