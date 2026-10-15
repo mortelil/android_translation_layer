@@ -1054,8 +1054,13 @@ public final class ATLServiceController {
 	private void teardownRemoteRecord(ATLServiceRegistry.ServiceRecord record) {
 		service_registry.clearRestarting(record);
 		for (ATLServiceRegistry.BoundClient client : service_registry.bindingsOf(record)) {
-			if (!client.delivered)
-				continue;
+			// AOSP ActiveServices.java:6797 iterates r.getConnections() and notifies
+			// EVERY registered connection that the host went down, and
+			// LoadedApk.ServiceDispatcher.doConnected (LoadedApk.java:2402-2459)
+			// reports onBindingDied even when nothing was ever delivered. So this
+			// deliberately does NOT gate on client.delivered: the death path has
+			// already cleared that flag on the clients it disconnected, and gating on
+			// it here made the torn-down-binding notice unreachable (S12).
 			client.delivered = false;
 			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
 			if (dispatcher != null)
