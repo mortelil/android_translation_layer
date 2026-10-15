@@ -96,7 +96,25 @@ public class ATLProcessHost implements ATLProcessBackend {
 		}
 	}
 
-	private final Handler main = new Handler(Looper.getMainLooper());
+	/**
+	 * Posts host work to the main looper; created on first use, never in a field
+	 * initializer: the controller installs this host from its constructor, and that
+	 * constructor runs during android.content.Context's static initialization
+	 * (Context.<clinit> -> ATLLoadedApp.getPrimaryApplication()) from JNI_OnLoad,
+	 * before the launcher has prepared the main looper -- a Handler built here
+	 * would dereference a null looper and fail Context's class initialization
+	 * (same fix as ATLServiceController/ATLFakeProcessBackend, 5bfdbbdb).
+	 */
+	private Handler main;
+
+	private Handler main() {
+		synchronized (this) {
+			if (main == null)
+				main = new Handler(Looper.getMainLooper());
+			return main;
+		}
+	}
+
 	/** Guards {@link #entries} and {@link #workers}; never held across a blocking call or a callback. */
 	private final Object lock = new Object();
 	private final HashMap<String, Entry> entries = new HashMap<>();
@@ -327,7 +345,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 	}
 
 	private void post(Runnable runnable) {
-		main.post(runnable);
+		main().post(runnable);
 	}
 
 	/** One unit of blocking work for a process name. */
