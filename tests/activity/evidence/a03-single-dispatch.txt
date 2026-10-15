@@ -1,0 +1,54 @@
+row A03 - single-dispatch code review (static evidence, repo HEAD 2711907a)
+
+Every activity launch and lifecycle entry in lane-C-owned code enters exactly ONE
+dispatcher: ATLActivityController.hostEvent(int,Object) and the one process-wide
+controller returned by ATLActivityController.get(). There is no second
+launcher/service path, and no per-call-site transition logic.
+
+A. C/GTK launcher (lane D files: ZERO edits, signatures unchanged)
+   main.c:325   activity_start(env, activity)        launch from URI argument
+   main.c:417   activity_start(env, activity)        launch of main activity
+   main.c:843   activity_start(env, activity)        launch after handle_cache setup
+   main.c:206   activity_window_ready()              GTK window-width poll
+   main.c:53    activity_close_all()                 GTK "close-request" -> app_exit
+   back_button.c:11 current_activity_back_pressed()  back button
+
+B. C wrappers -> single Java dispatcher (src/api-impl-jni/app/android_app_Activity.c)
+   :113 activity_start                 -> hostEvent(HOST_EVENT_START, activity)
+   :120 activity_window_ready          -> hostEvent(HOST_EVENT_WINDOW_READY, null)
+   :129 current_activity_back_pressed  -> hostEvent(HOST_EVENT_BACK, null)
+   :138 activity_close_all             -> hostEvent(HOST_EVENT_WINDOW_CLOSE_REQUEST, null)
+   The controller class + hostEvent ID are resolved once at
+   android_app_Activity.c:30 (_STATIC_METHOD(handle_cache.atl_activity_controller.class,
+   "hostEvent", "(ILjava/lang/Object;)V")).
+
+C. Java callers (names/signatures kept so no caller needed an edit)
+   Activity.java:761 nativeStartActivity(Activity)          -> controller.startActivity
+   Activity.java:765 nativeResumeActivity(Class,Intent)      -> controller.resumeActivity
+   Instrumentation.java:177 -> Activity.nativeStartActivity
+   ContextImpl.java:476     -> Activity.nativeResumeActivity  (existing-task decision)
+   ContextImpl.java:485     -> Activity.nativeStartActivity   (new task)
+   Activity.java:486 startActivityForResult -> internalCreateActivity + POSTED
+   nativeStartActivity (:498) - creation never re-enters before the caller returns.
+
+D. Controller internals (one state engine, one transition table)
+   ATLActivityController.java:272 hostEvent switch (HOST_EVENT_START/BACK/
+       WINDOW_CLOSE_REQUEST/WINDOW_READY; HOST_EVENT_NEW_INTENT is declared for code
+       stability only and has no native caller - see the class doc :43)
+   :303 startActivity   :355 finish    :408 recreate  :500 resumeActivity
+   :574 windowReady     :583 backPressed  :596 isTaskRoot  :600 hasWindowFocus
+   :165 getLifecyclePath is the ONLY transition table in the lane.
+
+E. Controller JNI surface (window plumbing only, no lifecycle decisions)
+   android_app_Activity.c: nativeDecorAdd:51 nativeDecorRemove:64 nativeDecorShow:77
+   nativeCloseIfLast:90 nativeSetBackSensitive:102
+
+Negative evidence (no competing dispatch):
+   $ grep -rn "nativeStartActivity|nativeResumeActivity" --include=*.java src/api-impl \
+       | grep -v Activity.java
+     -> only Instrumentation.java:177, ContextImpl.java:476, ContextImpl.java:485
+   $ grep -rn "createMainActivity" src/
+     -> main.c:412-413 only (C main() builds the first activity); it does not itself
+        run a transition - it hands the object to activity_start -> hostEvent.
+   $ grep -n "handle_cache.activity" src/api-impl-jni/handle_cache.h
+     -> activity entry is class-only (method IDs pruned); lookup is inline.

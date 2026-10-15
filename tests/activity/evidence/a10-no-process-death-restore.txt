@@ -1,0 +1,29 @@
+row A10 - no process-death restoration (documented limitation, status.md/§8)
+
+Claim boundary
+  The seam implements the IN-PROCESS lifecycle state engine and in-process
+  instance-state round trip (save -> destroy old -> create new distinct instance
+  -> restore -> resume; A08/A09 evidence below). It does NOT implement Android's
+  saved-state persistence across process death.
+
+What is deliberately absent (verified on disk):
+  - no persisted saved-state store: the only writer is
+    Activity.onSaveInstanceState -> Bundle (in-memory) handed to the controller's
+    pending-saved-state slot (ATLActivityController.java recreate path);
+    grep -rn "savedInstanceState\|putBundle" src/api-impl/android/atl/ is in-memory only.
+  - no Bundle (de)serialisation to disk: grep -rn "Parcel.marshall\|writeBundle"
+    src/api-impl/ -> none in the activity path.
+  - no process-death restart path: the host never re-creates an activity tree on
+    a fresh process (that is the launcher/AMS task-restore responsibility, out of
+    scope per architecture §8 "process death is out of scope"; see
+    /home/morten/ATL/agent-work/LIFECYCLE-FOUNDATION/architecture.md §8).
+  - killed-process state: after the ATL process exits, `data/` holds only what
+    the APP itself persisted (SharedPreferences/files), never framework state.
+
+Test-side non-over-claim:
+  - the probe asserts recreation only for the live process (A08 checks a distinct
+    instance + restored app/view state inside one process run) and emits
+    APROBE_INFO A10-limitation "no process-death restore ... recreation state is
+    in-process only" in every run's trace/results.json.
+  - the DESIGN-CHECKPOINT's probe list contains no process-death scenario, so no
+    test can be read as claiming one.
