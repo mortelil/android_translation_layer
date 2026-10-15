@@ -80,7 +80,20 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 	}
 
 	private final ATLLoadedApp app;
-	private final Handler main = new Handler(Looper.getMainLooper());
+	/**
+	 * Posts backend callbacks to the main looper; created on first use because the
+	 * backend is built from ATLServiceController's constructor, which runs during
+	 * android.content.Context's static initialization, before the main looper exists.
+	 */
+	private Handler main;
+
+	private Handler main() {
+		synchronized (this) {
+			if (main == null)
+				main = new Handler(Looper.getMainLooper());
+			return main;
+		}
+	}
 	private final Object lock = new Object();
 	private final LinkedHashMap<String, FakeProcess> processes = new LinkedHashMap<>();
 	private final HashMap<String, Integer> spawnGenerations = new HashMap<>();
@@ -121,7 +134,7 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 		if (process == null)
 			return;
 		Slog.i(TAG, "killProcess: " + processName + " (generation " + process.generation + ")");
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				if (deathListener != null)
@@ -139,7 +152,7 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 	@Override
 	public void startService(final String processName, final String componentClass, final Intent intent,
 	                         final int flags, final int startId, final Callback<Integer> callback) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				FakeProcess process = acquireProcess(processName, callback);
@@ -162,7 +175,7 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 	@Override
 	public void bindService(final String processName, final String componentClass, final Intent intent,
 	                        final Callback<IBinder> callback) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				FakeProcess process = acquireProcess(processName, callback);
@@ -194,7 +207,7 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 
 	@Override
 	public void rebindService(final String processName, final String componentClass, final Intent intent) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				HostedService hosted = findService(processName, componentClass);
@@ -207,7 +220,7 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 	@Override
 	public void unbindService(final String processName, final String componentClass, final Intent intent,
 	                          final Callback<Boolean> callback) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				FakeProcess process;
@@ -241,7 +254,7 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 
 	@Override
 	public void destroyService(final String processName, final String componentClass) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				FakeProcess process;

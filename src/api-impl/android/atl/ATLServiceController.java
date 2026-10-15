@@ -122,7 +122,23 @@ public final class ATLServiceController {
 	/** Env marking this loader as a service child (PR31 ATL_SERVICE_PROCESS refusal). */
 	static final String ENV_SERVICE_PROCESS = "ATL_SERVICE_PROCESS";
 
-	private final Handler main = new Handler(Looper.getMainLooper());
+	/**
+	 * Posts policy work to the main looper. Created on first use, never in a field
+	 * initializer: the controller is constructed from ATLLoadedApp's constructor, and
+	 * that runs during android.content.Context's static initialization
+	 * (Context.<clinit> -> ATLLoadedApp.getPrimaryApplication()), i.e. from JNI_OnLoad,
+	 * before the launcher has prepared the main looper -- a Handler built there would
+	 * dereference a null looper and fail Context's class initialization.
+	 */
+	private Handler main;
+
+	private Handler main() {
+		synchronized (this) {
+			if (main == null)
+				main = new Handler(Looper.getMainLooper());
+			return main;
+		}
+	}
 	/**
 	 * The installed process backend for remote services, or null: remote
 	 * placements are refused then, exactly as before the backend existed.
@@ -667,7 +683,7 @@ public final class ATLServiceController {
 			public void onProcessDied(final String processName, final int generation) {
 				// A death may be reported from any thread; all policy runs on
 				// the main looper.
-				main.post(new Runnable() {
+				main().post(new Runnable() {
 					@Override
 					public void run() {
 						handleBackendProcessDeath(processName, generation);
@@ -681,7 +697,7 @@ public final class ATLServiceController {
 				// Real child hosts report stopSelf() over the wire; a fake
 				// (in-loader) instance routes through Service.stopSelf()
 				// directly instead.
-				main.post(new Runnable() {
+				main().post(new Runnable() {
 					@Override
 					public void run() {
 						ATLServiceRegistry.ServiceRecord record =
@@ -735,7 +751,7 @@ public final class ATLServiceController {
 	 * released when the backend reports the instance gone.
 	 */
 	private void teardownRemoteInstance(final ATLServiceRegistry.ServiceRecord record) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				processBackend.destroyService(record.remoteProcess, record.className);
@@ -772,7 +788,7 @@ public final class ATLServiceController {
 	private ComponentName startRemoteService(final Resolved resolved, Intent intent) {
 		final ATLServiceRegistry.ServiceRecord record =
 		    service_registry.allocateStart(resolved.component, intent, resolved.remoteProcess);
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				if (!service_registry.isLive(record))
@@ -927,7 +943,7 @@ public final class ATLServiceController {
 	 */
 	private void postRemoteUnbindWork(final ATLServiceRegistry.ServiceRecord record,
 	                                  final ArrayList<Intent> intents, final boolean destroy) {
-		main.post(new Runnable() {
+		main().post(new Runnable() {
 			@Override
 			public void run() {
 				for (final Intent intent : intents) {
@@ -1019,7 +1035,7 @@ public final class ATLServiceController {
 				continue;
 			}
 			final ATLServiceRegistry.ServiceRecord record = w.record;
-			main.postAtTime(new Runnable() {
+			main().postAtTime(new Runnable() {
 				@Override
 				public void run() {
 					restartRemoteNow(record);
