@@ -88,6 +88,7 @@ public class ATLMediaContentProvider extends ContentProvider {
 			openFileChooser();
 		}
 		MatrixCursor cursor = new MatrixCursor(projection);
+		if (selectedFile == null) return cursor;
 		Object[] row = new Object[projection.length];
 		if (uri.getQueryParameter("distinct") != null) {
 			for (int i = 0; i < projection.length; i++) {
@@ -147,8 +148,10 @@ public class ATLMediaContentProvider extends ContentProvider {
 		ATLMediaIndex media = index();
 		if (media != null)
 			return media.getType(uri);
+		if (selectedFile == null) return null;
 		try {
-			return Files.probeContentType(selectedFile.toPath());
+			String type = Files.probeContentType(selectedFile.toPath());
+			return type != null ? type : "application/octet-stream";
 		} catch (IOException e) {
 			e.printStackTrace();
 			return "application/octet-stream";
@@ -160,6 +163,7 @@ public class ATLMediaContentProvider extends ContentProvider {
 		ATLMediaIndex media = index();
 		if (media != null)
 			return media.open(uri, mode);
+		if (selectedFile == null) throw new FileNotFoundException("No media file selected");
 		return ParcelFileDescriptor.open(selectedFile, ParcelFileDescriptor.parseMode(mode));
 	}
 
