@@ -34,6 +34,8 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Paint_native_1create(JNIEnv *env, 
 {
 	struct AndroidPaint *paint = g_new0(struct AndroidPaint, 1);
 	paint->color.alpha = 1.f;
+	/* hwui's Paint defaults to a stroke width of 0 (hairline); GskStroke needs > 0. */
+	paint->stroke_width = 0;
 	paint->gsk_stroke = gsk_stroke_new(1);
 	paint->font = pango_font_description_new();
 	paint->is_fill = true;
@@ -111,19 +113,19 @@ JNIEXPORT jint JNICALL Java_android_graphics_Paint_native_1get_1style(JNIEnv *en
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1stroke_1width(JNIEnv *env, jclass clazz, jlong paint_ptr, jfloat width)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	/* TODO: width of 0 means "single pixel width, no matter what",
-	 * meanwile width of 1 should care about scaling;
-	 * The problem is, 0 is not a valid value for gsk_stroke_set_line_width,
-	 * so at least change it to 1 for now */
-	if (width == 0)
-		width = 1;
-	gsk_stroke_set_line_width(paint->gsk_stroke, width);
+	/* hwui stores the value verbatim and a width of 0 means "hairline" (a single
+	 * pixel independent of the matrix, see Paint#setStrokeWidth). GskStroke cannot
+	 * represent 0, so the render stroke keeps the 1 px hairline approximation while
+	 * the getter reports exactly what was set. Callers such as MaterialShapeDrawable
+	 * and GradientDrawable decide whether to stroke at all from getStrokeWidth() > 0. */
+	paint->stroke_width = width;
+	gsk_stroke_set_line_width(paint->gsk_stroke, width > 0 ? width : 1);
 }
 
 JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1stroke_1width(JNIEnv *env, jclass clazz, jlong paint_ptr)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	return gsk_stroke_get_line_width(paint->gsk_stroke);
+	return paint->stroke_width;
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1stroke_1cap(JNIEnv *env, jclass clazz, jlong paint_ptr, jint cap)

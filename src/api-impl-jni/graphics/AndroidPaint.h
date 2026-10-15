@@ -8,6 +8,10 @@
 struct AndroidPaint {
 	GdkRGBA color;
 	GskStroke *gsk_stroke;
+	/* The caller's stroke width, verbatim (hwui's mStrokeWidth, default 0 = hairline).
+	 * GskStroke cannot hold 0, so the render path may differ from this value; Paint's
+	 * getter must still report what was set (see android_graphics_Paint.c). */
+	float stroke_width;
 	PangoFontDescription *font;
 	PangoFontMap *font_map;
 	PangoAlignment alignment;
