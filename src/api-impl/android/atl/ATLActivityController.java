@@ -20,9 +20,12 @@
 package android.atl;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Slog;
+import android.view.Window;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,10 +37,12 @@ import java.util.List;
  * AOSP transition engine. Visibility/focus are tracked separately from the
  * lifecycle ladder (A06): focus changes never mutate lifecycle state.
  *
- * Host-event entry points (native seam, to be wired in the GTK/JNI seam
- * change — see tests/activity/DESIGN-CHECKPOINT.md):
- *   HOST_EVENT_START / HOST_EVENT_BACK / HOST_EVENT_WINDOW_CLOSE_REQUEST /
- *   HOST_EVENT_WINDOW_READY / HOST_EVENT_NEW_INTENT.
+ * The C layer (src/api-impl-jni/app/android_app_Activity.c) keeps only GTK
+ * window operations and one host-event seam: every GTK/launcher event enters
+ * through {@link #hostEvent(int, Object)} with one of the HOST_EVENT_* codes.
+ * HOST_EVENT_NEW_INTENT remains declared for code stability but has no native
+ * caller: Java callers (ContextImpl/Instrumentation) reach
+ * {@link #resumeActivity(Class, Intent)} directly.
  */
 public final class ATLActivityController {
 	private static final String TAG = "ATLActivityController";
@@ -88,6 +93,8 @@ public final class ATLActivityController {
 		Bundle savedState;
 		/** finish() requested; teardown posts exactly once (A05). */
 		boolean finishing;
+		/** Posted teardown already scheduled for this record (exactly-once guard). */
+		boolean finishPosted;
 		/** recreate() in flight on this record; suppresses re-entry (A05). */
 		boolean relaunching;
 		/** Window focus is NOT lifecycle state (A06). */
@@ -250,6 +257,415 @@ public final class ATLActivityController {
 		for (int state : getLifecyclePath(r.state, finish, excludeLastState))
 			performState(r, state, r.savedState);
 	}
+
+	/* ------------------------------------------------------------------ *
+	 * Host-event seam (the ONLY native -> Java lifecycle entry point)
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Native host event dispatch. {@code arg} is the newly constructed
+	 * activity for HOST_EVENT_START and ignored (null) for the GTK-driven
+	 * events: back button, window close-request and window ready. The codes
+	 * are mirrored by HOST_EVENT_* in
+	 * src/api-impl-jni/app/android_app_Activity.c and must stay in sync.
+	 */
+	public static void hostEvent(int code, Object arg) {
+		switch (code) {
+			case HOST_EVENT_START:
+				get().startActivity((Activity) arg);
+				break;
+			case HOST_EVENT_BACK:
+				get().backPressed();
+				break;
+			case HOST_EVENT_WINDOW_CLOSE_REQUEST:
+				get().closeAll();
+				break;
+			case HOST_EVENT_WINDOW_READY:
+				get().windowReady();
+				break;
+			default:
+				throw new IllegalArgumentException("Unknown host event: " + code);
+		}
+	}
+
+	/* ------------------------------------------------------------------ *
+	 * Host operations: the launcher's lifecycle verbs
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Launches {@code activity} as the new top of the stack. Ordering follows
+	 * AOSP ActivityThread.handleLaunchActivity + handleStartActivity
+	 * (ActivityThread.java:4585-4640): the covered activity is paused first,
+	 * the new one is created/restored/post-created/resumed, and only then is
+	 * the covered activity stopped (the GTK model keeps the old activity
+	 * invisible, so its stop must be deferred, not skipped).
+	 */
+	public void startActivity(Activity activity) {
+		ATLActivityRecord prev = current();
+		ATLActivityRecord r = attach(activity, activity.getIntent());
+
+		if (prev != null && prev.state >= ON_RESUME) {
+			performState(prev, ON_PAUSE, null);
+			clearWindowFocus(prev);
+		}
+
+		performState(r, ON_CREATE, null);
+
+		if (activity.isFinishing() || r.finishing) {
+			// finish() inside onCreate: AOSP ActivityThread never starts such an
+			// activity (also true for the native handleLaunchActivity
+			// isFinishing check). Destroy directly — destroy is never a
+			// lifecycle-path walk.
+			r.finishing = true;
+			performState(r, ON_DESTROY, null);
+			detach(r);
+			if (prev != null && prev.state == ON_PAUSE)
+				acquireWindowFocus(prev);
+			updateBackSensitivity();
+			if (records.isEmpty())
+				nativeCloseIfLast(0, nativeWindowOf(activity));
+			return;
+		}
+
+		nativeDecorAdd(activity);
+		performState(r, ON_START, null);
+		// AOSP handleStartActivity restores instance state only when saved state
+		// exists (pendingActions.shouldRestoreInstanceState).
+		if (r.savedState != null)
+			activity.performRestoreInstanceState(r.savedState);
+		activity.performPostCreate(r.savedState);
+		performState(r, ON_RESUME, null);
+
+		r.hasWindowFocus = true;
+		nativeDecorShow(activity);
+		activity.onWindowFocusChanged(true);
+
+		if (prev != null && prev.state != ON_STOP && prev.state != ON_DESTROY)
+			moveToState(prev, ON_STOP, false);
+
+		updateBackSensitivity();
+	}
+
+	/**
+	 * Called from Activity.finish(). Activity.finish() has already set its own
+	 * finishing flag synchronously (that is what makes finish() inside
+	 * onCreate work); this only queues the teardown transaction, at most once
+	 * per record.
+	 */
+	public void finish(final Activity activity) {
+		final ATLActivityRecord r = recordFor(activity);
+		if (r == null || r.finishPosted)
+			return;
+		r.finishing = true;
+		r.finishPosted = true;
+		postOnMain(new Runnable() {
+			public void run() {
+				performFinish(r);
+			}
+		});
+	}
+
+	private void performFinish(ATLActivityRecord r) {
+		if (!records.contains(r))
+			return;
+		boolean wasTop = records.get(0) == r;
+		Activity a = r.activity;
+
+		if (r.state == ON_RESUME)
+			performState(r, ON_PAUSE, null);
+
+		// Android resumes the returning activity BEFORE the finishing activity
+		// is stopped and destroyed (probe reference S2 return shape:
+		// B.onPause -> A.onResume -> B.onStop -> B.onDestroy), so the window is
+		// handed back here, before the teardown of the finishing record.
+		if (wasTop) {
+			clearWindowFocus(r);
+			ATLActivityRecord next = records.size() > 1 ? records.get(1) : null;
+			if (next != null)
+				acquireWindowFocus(next);
+		}
+
+		if (r.state != ON_STOP && r.state != ON_DESTROY)
+			performState(r, ON_STOP, null);
+		// No save around this stop: a finishing activity is never saved
+		// (AOSP ActivityThread.callActivityOnStop: !r.activity.mFinished).
+		performState(r, ON_DESTROY, null);
+
+		long nw = nativeWindowOf(a);
+		nativeDecorRemove(a);
+		r.hasWindowFocus = false;
+		detach(r);
+		updateBackSensitivity();
+		nativeCloseIfLast(records.size(), nw);
+	}
+
+	/**
+	 * Called from Activity.recreate(). A relaunch is a single queued
+	 * transaction; the record's relaunching flag suppresses re-entry, and the
+	 * instance's changingConfigurations flag is set for the duration of the
+	 * relaunch destroy (AOSP ActivityThread.java:6862).
+	 */
+	public void recreate(final Activity activity) {
+		final ATLActivityRecord r = recordFor(activity);
+		if (r == null || r.relaunching)
+			return;
+		r.relaunching = true;
+		activity.atlSetChangingConfigurations(true);
+		postOnMain(new Runnable() {
+			public void run() {
+				performRecreate(r);
+			}
+		});
+	}
+
+	private void performRecreate(ATLActivityRecord r) {
+		if (!records.contains(r))
+			return;
+		int index = records.indexOf(r);
+		boolean wasTop = index == 0;
+		Activity old = r.activity;
+		int generation = r.generation + 1;
+		boolean preP = isPreP(targetSdk());
+		Bundle saved = new Bundle();
+
+		// AOSP ActivityThread.handleRelaunchActivityInner (ActivityThread.java:
+		// 6933-6988): pause if not paused, save around the stop per targetSdk,
+		// then destroy with finishing=false and relaunch with the PRESERVED
+		// record intent (r.activity.mIntent -> customIntent).
+		if (r.state == ON_RESUME)
+			performState(r, ON_PAUSE, null);
+		if (preP)
+			old.performSaveInstanceState(saved);
+		if (r.state != ON_STOP)
+			performState(r, ON_STOP, null);
+		if (!preP)
+			old.performSaveInstanceState(saved);
+		performState(r, ON_DESTROY, null);
+
+		long nw = nativeWindowOf(old);
+		nativeDecorRemove(old);
+		old.atlSetChangingConfigurations(false);
+
+		Activity fresh;
+		try {
+			fresh = Activity.internalCreateActivity(old.getClass().getName(), nw, r.intent);
+		} catch (ReflectiveOperationException e) {
+			Slog.w(TAG, "recreate failed for " + old.getClass().getName(), e);
+			records.remove(index);
+			updateBackSensitivity();
+			nativeCloseIfLast(records.size(), nw);
+			return;
+		}
+		// The new instance replaces the old record in place, carrying the next
+		// generation and the saved state produced above.
+		ATLActivityRecord nr = new ATLActivityRecord(fresh, r.intent);
+		nr.generation = generation;
+		nr.savedState = saved;
+		records.set(index, nr);
+
+		performState(nr, ON_CREATE, saved);
+		if (fresh.isFinishing() || nr.finishing) {
+			nr.finishing = true;
+			performState(nr, ON_DESTROY, null);
+			records.remove(index);
+			if (wasTop && index < records.size())
+				acquireWindowFocus(records.get(index));
+			updateBackSensitivity();
+			nativeCloseIfLast(records.size(), nw);
+			return;
+		}
+
+		nativeDecorAdd(fresh);
+		performState(nr, ON_START, null);
+		fresh.performRestoreInstanceState(saved);
+		fresh.performPostCreate(saved);
+		performState(nr, ON_RESUME, null);
+
+		if (wasTop) {
+			nr.hasWindowFocus = true;
+			nativeDecorShow(fresh);
+			fresh.onWindowFocusChanged(true);
+		}
+		updateBackSensitivity();
+	}
+
+	/**
+	 * Delivers a new intent to an existing instance of {@code clazz}
+	 * (FLAG_ACTIVITY_CLEAR_TOP / singleTask reuse), tearing down everything
+	 * above it. AOSP preserves the record intent: the new intent is only
+	 * delivered through onNewIntent, so this never assigns target.intent and
+	 * never calls setIntent (Activity.performNewIntent, Activity.java:
+	 * 9355-9361; ActivityThread.java:6939).
+	 */
+	public boolean resumeActivity(Class<? extends Activity> clazz, Intent intent) {
+		int i = -1;
+		for (int index = 0; index < records.size(); index++) {
+			if (records.get(index).activity.getClass() == clazz) {
+				i = index;
+				break;
+			}
+		}
+		if (i < 0)
+			return false;
+
+		boolean resumeTop = (i == 0 && records.get(0).state == ON_RESUME);
+
+		while (i > 0) {
+			ATLActivityRecord top = records.get(0);
+			if (top.state == ON_RESUME)
+				performState(top, ON_PAUSE, null);
+			if (top.state != ON_STOP && top.state != ON_DESTROY)
+				performState(top, ON_STOP, null);
+			performState(top, ON_DESTROY, null);
+			nativeDecorRemove(top.activity);
+			top.hasWindowFocus = false;
+			detach(top);
+			i--;
+		}
+
+		ATLActivityRecord target = records.get(0);
+		if (resumeTop) {
+			// Android never delivers a new intent to a resumed activity: pause,
+			// deliver, resume again (no recreate, the window is kept).
+			performState(target, ON_PAUSE, null);
+			target.activity.performNewIntent(intent);
+			if (!target.finishing)
+				performState(target, ON_RESUME, null);
+			else
+				performFinish(target);
+		} else {
+			target.activity.performNewIntent(intent);
+			if (!target.finishing)
+				acquireWindowFocus(target);
+			else
+				performFinish(target);
+		}
+		updateBackSensitivity();
+		return true;
+	}
+
+	/**
+	 * Tears the whole stack down (GTK window close-request). The GTK window
+	 * itself is NOT closed here: app_exit does that after the close-request
+	 * handler returns.
+	 */
+	public void closeAll() {
+		ATLActivityRecord top = current();
+		if (top != null && top.state == ON_RESUME)
+			performState(top, ON_PAUSE, null);
+		if (top != null)
+			clearWindowFocus(top);
+
+		for (ATLActivityRecord r : new ArrayList<>(records)) {
+			if (r.state != ON_STOP && r.state != ON_DESTROY)
+				performState(r, ON_STOP, null);
+			performState(r, ON_DESTROY, null);
+			nativeDecorRemove(r.activity);
+			detach(r);
+		}
+		updateBackSensitivity();
+	}
+
+	/**
+	 * The window has usable dimensions. Only the current record is focused:
+	 * the retired C code focused every backlog entry, which the GTK model
+	 * cannot justify (covered activities are invisible).
+	 */
+	public void windowReady() {
+		ATLActivityRecord r = current();
+		if (r == null)
+			return;
+		r.hasWindowFocus = true;
+		r.activity.onWindowFocusChanged(true);
+	}
+
+	/** Back button: dispatch to the top activity, or disable if nothing can handle it. */
+	public void backPressed() {
+		ATLActivityRecord r = current();
+		if (r == null) {
+			nativeSetBackSensitive(false);
+			return;
+		}
+		if (records.size() > 1 || overridesOnBackPressed(r.activity))
+			r.activity.onBackPressed();
+		else
+			nativeSetBackSensitive(false);
+	}
+
+	/** True for the bottom-most record (the launcher task root). */
+	public boolean isTaskRoot(Activity activity) {
+		return records.isEmpty() || records.get(records.size() - 1).activity == activity;
+	}
+
+	public boolean hasWindowFocus(Activity activity) {
+		ATLActivityRecord r = recordFor(activity);
+		return r != null && r.hasWindowFocus;
+	}
+
+	/* ------------------------------------------------------------------ *
+	 * Helpers
+	 * ------------------------------------------------------------------ */
+
+	private ATLActivityRecord current() {
+		return records.isEmpty() ? null : records.get(0);
+	}
+
+	/** Resumes the record, shows its decor and flips window focus. */
+	private void acquireWindowFocus(ATLActivityRecord r) {
+		moveToState(r, ON_RESUME, false);
+		if (r.finishing)
+			return;
+		r.hasWindowFocus = true;
+		nativeDecorShow(r.activity);
+		r.activity.onWindowFocusChanged(true);
+	}
+
+	/**
+	 * Unconditional focus loss, matching the retired C activity_unfocus(): the
+	 * callback is emitted even if the record already believed it was
+	 * unfocused.
+	 */
+	private static void clearWindowFocus(ATLActivityRecord r) {
+		r.hasWindowFocus = false;
+		r.activity.onWindowFocusChanged(false);
+	}
+
+	private void updateBackSensitivity() {
+		ATLActivityRecord r = current();
+		nativeSetBackSensitive(r != null && (records.size() > 1 || overridesOnBackPressed(r.activity)));
+	}
+
+	/**
+	 * Whether the activity's class resolves an onBackPressed of its own. The
+	 * retired C code compared MethodIDs against Activity.onBackPressed; this is
+	 * the same test through reflection.
+	 */
+	private static boolean overridesOnBackPressed(Activity a) {
+		try {
+			return a.getClass().getMethod("onBackPressed").getDeclaringClass() != Activity.class;
+		} catch (NoSuchMethodException e) {
+			return false;
+		}
+	}
+
+	private static int targetSdk() {
+		return ATLLoadedApp.getPrimaryApplication().pkg.applicationInfo.targetSdkVersion;
+	}
+
+	private static long nativeWindowOf(Activity a) {
+		Window w = a.getWindow();
+		return w != null ? w.native_window : 0;
+	}
+
+	/* ------------------------------------------------------------------ *
+	 * Native GTK window operations (implemented in android_app_Activity.c)
+	 * ------------------------------------------------------------------ */
+
+	private static native void nativeDecorAdd(Activity activity);
+	private static native void nativeDecorRemove(Activity activity);
+	private static native void nativeDecorShow(Activity activity);
+	private static native void nativeCloseIfLast(int remaining, long native_window);
+	private static native void nativeSetBackSensitive(boolean sensitive);
 
 	/**
 	 * AOSP ActivityThread.callActivityOnStop (ActivityThread.java:6361-6394):
