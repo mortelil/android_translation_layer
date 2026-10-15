@@ -147,6 +147,8 @@ public class TestActivity extends Activity {
 			scenarioP08(row);
 		else if ("P09".equals(row))
 			scenarioP09(row);
+		else if ("P09order".equals(row))
+			scenarioP09order(row);
 		else if ("P10".equals(row))
 			scenarioP10(row);
 		else
@@ -558,6 +560,91 @@ public class TestActivity extends Activity {
 	}
 
 	/*
+	 * P09order (diagnostic, lane D): the order the controller must never
+	 * produce - a hosted record destroyed while its binding is still counted.
+	 * The row records what actually happens instead of asserting a verdict, so
+	 * Gate 5 can check the controller against an isolated artifact. The passing
+	 * P09 row is untouched and never drives this order.
+	 */
+	void scenarioP09order(String row) throws Exception {
+		String path = requireLogPath(row);
+		Waiter<Integer> start = new Waiter<Integer>();
+		host.startService(WORKER, SvcWorker2.class.getName(), intent(SvcWorker2.class), 2, start);
+		if (!(start.await(60000) && !start.unavailable && Integer.valueOf(1).equals(start.result))) {
+			obs(row, "PRECONDITION-FAILED SvcWorker2 never reported its start result");
+			System.exit(7);
+		}
+		String[] status = host.statusProcess(WORKER);
+		int pid = status == null || status.length < 3 ? -1 : Integer.parseInt(status[2]);
+		if (pid <= 0 || !host.isProcessUp(WORKER)) {
+			obs(row, "PRECONDITION-FAILED the shared child is not up (pid " + pid + ")");
+			System.exit(7);
+		}
+		Waiter<IBinder> bind = new Waiter<IBinder>();
+		host.bindService(WORKER, SvcWorker2.class.getName(), intent(SvcWorker2.class), bind);
+		if (!(bind.await(60000) && !bind.unavailable && bind.result != null)) {
+			obs(row, "PRECONDITION-FAILED no binder was delivered for the binding");
+			System.exit(7);
+		}
+		obs(row, "preconditions: child pid " + pid + ", a live SvcWorker2 instance, one counted binding");
+		String destroy;
+		try {
+			host.destroyService(WORKER, SvcWorker2.class.getName());
+			destroy = "destroyService returned without an exception";
+		} catch (Throwable t) {
+			destroy = "destroyService threw " + t.getClass().getName() + ": " + t.getMessage();
+		}
+		obs(row, "destroy-while-bound: " + destroy);
+		boolean sawUnbind = awaitLogLine(path, "ATL_PROBE_SERVICE_ONUNBIND class=org.atl.procprobe.SvcWorker2 ", WORKER, 8000);
+		obs(row, "right after the destroy: child logged the unbind=" + sawUnbind + ", child up=" + host.isProcessUp(WORKER));
+		Waiter<Boolean> unbind = new Waiter<Boolean>();
+		String unbindOutcome;
+		try {
+			host.unbindService(WORKER, SvcWorker2.class.getName(), intent(SvcWorker2.class), unbind);
+			boolean got = unbind.await(30000);
+			unbindOutcome = "subsequent unbind of the destroyed record: result=" + got + " value="
+			    + (got ? String.valueOf(unbind.result) : "-") + " host-unavailable=" + unbind.unavailable;
+		} catch (Throwable t) {
+			unbindOutcome = "subsequent unbind threw " + t.getClass().getName() + ": " + t.getMessage();
+		}
+		obs(row, unbindOutcome);
+		Waiter<Integer> next = new Waiter<Integer>();
+		String nextOutcome;
+		try {
+			host.startService(WORKER, SvcWorker.class.getName(), intent(SvcWorker.class), 3, next);
+			boolean got = next.await(45000);
+			nextOutcome = "next startService on the same child: result=" + got + " value="
+			    + (got ? String.valueOf(next.result) : "-") + " host-unavailable=" + next.unavailable;
+		} catch (Throwable t) {
+			nextOutcome = "next startService threw " + t.getClass().getName() + ": " + t.getMessage();
+		}
+		obs(row, nextOutcome);
+		String text = attemptText(readWholeFile(path), row);
+		boolean noLive = text.contains("has no live instance");
+		boolean linkFail = text.contains("LinkFailure") || text.contains("DeadObject");
+		boolean balance = text.contains("bind balance mismatch");
+		String verdict = noLive || linkFail || balance ? "REPRODUCED" : "NOT-REPRODUCED";
+		obs(row, "SUMMARY verdict=" + verdict + " no-live-instance=" + noLive + " link-failure=" + linkFail
+		    + " bind-balance-mismatch=" + balance + " child-up=" + host.isProcessUp(WORKER));
+		try {
+			host.destroyService(WORKER, SvcWorker.class.getName());
+		} catch (Throwable t) {
+			obs(row, "cleanup destroy: " + t.getClass().getName() + ": " + t.getMessage());
+		}
+		awaitProcessDown(WORKER, 30000);
+		obs(row, "after cleanup: child up=" + host.isProcessUp(WORKER) + ", pid " + pid + " in /proc=" + new File("/proc/" + pid).exists());
+		obs(row, "sequence complete");
+		finished = true;
+		stopping = true;
+		System.out.flush();
+		main.postDelayed(new Runnable() {
+			public void run() {
+				System.exit(0);
+			}
+		}, 2500);
+	}
+
+	/*
 	 * P10: three process names start concurrently while one of them stalls before
 	 * READY (child-side seam, 8 s ready timeout). The unrelated ones report; the
 	 * shared :worker child serves two services in one pid; the stalled one ends
@@ -619,6 +706,12 @@ public class TestActivity extends Activity {
 		    .addCategory("org.atl.procprobe.CATEGORY")
 		    .putExtra("probe", "extra-value")
 		    .putExtra("probe-int", 7);
+	}
+
+	/** Diagnostic rows record what happened instead of asserting a verdict. */
+	void obs(String row, String what) {
+		System.out.println("PROC OBS " + row + " " + what);
+		System.out.flush();
 	}
 
 	void check(String row, boolean ok, String what) {
