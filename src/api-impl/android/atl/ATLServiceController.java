@@ -125,6 +125,13 @@ public final class ATLServiceController {
 	static final String ENV_SERVICE_HOST = "ATL_SERVICE_HOST";
 	/** The lane-D transport host: combined tree only, hence the reflective lookup. */
 	private static final String ATL_PROCESS_HOST_CLASS = "android.atl.ATLProcessHost";
+	/**
+	 * The lane-D service-child runtime: the receiver of a hosted instance's
+	 * STOP_SELF report, looked up reflectively for the same reason as
+	 * {@link #ATL_PROCESS_HOST_CLASS} (combined tree only).
+	 */
+	private static final String ATL_CHILD_HOST_CLASS = "android.atl.ChildHost";
+	private static final String ATL_CHILD_HOST_REPORT_STOP_SELF = "reportStopSelf";
 
 	/**
 	 * Posts policy work to the main looper. Created on first use, never in a field
@@ -638,6 +645,15 @@ public final class ATLServiceController {
 	 * before returning, and onDestroy() is posted to the main looper so it runs
 	 * after the current onStartCommand() returns rather than re-entrantly inside
 	 * it. Returns true when the service was stopped.
+	 *
+	 * <p>In a service child -- a process the loader spawned for a remote record --
+	 * the instance belongs to no record of this controller and this controller is
+	 * not the policy authority: the call is reported to the loader over the existing
+	 * STOP_SELF receiver and nothing is stopped or unregistered here (AOSP: the
+	 * child's stopSelf only marks the AMS-side record, and the teardown that brings
+	 * the service down is what drives the child's onDestroy). The return then means
+	 * "reported to the authority": the loader's verdict -- an older start ID must not
+	 * stop newer work -- is applied there, asynchronously.
 	 */
 	public boolean stopServiceFromSelf(Service service, int startId) {
 		ATLServiceRegistry.ServiceRecord record = service_registry.findByInstance(service);
@@ -646,6 +662,16 @@ public final class ATLServiceController {
 			// record itself: route it through the hosted-instance map (S09).
 			record = remoteInstances.get(service);
 			if (record == null) {
+				// A service child holds no record of its own: the instance was created
+				// by the child runtime for a remote record and the loader is the only
+				// policy authority (a child never decides a stop). Report the call over
+				// the existing STOP_SELF receiver and stop nothing here; the child stays
+				// alive until the loader's teardown (DESTROY) arrives, which drives
+				// onDestroy() exactly as AOSP's bringDownServiceLocked does.
+				if (isServiceChild()) {
+					reportStopSelfToLoader(service.getClass().getName(), startId);
+					return true;
+				}
 				// Not started / never started, or already stopped (a dead
 				// instance's stopSelf is a no-op).
 				return false;
@@ -666,6 +692,38 @@ public final class ATLServiceController {
 			}
 		});
 		return true;
+	}
+
+	/**
+	 * True when this process is a service child (spawned by the loader for a remote
+	 * record): the marker {@link #selectProcessBackend} already uses to keep a child
+	 * from hosting anything itself. A child's controller holds no record for the
+	 * instances the child runtime hosts, so their stopSelf() calls must be reported to
+	 * the loader rather than decided here.
+	 */
+	private static boolean isServiceChild() {
+		return System.getenv(ENV_SERVICE_HOST) != null;
+	}
+
+	/**
+	 * Reports a hosted instance's stopSelf*() to the loader through the lane-D
+	 * service-child runtime's STOP_SELF sender, looked up reflectively for the same
+	 * reason as {@link #ATL_PROCESS_HOST_CLASS}: a direct reference would not build in
+	 * a tree without the lane-D transport. A missing receiver is loud, never a silent
+	 * degradation -- this process is a service child, so the runtime it was spawned
+	 * under must provide it.
+	 */
+	private static void reportStopSelfToLoader(String componentClass, int startId) {
+		try {
+			Class.forName(ATL_CHILD_HOST_CLASS)
+			    .getMethod(ATL_CHILD_HOST_REPORT_STOP_SELF, String.class, int.class)
+			    .invoke(null, componentClass, startId);
+		} catch (ClassNotFoundException e) {
+			throw new IllegalStateException("service child without " + ATL_CHILD_HOST_CLASS, e);
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException(ATL_CHILD_HOST_CLASS + "." + ATL_CHILD_HOST_REPORT_STOP_SELF
+			                                + " for " + componentClass + " startId=" + startId + " failed", e);
+		}
 	}
 
 	// ---------------------------------------------------------------------
