@@ -6,6 +6,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.Parcel;
 
 /**
  * SVC-014b component, declared in the manifest with
@@ -20,11 +21,56 @@ import android.os.IBinder;
  * callbacks DO appear in the control log — which is exactly the explicit
  * evidence that ATL did not spawn a second process (the documented-limitation
  * case the spec calls out), never silently masked.
+ *
+ * <p>Missing callbacks are only a NEGATIVE signal, so the binder also answers
+ * {@link #TRANSACTION_IDENTITY} with the identity of the process that really
+ * serves the placement (its pid and process name). The client records that reply,
+ * and {@code verify_unsupported_remote.py} requires the serving pid to differ
+ * from the caller's pid: a placement served inside the caller's own process
+ * produces the same API returns and no remote callbacks, and is still rejected.
  */
 public class SvcRemote extends Service {
     private static final String SCENARIO = EventLog.SVC_014;
 
-    private final IBinder binder = new Binder();
+    /** Transaction code answered by the binder below (client: ControlActivity). */
+    static final int TRANSACTION_IDENTITY = 1;
+
+    private final IBinder binder = new IdentityBinder();
+
+    /**
+     * Answers the identity transaction with THIS process' pid and process name;
+     * every callback runs wherever the instance really lives, so the reply names
+     * the serving process, not the caller.
+     */
+    private static final class IdentityBinder extends Binder {
+        @Override
+        protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws android.os.RemoteException {
+            if (code != TRANSACTION_IDENTITY) {
+                return super.onTransact(code, data, reply, flags);
+            }
+            if (reply != null) {
+                reply.writeNoException();
+                reply.writeInt(android.os.Process.myPid());
+                reply.writeString(processName());
+            }
+            return true;
+        }
+    }
+
+    /**
+     * The running process' name ({@code Application.getProcessName()}: the real
+     * {@code :remote} name on Android, the spawned manifest process in an ATL
+     * child). Best effort: a runtime without the API reports "unknown" rather
+     * than failing the caller — the pid is what proves the separation.
+     */
+    static String processName() {
+        try {
+            String name = android.app.Application.getProcessName();
+            return name == null ? "unknown" : name;
+        } catch (Throwable t) {
+            return "unknown";
+        }
+    }
 
     private String component() {
         return new ComponentName(this, SvcRemote.class).flattenToShortString();

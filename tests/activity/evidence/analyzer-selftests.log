@@ -1,0 +1,71 @@
+# run: bash tests/lifecycle-probe/run_analyzer_selftests.sh
+# repo lifecycle/activity @ e3303347 (session 8); exit 0; worktree clean afterwards, so
+# the in-place fixture regeneration is bit-exact (baseline-atl.trace + scenario observers).
+
+== regenerating fixtures ==
+wrote 62 fixtures and cases.json
+
+PASS  valid-matching                         exit=0  OK all mandatory checks passed (reference and candidate validated, matched)
+PASS  regression-both-empty                  exit=1  REJECT EMPTY_EVIDENCE reference: trace has no content (0 bytes)
+PASS  reference-empty                        exit=1  REJECT EMPTY_EVIDENCE reference: trace has no content (0 bytes)
+PASS  candidate-empty                        exit=1  REJECT EMPTY_EVIDENCE candidate: trace has no content (0 bytes)
+PASS  reference-missing-file                 exit=1  REJECT MISSING_EVIDENCE reference: file not found: /home/morten/ATL/lifecycle-foundation/activity/repo/tests/lifecycle-probe/fixtures/does-not-exist.trace
+PASS  reference-malformed-line               exit=1  REJECT MALFORMED_LINE reference: unrecognized line 2: 'THIS IS NOT A TRACE LINE'
+PASS  reference-truncated                    exit=1  REJECT TRUNCATED reference: trace does not end with a newline (incomplete write)
+PASS  reference-missing-scenario             exit=1  REJECT MISSING_SCENARIO reference: mandatory scenario S4.4 never began
+PASS  reference-scenario-order               exit=1  REJECT SCENARIO_ORDER reference: scenario BEGIN order ['S1', 'S2', 'S4.1', 'S4.2', 'S4.3', 'S4.5', 'S4.4', 'S3D1', 'L-SNAP', 'L-REGD', 'L-EQUALS', 'F-ADD-TAG', 'F-TAG-READ', 'F-DUP-TAG', 'F-NULL-MISS', 'F-PRE-COMMIT', 'F-REMOVE', 'S3D2'] != manifest order ['S1', 'S2', 'S4.1', 'S4.2', 'S4.3', 'S4.4', 'S4.5', 'S3D1', 'L-SNAP', 'L-REGD', 'L-EQUALS', 'F-ADD-TAG', 'F-TAG-READ', 'F-DUP-TAG', 'F-NULL-MISS', 'F-PRE-COMMIT', 'F-REMOVE', 'S3D2']
+PASS  reference-scenario-identity            exit=1  REJECT SCENARIO_IDENTITY reference: unknown scenario id 'S4.8' in markers
+PASS  reference-no-completion                exit=1  REJECT NO_COMPLETION reference: expected exactly one LIFE_ALL_DONE, found 0
+PASS  reference-interrupted                  exit=1  REJECT INTERRUPTED reference: scenario S4.5 has no LIFE_SCEN_END
+PASS  reference-interrupted-exception        exit=1  REJECT INTERRUPTED reference: LIFE_EXCEPTION present: 'java.lang.RuntimeException: injected'
+PASS  reference-terminal-missing-prefix      exit=1  REJECT MISSING_EVENT reference: terminal scenario L-THROW ActB#11.onCreate callbacks is missing 1 event(s); first missing ('L-THROW', 'AppObs-THROW', 'onActivityCreated', 'ActB#11', 'null', '-', 'ProbeApp', 'main', True)
+PASS  reference-terminal-preaggregate        exit=1  REJECT TERMINAL_ORDER reference: terminal scenario L-THROW began before the aggregate/completion markers
+PASS  reference-terminal-broken-aggregate    exit=1  REJECT INTERRUPTED reference: no aggregate LIFE_JSON_BEGIN/END block
+PASS  reference-terminal-missing-scenario    exit=1  REJECT SCENARIO_MULTIPLICITY reference: scenario L-THROW has 0 LIFE_SCEN_BEGIN, manifest declares begin=1
+PASS  reference-missing-field                exit=1  REJECT MISSING_FIELD reference: event at line 7 missing field 'owner'
+PASS  reference-apk-identity                 exit=1  REJECT APK_IDENTITY reference: header package='org.atl.tests.other' expected 'org.atl.tests.lifecycle'
+PASS  reference-run-identity                 exit=1  REJECT RUN_IDENTITY reference: aggregate run_id 'lv21-forged-9' != header run_id 'lv21-ref-0001'
+PASS  reference-bad-type                     exit=1  REJECT BAD_TYPE reference: field seq must be int at line 9 (got '7')
+PASS  reference-wrong-numeric                exit=1  REJECT SEQ reference: seq not the contiguous 1..N sequence at line 12 (got 500, expected 10)
+PASS  reference-nonfinite                    exit=1  REJECT NONFINITE reference: field seq is non-integer/nonfinite (inf) at line 14
+PASS  reference-wrong-owner                  exit=1  REJECT OWNER reference: owner 'OtherApp' != 'ProbeApp' at line 11
+PASS  reference-wrong-thread                 exit=1  REJECT THREAD reference: event not on main thread at line 21 (main=False role='other')
+PASS  reference-v1-trace-invalid             exit=1  REJECT APK_IDENTITY reference: header probe='lifecycle-probe-v1' expected 'lifecycle-probe-v2.1'
+PASS  candidate-missing-event                exit=1  REJECT MISSING_EVENT candidate: scenario S1 is missing 1 event(s); first missing ('S1', 'AppObs-B', 'onActivityCreated', 'ActA#1', 'null', '-', 'ProbeApp', 'main', True)
+PASS  candidate-duplicate-event              exit=1  REJECT DUPLICATE_EVENT candidate: scenario S2 has 1 extra/duplicate event(s); first extra ('S2', 'AppObs-B', 'onActivityStarted', 'ActB#1', '-', '-', 'ProbeApp', 'main', True)
+PASS  candidate-ordering                     exit=1  REJECT ORDER candidate: scenario S1 events are the right multiset but out of order
+PASS  candidate-wrong-instance               exit=1  REJECT MISASSOC candidate: scenario S1 event 1: activity='ActA#9' expected 'ActA#1'
+PASS  candidate-wrong-bundle                 exit=1  REJECT BUNDLE candidate: scenario S1 event 1: bundle='-' expected 'null'
+PASS  candidate-wrong-event                  exit=1  REJECT WRONG_EVENT candidate: scenario S1 event 9: event='onActivityStarted' expected 'onActivityResumed'
+PASS  candidate-wrong-phase                  exit=1  REJECT PHASE candidate: scenario S1 event 8: phase='post' expected 'pre'
+PASS  candidate-stale-config                 exit=1  REJECT STALE candidate config differs from reference config (mismatched evidence)
+PASS  stale-same-run                         exit=1  REJECT STALE reference and candidate share run_id 'lv21-ref-0001' (not independent runs)
+PASS  candidate-event-scenario               exit=1  REJECT EVENT_SCENARIO candidate: event 'onActivityCreated' has unknown scenario 'S9'
+PASS  candidate-misplaced-event              exit=1  REJECT MISPLACED_EVENT candidate: event 'onResume.post' attributed to S1 at line 18 is outside its scenario span [5,17]
+PASS  candidate-duplicate-scen-end           exit=1  REJECT SCENARIO_MULTIPLICITY candidate: scenario S1 has 2 LIFE_SCEN_END, manifest declares end=1
+PASS  candidate-json-events-empty            exit=1  REJECT JSON_MISMATCH candidate: LIFE_EVT line 2 (scenario 'INIT') is missing from the aggregate JSON
+PASS  candidate-lsnap-victim-dropped         exit=1  REJECT MISSING_EVENT candidate: scenario L-SNAP is missing 1 event(s); first missing ('L-SNAP', 'AppObs-VICT', 'onActivityCreated', 'ActB#8', 'null', '-', 'ProbeApp', 'main', True)
+PASS  candidate-lsnap-victim-leaks           exit=1  REJECT DUPLICATE_EVENT candidate: scenario L-SNAP has 1 extra/duplicate event(s); first extra ('L-SNAP', 'AppObs-VICT', 'onActivityStarted', 'ActB#8', '-', '-', 'ProbeApp', 'main', True)
+PASS  candidate-lsnap-order                  exit=1  REJECT ORDER candidate: scenario L-SNAP events are the right multiset but out of order
+PASS  candidate-lregd-new-in-snapshot        exit=1  REJECT DUPLICATE_EVENT candidate: scenario L-REGD has 1 extra/duplicate event(s); first extra ('L-REGD', 'AppObs-NEW', 'onActivityCreated', 'ActB#9', 'null', '-', 'ProbeApp', 'main', True)
+PASS  candidate-lthrow-post-invoked          exit=1  REJECT TERMINAL_FORBIDDEN candidate: terminal scenario L-THROW: callback AppObs-POST onActivityCreated ran after the throwing callback (line 404)
+PASS  candidate-lthrow-missing-prefix        exit=1  REJECT MISSING_EVENT candidate: terminal scenario L-THROW ActB#11.onCreate callbacks is missing 1 event(s); first missing ('L-THROW', 'AppObs-THROW', 'onActivityCreated', 'ActB#11', 'null', '-', 'ProbeApp', 'main', True)
+PASS  candidate-lthrow-wrong-instance        exit=1  REJECT MISASSOC candidate: terminal scenario L-THROW ActB#11.onCreate callbacks event 1: activity='ActB#9' expected 'ActB#11'
+PASS  candidate-lequals-eq1-not-removed      exit=1  REJECT DUPLICATE_EVENT candidate: scenario L-EQUALS has 1 extra/duplicate event(s); first extra ('L-EQUALS', 'AppObs-EQ1', 'onActivityCreated', 'ActB#10', 'null', '-', 'ProbeApp', 'main', True)
+PASS  candidate-fdup-newest                  exit=1  REJECT WRONG_EVENT candidate: scenario F-DUP-TAG event 4: event='find:tdup=frag#2' expected 'find:tdup=frag#3'
+PASS  candidate-fprecommit-early             exit=1  REJECT WRONG_EVENT candidate: scenario F-PRE-COMMIT event 1: event='find:tpre=frag#4' expected 'find:tpre=null'
+PASS  candidate-fremove-active               exit=1  REJECT WRONG_EVENT candidate: scenario F-REMOVE event 4: event='find:t1=frag#1' expected 'find:t1=null'
+PASS  candidate-fnullmiss-hit                exit=1  REJECT WRONG_EVENT candidate: scenario F-NULL-MISS event 1: event='find:missing=frag#5' expected 'find:missing=null'
+PASS  candidate-ft-order                     exit=1  REJECT ORDER candidate: scenario F-PRE-COMMIT events are the right multiset but out of order
+PASS  candidate-v2-wrong-instance            exit=1  REJECT MISASSOC candidate: scenario L-EQUALS event 6: activity='ActB#9' expected 'ActB#10'
+PASS  valid-with-external-close              exit=0  OK all mandatory checks passed (reference and candidate validated, matched)
+PASS  bad-manifest                           exit=1  REJECT MANIFEST_INVALID manifest is not valid JSON: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
+PASS  crash-guard-not-a-rejection            exit=2  ERROR internal injected self-test crash
+PASS  candidate-cross-activity-divergent-baseline-match exit=0  OK candidate validated per-activity-event; divergences pinned to baseline
+PASS  candidate-cross-activity-divergent-baseline-mismatch exit=1  REJECT BASELINE_MISMATCH candidate cross-Activity Activity ordering in scenario S2 does not match the pinned baseline (candidate diverges from the reference in a way the baseline does not)
+PASS  candidate-cross-activity-divergent-no-baseline exit=1  REJECT MISSING_BASELINE candidate cross-Activity ordering diverges from the Android reference; a baseline trace is required to pin it (none supplied)
+PASS  candidate-ft-value-wrong               exit=1  REJECT WRONG_EVENT candidate: scenario F-ADD-TAG (FT) events event 3: event='find:t1=null' expected 'find:t1=frag#1'
+PASS  candidate-within-event-reorder         exit=1  REJECT ORDER candidate: scenario S1 ActA#1.onCreate callbacks events are the right multiset but out of order
+PASS  candidate-missing-observer             exit=1  REJECT MISSING_EVENT candidate: scenario S1 ActA#1.onCreate callbacks is missing 1 event(s); first missing ('S1', 'AppObs-B', 'onActivityCreated', 'ActA#1', 'null', '-', 'ProbeApp', 'main', True)
+
+ANALYZER SELFTESTS OK: 62/62 cases behaved as intended

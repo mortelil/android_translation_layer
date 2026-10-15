@@ -1,0 +1,11 @@
+DIVERGENCE S2: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE S4.1: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE S4.2: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE S4.3: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE S4.4: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE S4.5: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE S3D1: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE L-SNAP: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE L-REGD: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+DIVERGENCE L-EQUALS: candidate cross-Activity Activity ordering differs from the Android reference and is pinned to the ATL baseline
+OK candidate validated per-activity-event; divergences pinned to baseline

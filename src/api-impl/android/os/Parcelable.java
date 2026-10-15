@@ -9,7 +9,9 @@ public interface Parcelable {
 		public T[] newArray(int size);
 	}
 
-	public static interface ClassLoaderCreator<T> extends Creator<T> {}
+	public static interface ClassLoaderCreator<T> extends Creator<T> {
+		public T createFromParcel(Parcel parcel, ClassLoader loader);
+	}
 
 	// unlike AOSP, we have a default implementations, so we don't need to stub it in every individual class
 	public default int describeContents() {

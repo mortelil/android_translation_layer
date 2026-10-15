@@ -1,0 +1,2 @@
+ATL_X_ENV DISPLAY=:105 XAUTHORITY=/tmp/xvfb-run.JdemBn/Xauthority
+x11-wm-close: sent WM_DELETE_WINDOW to 0x200005 (area 518400)

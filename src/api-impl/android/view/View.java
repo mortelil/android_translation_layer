@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2006 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// BaseSavedState adapted from AOSP android-8.1.0_r1; see doc/ViewStateCompatibility.md.
 package android.view;
 
 import android.R;
@@ -26,6 +43,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Parcelable;
+import android.os.Parcel;
 import android.os.SystemClock;
 import android.os.Vibrator;
 import android.util.AttributeSet;
@@ -1847,7 +1865,6 @@ public class View implements Drawable.Callback {
 		return true;
 	}
 
-	public void setSaveFromParentEnabled(boolean enabled) {}
 
 	public void setTag(int key, Object tag) {
 		tags.put(key, tag);
@@ -2028,8 +2045,79 @@ public class View implements Drawable.Callback {
 		return result;
 	}
 
-	public static class BaseSavedState extends AbsSavedState {
-	}
+    public static class BaseSavedState extends AbsSavedState {
+        static final int START_ACTIVITY_REQUESTED_WHO_SAVED = 0b1;
+        static final int IS_AUTOFILLED = 0b10;
+        static final int AUTOFILL_ID = 0b100;
+
+        // Flags that describe what data in this state is valid
+        int mSavedData;
+        String mStartActivityRequestWhoSaved;
+        boolean mIsAutofilled;
+        int mAutofillViewId;
+
+        /**
+         * Constructor used when reading from a parcel. Reads the state of the superclass.
+         *
+         * @param source parcel to read from
+         */
+        public BaseSavedState(Parcel source) {
+            this(source, null);
+        }
+
+        /**
+         * Constructor used when reading from a parcel using a given class loader.
+         * Reads the state of the superclass.
+         *
+         * @param source parcel to read from
+         * @param loader ClassLoader to use for reading
+         */
+        public BaseSavedState(Parcel source, ClassLoader loader) {
+            super(source, loader);
+            mSavedData = source.readInt();
+            mStartActivityRequestWhoSaved = source.readString();
+            mIsAutofilled = source.readBoolean();
+            mAutofillViewId = source.readInt();
+        }
+
+        /**
+         * Constructor called by derived classes when creating their SavedState objects
+         *
+         * @param superState The state of the superclass of this view
+         */
+        public BaseSavedState(Parcelable superState) {
+            super(superState);
+        }
+
+        @Override
+        public void writeToParcel(Parcel out, int flags) {
+            super.writeToParcel(out, flags);
+
+            out.writeInt(mSavedData);
+            out.writeString(mStartActivityRequestWhoSaved);
+            out.writeBoolean(mIsAutofilled);
+            out.writeInt(mAutofillViewId);
+        }
+
+        public static final Parcelable.Creator<BaseSavedState> CREATOR
+                = new Parcelable.ClassLoaderCreator<BaseSavedState>() {
+            @Override
+            public BaseSavedState createFromParcel(Parcel in) {
+                return new BaseSavedState(in);
+            }
+
+            @Override
+            public BaseSavedState createFromParcel(Parcel in, ClassLoader loader) {
+                return new BaseSavedState(in, loader);
+            }
+
+            @Override
+            public BaseSavedState[] newArray(int size) {
+                return new BaseSavedState[size];
+            }
+        };
+    }
+
 
 	public void clearFocus() {}
 
@@ -2038,7 +2126,25 @@ public class View implements Drawable.Callback {
 		return factory.inflate(resource, root);
 	}
 
-	public void saveHierarchyState(SparseArray<Parcelable> array) {}
+	// View hierarchy state dispatch (public API contract: state is saved per
+	// view ID into the SparseArray; implemented per the documented Android
+	// contract — the pinned AOSP checkout carries no android/view sources to
+	// copy verbatim, see tests/activity/DESIGN-CHECKPOINT.md).
+	public void saveHierarchyState(SparseArray<Parcelable> array) {
+		dispatchSaveInstanceState(array);
+	}
+
+	protected void dispatchSaveInstanceState(SparseArray<Parcelable> container) {
+		if (id != NO_ID && isSaveEnabled()) {
+			Parcelable state = onSaveInstanceState();
+			if (state != null)
+				container.put(id, state);
+		}
+	}
+
+	protected Parcelable onSaveInstanceState() {
+		return BaseSavedState.EMPTY_STATE;
+	}
 
 	public void setDuplicateParentStateEnabled(boolean enabled) {}
 
@@ -2067,7 +2173,11 @@ public class View implements Drawable.Callback {
 
 	public boolean hasWindowFocus() { return true; }
 
-	public void setSaveEnabled(boolean enabled) {}
+	private boolean saveEnabled = true, saveFromParentEnabled = true;
+	public void setSaveEnabled(boolean enabled) { saveEnabled = enabled; }
+	public boolean isSaveEnabled() { return saveEnabled; }
+	public void setSaveFromParentEnabled(boolean enabled) { saveFromParentEnabled = enabled; }
+	public boolean isSaveFromParentEnabled() { return saveFromParentEnabled; }
 
 	public boolean willNotDraw() { return false; }
 
@@ -2597,7 +2707,20 @@ public class View implements Drawable.Callback {
 		return result;
 	}
 
-	public void restoreHierarchyState(SparseArray<Parcelable> container) {}
+	public void restoreHierarchyState(SparseArray<Parcelable> container) {
+		dispatchRestoreInstanceState(container);
+	}
+
+	protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
+		if (id != NO_ID) {
+			Parcelable state = container.get(id);
+			if (state != null)
+				onRestoreInstanceState(state);
+		}
+	}
+
+	protected void onRestoreInstanceState(Parcelable state) {
+	}
 
 	public boolean isHovered() { return false; }
 

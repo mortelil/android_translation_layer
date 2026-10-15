@@ -19,6 +19,11 @@ package android.os;
 import android.atl.ATLLoadedApp;
 import android.content.Context;
 
+// Unified lifecycle-foundation merge (lane A): the transport-supplied caller
+// identity of PR #31 feat/remote-services baa9b489005995efed6d18d199d22683483a5258
+// supersedes the stub identity of the base tree (reuse-ledger R06); the
+// linkToDeath family now lives in IBinder's defaults with the same public
+// semantics the base Binder overrides had. AOSP provenance notices kept.
 public class Binder implements IBinder {
 
 	private String mDescriptor;
@@ -39,9 +44,19 @@ public class Binder implements IBinder {
 
 	public static void flushPendingCommands() {}
 
-	public static long clearCallingIdentity() { return 0; }
+	private static final ThreadLocal<Long> callingIdentity = new ThreadLocal<>();
+	private static long identity() {
+		Long id = callingIdentity.get();
+		return id == null ? ((long)Process.myUid() << 32) | (Process.myPid() & 0xffffffffL) : id;
+	}
+	static long atlEnter(int pid) {
+		long old = identity();
+		callingIdentity.set(((long)Process.myUid() << 32) | (pid & 0xffffffffL));
+		return old;
+	}
+	public static long clearCallingIdentity() { return atlEnter(Process.myPid()); }
 
-	public static void restoreCallingIdentity(long identityToken) {}
+	public static void restoreCallingIdentity(long identityToken) { callingIdentity.set(identityToken); }
 
 	@Override
 	public IInterface queryLocalInterface(String descriptor) {
@@ -50,32 +65,31 @@ public class Binder implements IBinder {
 
 	@Override
 	public boolean transact(int code, Parcel data, Parcel reply, int flags) {
-        if (data != null) data.setDataPosition(0);
-        boolean result = onTransact(code, data, reply, flags);
-        if (reply != null) reply.setDataPosition(0);
-        return result;
-    }
+		if (data != null)
+			data.setDataPosition(0);
+		boolean result = onTransact(code, data, reply, flags);
+		if (reply != null)
+			reply.setDataPosition(0);
+		return result;
+	}
 
-    // AOSP frameworks/base android-14.0.0_r1 local Binder contract.
-    // No cross-process transactions, remote identity, dump or shell commands.
-    protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
-        if (code == 0x5f4e5446 && reply != null) {
-            reply.writeString(getInterfaceDescriptor());
-            return true;
-        }
-        return false;
-    }
+	// AOSP frameworks/base android-14.0.0_r1 local Binder contract.
+	// Dump and shell commands remain unsupported.
+	protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
+		if (code == 0x5f4e5446 && reply != null) {
+			reply.writeString(getInterfaceDescriptor());
+			return true;
+		}
+		return false;
+	}
 
-	// ATL currently implements only in-process Binder calls, with no remote transaction identity.
-	public static int getCallingUid() { return Process.myUid(); }
+	// Transport supplies a connection-scoped caller identity.
+	public static int getCallingUid() { return (int)(identity() >>> 32); }
 
-	public static int getCallingPid() { return Process.myPid(); }
+	public static int getCallingPid() { return (int)identity(); }
 
-    // AOSP Binder.java (android-8.1.0_r1): a local Binder cannot die
-    // independently of its caller's process. Remote Binder implementations must
-    // provide their own transport and death notification behavior.
-    @Override public void linkToDeath(DeathRecipient recipient, int flags) {}
-    @Override public boolean unlinkToDeath(DeathRecipient recipient, int flags) { return true; }
-    @Override public boolean isBinderAlive() { return true; }
-    @Override public boolean pingBinder() { return true; }
+	@Override
+	public boolean equals(Object obj) {
+		return this == obj;
+	}
 }

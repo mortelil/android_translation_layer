@@ -31,6 +31,38 @@ import android.view.KeyEvent;
 import android.view.View;
 
 public class TextView extends View {
+	/** Saved editable state: the text content (public API contract). */
+	public static class SavedState extends android.view.AbsSavedState implements android.os.Parcelable {
+		public final CharSequence text;
+		public SavedState(CharSequence text) { super(android.view.AbsSavedState.EMPTY_STATE); this.text = text; }
+		private SavedState(android.os.Parcel in) { super(in); text = in.readString(); }
+		public static final android.os.Parcelable.Creator<SavedState> CREATOR = new android.os.Parcelable.Creator<SavedState>() {
+			public SavedState createFromParcel(android.os.Parcel in) { return new SavedState(in); }
+			public SavedState[] newArray(int size) { return new SavedState[size]; }
+		};
+		@Override
+		public int describeContents() { return 0; }
+		@Override
+		public void writeToParcel(android.os.Parcel dest, int flags) {
+			super.writeToParcel(dest, flags);
+			dest.writeString(text == null ? "" : text.toString());
+		}
+	}
+
+	@Override
+	public android.os.Parcelable onSaveInstanceState() {
+		return new SavedState(text);
+	}
+
+	@Override
+	protected void onRestoreInstanceState(android.os.Parcelable state) {
+		if (state instanceof SavedState) {
+			CharSequence restored = ((SavedState)state).text;
+			if (restored != null)
+				setText(restored);
+		}
+	}
+
 	private ColorStateList colors = new ColorStateList(new int[][] {new int[0]}, new int[1]);
 	private CharSequence text = "";
 	private int inputType;
@@ -300,7 +332,7 @@ public class TextView extends View {
 		}
 	}
 
-	public void setSaveEnabled(boolean enabled) {}
+	public void setSaveEnabled(boolean enabled) { super.setSaveEnabled(enabled); }
 
 	public final void setAutoLinkMask(int mask) {}
 

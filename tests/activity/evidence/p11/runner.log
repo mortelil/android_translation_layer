@@ -1,0 +1,2 @@
+RUN team=sketchbook kind=atl
+ATL-PROBE STATUS=OK exit=0 marker=CLPROBE_JSON_END elapsed=11s results=/home/morten/ATL/agent-work/LIFECYCLE-FOUNDATION/activity/p11/app-results.json

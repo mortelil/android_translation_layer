@@ -1,5 +1,12 @@
 package android.os;
 
+// Unified lifecycle-foundation merge (lane A, reuse-ledger R07): descriptor
+// ownership, IPC receive/transfer hooks and the binder value paths of
+// PR #31 feat/remote-services baa9b489005995efed6d18d199d22683483a5258 on the
+// base tree; the generic readTypedArray/createTypedArray API of the base tree
+// is kept. atlReceive validates the whole descriptor table (bounds and 4-byte
+// stride overlap) before patching anything (architecture §2 W3).
+
 import android.atl.ATLLoadedApp;
 import android.content.Context;
 import android.os.Parcelable.Creator;
@@ -30,6 +37,8 @@ public class Parcel {
 	private int size;
 	private boolean hasFileDescriptors;
 	private ArrayList<IBinder> binders;
+	private final ArrayList<Integer> fdPositions = new ArrayList<>();
+	private int[] ownedFds = new int[0];
 
 	protected Parcel() {
 		data = new byte[0];
@@ -51,7 +60,72 @@ public class Parcel {
 		return new Parcel();
 	}
 
-	public void recycle() {}
+	public void recycle() {
+		for (int fd : ownedFds)
+			ATLBinderConnection.closeFd(fd);
+		ownedFds = new int[0];
+		binders = null;
+		fdPositions.clear();
+		hasFileDescriptors = false;
+	}
+	IBinder[] atlBinders() { return binders == null ? new IBinder[0] : binders.toArray(new IBinder[0]); }
+	int[] atlFdPositions() {
+		int[] result = new int[fdPositions.size()];
+		for (int i = 0; i < result.length; ++i)
+			result[i] = fdPositions.get(i);
+		return result;
+	}
+	int[] atlFds() {
+		int saved = pos;
+		int[] result = new int[fdPositions.size()];
+		for (int i = 0; i < result.length; ++i) {
+			pos = fdPositions.get(i);
+			result[i] = readInt();
+			if (i >= ownedFds.length || result[i] != ownedFds[i])
+				throw new ParcelFormatException("Descriptor metadata was overwritten");
+		}
+		pos = saved;
+		return result;
+	}
+			void atlReceive(byte[] bytes, IBinder[] objects, int[] positions, int[] fds) throws IOException {
+		if (fds.length < positions.length)
+			throw new IOException("IPC descriptor count exceeds the delivered descriptors");
+		// W3: validate the whole descriptor table (bounds and 4-byte stride
+		// overlap) before anything is patched; a rejected frame never leaves a
+		// half-patched body behind (architecture §2 W3, reuse-ledger R09).
+		for (int i = 0; i < positions.length; ++i)
+			if (positions[i] < 0 || positions[i] > bytes.length - 4)
+				throw new IOException("Invalid IPC descriptor offset");
+		for (int i = 0; i < positions.length; ++i)
+			for (int j = 0; j < i; ++j)
+				if (Math.abs(positions[i] - positions[j]) < 4)
+					throw new IOException("Overlapping IPC descriptor offsets");
+		data = bytes;
+		size = bytes.length;
+		pos = 0;
+		binders = new ArrayList<>(Arrays.asList(objects));
+		ownedFds = fds;
+		hasFileDescriptors = fds.length != 0;
+		for (int i = 0; i < positions.length; ++i) {
+			pos = positions[i];
+			fdPositions.add(pos);
+			writeInt(fds[i]);
+		}
+		pos = 0;
+	}
+	void atlTake(Parcel source) {
+		recycle();
+		data = source.data;
+		size = source.size;
+		pos = 0;
+		binders = source.binders;
+		source.binders = null;
+		hasFileDescriptors = source.hasFileDescriptors;
+		ownedFds = source.ownedFds;
+		source.ownedFds = new int[0];
+		fdPositions.clear();
+		fdPositions.addAll(source.fdPositions);
+	}
 
 	public void writeByte(byte value) {
 		if (pos >= data.length)
@@ -418,8 +492,11 @@ public class Parcel {
 		if (className == null)
 			return null;
 		try {
-			Parcelable.Creator<?> creator = (Parcelable.Creator<?>)loader.loadClass(className).getField("CREATOR").get(null);
-			return (Parcelable)creator.createFromParcel(this);
+			ClassLoader effectiveLoader = loader != null ? loader : Parcel.class.getClassLoader();
+			Parcelable.Creator<?> creator = (Parcelable.Creator<?>)Class.forName(className, true, effectiveLoader).getField("CREATOR").get(null);
+			return (Parcelable)(creator instanceof Parcelable.ClassLoaderCreator
+				? ((Parcelable.ClassLoaderCreator<?>)creator).createFromParcel(this, loader)
+				: creator.createFromParcel(this));
 		} catch (ReflectiveOperationException | IllegalArgumentException e) {
 			throw new BadParcelableException(e);
 		}
@@ -725,18 +802,32 @@ public class Parcel {
 			writeInt(-1);
 			return;
 		}
-		writeInt(fd.getInt$());
-		hasFileDescriptors = true;
+		try {
+			int duplicate = ATLBinderConnection.dupFd(fd.getInt$());
+			ownedFds = Arrays.copyOf(ownedFds, ownedFds.length + 1);
+			ownedFds[ownedFds.length - 1] = duplicate;
+			fdPositions.add(pos);
+			writeInt(duplicate);
+			hasFileDescriptors = true;
+		} catch (IOException e) {
+			throw new IllegalStateException("Cannot duplicate parcel descriptor", e);
+		}
 	}
 
 	public ParcelFileDescriptor readFileDescriptor() {
-		if (!hasFileDescriptors)
-			return null;
+		int offset = pos;
 		int fd = readInt();
 		if (fd == -1)
 			return null;
+		int index = fdPositions.indexOf(offset);
+		if (index < 0 || index >= ownedFds.length || ownedFds[index] != fd)
+			throw new ParcelFormatException("No descriptor object at this position");
 		FileDescriptor fd_ = new FileDescriptor();
-		fd_.setInt$(fd);
+		try {
+			fd_.setInt$(ATLBinderConnection.dupFd(fd));
+		} catch (IOException e) {
+			throw new IllegalStateException("Cannot duplicate received descriptor", e);
+		}
 		return new ParcelFileDescriptor(fd_);
 	}
 
@@ -764,7 +855,7 @@ public class Parcel {
 	}
 
 	public void writeStrongInterface(IInterface binder) {
-		writeInt(binder == null ? -1 : 0);
+		writeStrongBinder(binder == null ? null : binder.asBinder());
 	}
 
 	public void writeBinderArray(IBinder[] array) {
@@ -882,8 +973,9 @@ public class Parcel {
 		} else if (value instanceof SparseArray) {
 			writeInt(20);
 			writeSparseArray((SparseArray<?>)value);
-		} else if (value instanceof Binder) {
+		} else if (value instanceof IBinder) {
 			writeInt(21);
+			writeStrongBinder((IBinder)value);
 		} else if (value instanceof Serializable) {
 			writeInt(22);
 			writeSerializable((Serializable)value);
@@ -938,7 +1030,7 @@ public class Parcel {
 			case 20:
 				return readSparseArray(loader);
 			case 21:
-				return new Binder();
+				return readStrongBinder();
 			case 22:
 				return readSerializable();
 			default:
@@ -976,6 +1068,8 @@ public class Parcel {
 	}
 
 	public void appendFrom(Parcel source, int start, int size) {
+		if (source.hasFileDescriptors || (source.binders != null && !source.binders.isEmpty()))
+			throw new UnsupportedOperationException("appendFrom with Binder/descriptor objects is not supported");
 		try {
 			os.write(source.data, start, size);
 		} catch (IOException e) {

@@ -1,0 +1,22 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.atl.procprobe">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28" />
+ <application android:name=".ProbeApp" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="ATL process probe">
+  <activity android:name=".TestActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+  <!-- The loader's own process: must be created by the loader, never by a child. -->
+  <provider android:name=".MainProvider" android:authorities="org.atl.procprobe.main" android:exported="false"/>
+  <!-- :worker child only (P05 ordering: provider onCreate before Application.onCreate). -->
+  <provider android:name=".WorkerProvider" android:authorities="org.atl.procprobe.worker" android:process=":worker" android:exported="false"/>
+  <!-- Two services of one process (P09 same-pid / destroy-one). -->
+  <service android:name=".SvcWorker" android:process=":worker" android:exported="false"/>
+  <service android:name=".SvcWorker2" android:process=":worker" android:exported="false"/>
+  <!-- A second process, independent of :worker (P02/P10 isolation, P06 null onBind). -->
+  <service android:name=".SvcSecond" android:process=":second" android:exported="false"/>
+  <service android:name=".SvcNullBind" android:process=":second" android:exported="false"/>
+  <!-- Stalled by the ATL_SERVICE_PROCESS_FAULT seam in the child (P02/P10). -->
+  <service android:name=".SvcStall" android:process=":stallable" android:exported="false"/>
+  <!-- A hosted callback that throws: the child must exit 10 (P07). -->
+  <service android:name=".SvcCrash" android:process=":worker" android:exported="false"/>
+  <!-- Isolated: must be refused, never hosted (P09). -->
+  <service android:name=".SvcIsolated" android:process=":isolated" android:isolatedProcess="true" android:exported="false"/>
+ </application>
+</manifest>

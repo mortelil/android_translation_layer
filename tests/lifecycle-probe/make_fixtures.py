@@ -706,13 +706,36 @@ def main():
     # incoming Activity and its onStart after the incoming one pauses. Model
     # that fixed divergence synthetically by inserting the extra ActA#1
     # onStop/onStart groups into S2 (the same shape as the real GREEN trace).
-    def _atl_group(sid, activity, base, cbname):
+    def _atl_group(sid, activity, base, cb_actors):
+        """One extra ATL-only lifecycle group: pre + callbacks + post.
+
+        ``cb_actors`` are the observer actors taken from the scenario itself;
+        the callback event is the manifest's callback for ``base`` (so an
+        onRestart group carries no callbacks: ActivityLifecycleCallbacks has no
+        restart callback), and the Bundle follows bundle_map/default.
+        """
         owner, role = man["owner"], man["main_thread_role"]
-        pre = (sid, activity, base + ".pre", activity, "-", "pre", owner, role, True)
-        post = (sid, activity, base + ".post", activity, "-", "post", owner, role, True)
-        cbs = [(sid, "AppObs-A", cbname, activity, "-", "-", owner, role, True),
-               (sid, "AppObs-B", cbname, activity, "-", "-", owner, role, True)]
+        bundle = man["bundle_map"].get(base, man["default_bundle"])
+        pre = (sid, activity, base + ".pre", activity, bundle, "pre", owner, role, True)
+        post = (sid, activity, base + ".post", activity, bundle, "post", owner, role, True)
+        cbname = man["callback_map"].get(base)
+        cbs = [] if cbname is None else [
+            (sid, actor, cbname, activity, bundle, "-", owner, role, True)
+            for actor in cb_actors]
         return [pre] + cbs + [post]
+
+    def _group_cb_actors(tuples, activity, base):
+        """Observer actors of the (activity, base) group in ``tuples``, or None."""
+        i = _first(tuples, lambda t: t[3] == activity and t[2] == base + ".pre")
+        if i is None:
+            return None
+        actors = []
+        for t in tuples[i + 1:]:
+            if t[3] == activity and t[2] == base + ".post":
+                return actors
+            if t[1] != activity:
+                actors.append(t[1])
+        return None
 
     def _first(tuples, pred):
         for i, t in enumerate(tuples):
@@ -721,16 +744,47 @@ def main():
         return None
 
     def atl_transform(m, sid, tuples):
+        """Model the launcher's A->B->A Activity ordering for EVERY scenario.
+
+        AOSP ActivityThread.handleLaunchActivity pauses A, creates/starts/
+        resumes B, and stops A once B is resumed; returning to A then runs
+        A.onRestart -> A.onStart -> A.onResume before B is stopped/destroyed.
+        ATL drives the same transitions through
+        ATLActivityController.startActivity/performFinish (the native seam only
+        forwards host events), so every scenario that really launches a
+        secondary Activity carries three extra Activity-event groups beside the
+        Android-derived manifest groups:
+
+          * ActA#1 onStop    -- after the ActB#N onResume group,
+          * ActA#1 onRestart -- before ActA#1 onResume (no callback exists),
+          * ActA#1 onStart   -- between the onRestart and ActA#1 onResume groups.
+
+        The extra groups are scenario-derived: their observer list is the one
+        of the scenario's own ActA#1 onResume group, i.e. the registration set
+        in force after any mid-dispatch register/unregister (L-SNAP keeps
+        AppObs-VICT out, L-REGD includes AppObs-NEW, S4.3 keeps the duplicate
+        AppObs-C twice). Scenarios without a covered-Activity pause or without
+        a resumed secondary Activity (preamble/S1, the FT-only scenarios and
+        the terminal L-THROW prefix) are returned unchanged.
+        """
         out = list(tuples)
-        if sid != "S2":
+        if not any(t[1] == "ActA#1" and t[2] == "onPause.pre" for t in out):
+            return out  # preamble/S1: nothing was covering ActA#1
+        b_launch = _first(out, lambda t: t[1] != "ActA#1" and t[2] == "onCreate.pre")
+        if b_launch is None:
+            return out  # FT-only scenario: no secondary Activity launch
+        b_act = out[b_launch][1]
+        b_resume = _first(out, lambda t: t[1] == b_act and t[2] == "onResume.post")
+        a_resume = _first(out, lambda t: t[1] == "ActA#1" and t[2] == "onResume.pre")
+        if b_resume is None or a_resume is None:
+            return out  # launch never reached resume / never returned to A
+        actors = _group_cb_actors(out, "ActA#1", "onResume")
+        if actors is None:
             return out
-        i = _first(out, lambda t: t[3] == "ActB#1" and t[2] == "onCreate.pre")
-        if i is None:
-            return out
-        out[i:i] = _atl_group(sid, "ActA#1", "onStop", "onActivityStopped")
-        j = _first(out, lambda t: t[3] == "ActA#1" and t[2] == "onResume.pre")
-        if j is not None:
-            out[j:j] = _atl_group(sid, "ActA#1", "onStart", "onActivityStarted")
+        # Insert the later groups first so the earlier index stays valid.
+        out[a_resume:a_resume] = (_atl_group(sid, "ActA#1", "onRestart", actors)
+                                  + _atl_group(sid, "ActA#1", "onStart", actors))
+        out[b_resume + 1:b_resume + 1] = _atl_group(sid, "ActA#1", "onStop", actors)
         return out
 
     def reorder_transform(m, sid, tuples):

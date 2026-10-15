@@ -19,17 +19,25 @@ public abstract class ContentProvider {
 
 	static final HashMap<String, ATLProvider> atl_providers = new HashMap<>();
 
-	static void createContentProviders() {
+	/**
+	 * Creates the content providers declared for this process. Called on
+	 * application start by the launcher (main.c open()) and by a service child
+	 * in its boot sequence, before Application.onCreate.
+	 */
+	public static void createContentProviders() {
 		atl_providers.put(android.atl.ATLDocumentsProvider.AUTHORITY, new ATLProvider(new android.atl.ATLDocumentsProvider()));
 		atl_providers.put("media", new ATLProvider(new ATLMediaContentProvider()));
 		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
 		for (PackageParser.Provider provider_parsed : primary.pkg.providers) {
 			String process_name = provider_parsed.info.processName;
-			if (process_name != null && process_name.contains(":")) {
-				/* NOTE: even if it doesn't contain `:`, if it's not null we probably
-				 * need to check what it's requesting; `:` means it wants us to spawn
-				 * a new process, which we currently don't support */
-				System.out.println("not creating provider " + provider_parsed.className + ", it wants to be started in a new process (" + process_name + ")");
+			if (process_name == null)
+				process_name = primary.pkg.applicationInfo.processName != null ? primary.pkg.applicationInfo.processName : primary.pkg.packageName;
+			/* Each process hosts only the providers whose android:process resolves
+			 * to its own name: the main process (loader) creates its own, a
+			 * child process (ATL_SERVICE_PROCESS, see android.atl.ChildHost)
+			 * creates only the providers declared for it. */
+			if (!process_name.equals(own_process_name(primary))) {
+				System.out.println("not creating provider " + provider_parsed.className + ", it belongs to process " + process_name);
 				continue;
 			}
 			atl_providers.put(provider_parsed.info.authority,
@@ -43,6 +51,14 @@ public abstract class ContentProvider {
 				return atlProvider.getContentProvider() == null;
 			}
 		});
+	}
+
+	/** The android:process name of the running process: ATL_SERVICE_PROCESS in a child, else the application's. */
+	private static String own_process_name(ATLLoadedApp primary) {
+		String child = System.getenv("ATL_SERVICE_PROCESS");
+		if (child != null)
+			return child;
+		return primary.pkg.applicationInfo.processName != null ? primary.pkg.applicationInfo.processName : primary.pkg.packageName;
 	}
 
 	static ContentProvider atl_get_content_provider(String authority) {
