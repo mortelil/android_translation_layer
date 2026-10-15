@@ -426,3 +426,80 @@ Not yet executed (the A04 real run). Exact next commands from this worktree:
    scenario, and no BASELINE_MISMATCH. A non-zero exit with BASELINE_MISMATCH
    means the controller ordering and the regenerated baseline disagree: fix the
    controller or the transform, never the manifest.
+
+## Session 7 (lane C) - A03/A05-A10 + P11 executed at HEAD 13db8fe0
+
+Status: every lane-C acceptance row now has executed evidence. Build identity for
+all runs below: branch lifecycle/activity, lane build-mobile
+`build-mobile/android-translation-layer` sha256
+21e17b662ee91a09c66ffcd31c4ae029029e552ec1ad80b8493e57086c82ad55 (mtime
+2026-10-15 06:56, 149952 bytes), hax.jar from the same build (meson registers
+ATLActivityController), lane-private ANDROID_APP_DATA_DIR, tools only through
+resources.py --team activity. Evidence for every command is committed next to the
+tests, so the row claims are reproducible from this repo alone.
+
+A04 (already green, commit b88f8217): real lifecycle-probe v2.1 run, 19 scenarios,
+LIFE_ALL_DONE + TERMINAL_THROW_DONE, verify_lifecycle.py exit 0 with the 10 pinned
+DIVERGENCE lines and no BASELINE_MISMATCH - evidence/a04/.
+
+A05/A06/A07/A08/A09 (commits 13234359 + eb5aac7d): tests/activity/probe (4 activities
+driven by the ordinary launcher) run at targetSdk 27, 28 and 35 through
+`sh tests/activity/run-probe.sh <apk> <outdir> APROBE_MARK 240`. 34 PASS 0 FAIL in
+each run (`APROBE ALL_DONE 34 PASS 0 FAIL` + `APROBE_MARK TERMINAL_DONE`), traces
+and results.json in evidence/a05-a09/sdk{27,28,35}/, full container stdout in the
+lane evidence dir. Highlights: A05-finish-in-create-{single-instance,never-resumed,
+destroy-once,no-save-state,inline-teardown} (A.onPause 53 < C.onCreate 57 <
+C.onDestroy 60 < A.onResume 63: finish in onCreate destroys inline, never starts or
+saves); A07-nav-order/framing (A.onPause, B.onCreate/onStart/onResume, A.onStop,
+B.onPause, A.onRestart/onStart/onResume, A07-return-frame A.onResume < B.onStop <
+B.onDestroy) plus a CLEAR_TOP new-intent launch that keeps one instance,
+delivers onNewIntent once with the new extra and still reports the record intent
+("orig") - no recreate; A08-recreate-distinct-instance (#4 -> #5: old destroyed
+once, new created/resumed once, app + view state restored) and
+A09-repeated-recreate-{distinct,clean,restored} (#5 -> #6: R#5.onDestroy=1,
+R#6.onCreate=1, R#5.onStart=0, state restored again); A09-save-order-targetSdk
+shows the documented targetSdk split on real runs: 27 saveIdx 89 < stopIdx 92
+(save-before-stop), 28/35 stopIdx 89 < saveIdx 92 (stop-before-save).
+A06 has both halves: the runtime pair (hasWindowFocus false during onResume,
+true after the focus event; onWindowFocusChanged framing contains zero lifecycle
+callbacks) and the unit suite FocusInvariants (`ACTLFOCUS ALL_DONE 9 PASS 0 FAIL`,
+evidence/a06/unit-focus-invariants.log, run through tests/activity/run-unit.sh on
+the lane dalvikvm - PathInvariants `ACTLPATH ALL_DONE 191 PASS 0 FAIL` re-verified
+in the same run).
+
+A03 (commit 51daa55e): evidence/a03-single-dispatch.txt - one dispatcher
+(hostEvent + the single controller + the one transition table) with negative greps
+for a second launcher/service path; the four C entry points main.c/back_button.c
+consume are unchanged and each is one host event.
+
+A10 (commit 51daa55e): evidence/a10-no-process-death-restore.txt - the seam is
+in-process state only (no persisted Bundle, no restart path; architecture section
+8 boundary), and every probe run emits APROBE_INFO A10-limitation so no test can be
+read as claiming a process-death restore.
+
+P11 (commits 5a635950 + 13db8fe0): `sh tests/activity/run-classloader-probe.sh <out>`
+on the lane candidate - ATL-PROBE STATUS=OK exit=0 marker=CLPROBE_JSON_END,
+CLPROBE VERDICT=PASS platform=atl run_id=atlrun-1792042375-347043 checks=41
+passed=41 failed=0 with --expect-loader-source own-classloader, matching the pinned
+Firefox baseline. Clean-diff assertion: the lane diff (34 files) contains no
+art/loader/bionic/environ file and adds no FindClass or class-visibility workaround.
+Evidence (verifier.log/runner.log/results.json) in evidence/p11/.
+
+Row status: A03 COMPLETE (static), A04 COMPLETE, A05 COMPLETE, A06 COMPLETE,
+A07 COMPLETE, A08 COMPLETE, A09 COMPLETE, A10 COMPLETE (documented limitation, no
+over-claim), P11 COMPLETE for the lane candidate.
+
+Exact next action (integration, not lane C):
+1. Cherry-pick lane C in order onto combined (seam commits d8d07766..2711907a, then
+   13234359, 5a635950, eb5aac7d, 51daa55e, 13db8fe0) - the test/evidence commits are
+   inert for the runtime.
+2. Rerun P11 against the combined build with the same script (ATL_LANE_DIR/
+   ATL_RESOURCES now overridable): that combined-HEAD run is the gate, because the
+   lane run cannot cover other lanes' loader input.
+3. Optional combined-only rerun of run-probe.sh per targetSdk to confirm the merged
+   tree still reports 34 PASS 0 FAIL.
+
+Lane-C limitations (documented, not over-claimed): the probe is one APK with
+explicit-component launches; there is no Instrumentation-driven or manifest-ordered
+scenario, no process-death restore, and no multi-window/focus-loss scenario beyond
+the recreate window sampled in A06.
