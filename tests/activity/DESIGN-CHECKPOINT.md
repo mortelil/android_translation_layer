@@ -220,3 +220,121 @@ shows ATLActivityController.class + $ATLActivityRecord.class. Worktree clean.
   poll stdout for LIFE_ALL_DONE + TERMINAL_THROW_DONE, then close the window
   externally for S3D2 and collect trace.log. FRAMEWORK_RES for build.sh must
   point at the lane build-mobile res/framework-res apk.
+
+## Session 4 (lane C) — seam implemented
+
+Status: implemented (Java seam + native seam commits), not yet verified: no
+build/test was run in this session (the lead runs the single rebuild).
+
+### The one seam
+
+- C → Java: `android_app_Activity.c` calls
+  `ATLActivityController.hostEvent(int code, Object arg)` with
+  `HOST_EVENT_START=1`, `HOST_EVENT_BACK=2`,
+  `HOST_EVENT_WINDOW_CLOSE_REQUEST=3`, `HOST_EVENT_WINDOW_READY=4`
+  (macros mirrored in the C file). `HOST_EVENT_NEW_INTENT=5` stays declared
+  but has no native caller: Java callers (ContextImpl:476/485,
+  Instrumentation:177) reach `resumeActivity` directly.
+- C symbols consumed by src/main-executable keep their exact signatures and
+  are now one host event each: `activity_start` (returns with the exception
+  pending — main.c:325/417/843 still call
+  atl_jni_handle_uncaught_exception afterwards), `activity_window_ready`
+  (main.c:206), `activity_close_all` (main.c:53; does NOT close the GTK
+  window — app_exit does), `current_activity_back_pressed`
+  (back_button.c:11). Those three GTK-boundary entry points call
+  atl_jni_handle_uncaught_exception themselves (it never returns).
+- `handle_cache.atl_activity_controller.class` is the only cached handle
+  needed for the seam; `handle_cache.activity` is pruned to `jclass class;`
+  (main.c:412/656 still use createMainActivity, fileChooserResultCallback
+  uses the class).
+
+### Controller method surface (android.atl.ATLActivityController)
+
+`hostEvent(int,Object)`; host operations `startActivity`, `finish`,
+`recreate`, `resumeActivity(Class,Intent)`, `closeAll`, `windowReady`,
+`backPressed`, `isTaskRoot`, `hasWindowFocus`; helpers `current`,
+`acquireWindowFocus`, `clearWindowFocus`, `updateBackSensitivity`,
+`overridesOnBackPressed`, `targetSdk`, `nativeWindowOf`; record gains
+`finishPosted` (posted-teardown exactly-once guard) alongside `relaunching`,
+`finishing`, `hasWindowFocus`, `savedState`, `generation`.
+
+The 5 GTK natives (implemented in android_app_Activity.c, JNI header
+committed like every other generated header):
+`nativeDecorAdd` = gtk_stack_add_child, `nativeDecorRemove` =
+gtk_stack_remove, `nativeDecorShow` = gtk_stack_set_visible_child,
+`nativeCloseIfLast(remaining, native_window)` = g_idle_add(
+delayed_close_window), `nativeSetBackSensitive` = back_button_set_sensitive.
+Each returns immediately while an exception is pending.
+
+### Deleted on the C side
+
+File statics `activity_backlog` / `activity_current`, the C lifecycle
+dispatcher (`activity_close`, `activity_unfocus`, `activity_focus`,
+`activity_update_current`), and the JNI natives `nativeFinish`,
+`nativeStartActivity`, `nativeResumeActivity`, `isTaskRoot`.
+Deleted in Java: `Activity.paused` (its only readers were the retired C
+seam), `Activity.nativeFinish`, and `Activity`'s C-bound
+`nativeStartActivity`/`nativeResumeActivity`/`isTaskRoot`/`hasWindowFocus`/
+`finish`/`recreate` bodies (all now delegate to the controller; the first
+two keep name + signature because Instrumentation.java:177 and
+ContextImpl.java:476/485 are unchanged). New public forwarders on Activity
+because the controller lives in another package:
+`performPostCreate`, `performNewIntent`, `atlSetChangingConfigurations`.
+
+### Orderings actually implemented (AOSP 94b4c163b7df anchors)
+
+- Launch (`startActivity`): prev.performPause (only when prev.state >=
+  ON_RESUME) + window unfocus → attach → performCreate → early-finish check
+  (destroy directly, no start, never saved) → decor add → performStart →
+  performRestoreInstanceState (only when saved state exists) → performPostCreate
+  → performResume → focus/show → prev.onStop (`moveToState(ON_STOP,false)`;
+  the GTK model covered the old activity, so it gets restart/start on return).
+- Finish: pause (if resumed) → hand the window back first: unfocus self,
+  acquireWindowFocus(next) which resumes the returning activity → own onStop
+  (no save: a finishing activity is never saved) → onDestroy → decor remove →
+  detach → back sensitivity → close-if-last.
+- Recreate (`recreate`): queued single transaction; pause → save (pre-P
+  before stop / P+ after stop, `isPreP(targetSdk())`) → stop → destroy with
+  finishing=false and changingConfigurations=true → new instance via
+  `Activity.internalCreateActivity(className, nw, r.intent)` (the record
+  intent is reused) → new record at the SAME index with generation+1 and the
+  saved bundle → create(saved) → early-finish check → decor add → start →
+  restore → postCreate(saved) → resume → focus only if it was top.
+- New intent / clear-top (`resumeActivity`): pop everything above the match
+  (pause/stop/destroy/decor remove/detach), then if the target was the
+  resumed top: pause → performNewIntent → resume (no recreate); otherwise
+  performNewIntent → acquireWindowFocus. The record intent is never
+  reassigned and setIntent is never called (ActivityThread.java:6939,
+  Activity.performNewIntent Activity.java:9355-9361).
+- `closeAll`: pause + unfocus the top, then top-first stop → destroy → decor
+  remove → detach for every record; the GTK window stays open.
+- Destroy is always a direct `performState(ON_DESTROY)` — never a lifecycle
+  path walk (no getLifecyclePath through ON_START/ON_RESUME).
+
+### Saved state
+
+`Activity.onSaveInstanceState` now puts the window hierarchy state as its
+FIRST statement (AOSP Activity.java:2613-2620) before
+`dispatchActivitySaveInstanceState`; `Window.saveHierarchyState`/
+`restoreHierarchyState` already round-trip the same
+"android:viewHierarchyState" bundle, so recreate() of an editable view can
+restore. No process-death restore is claimed.
+
+### Next verification actions (no build/test was run in this session)
+
+1. Lead rebuild of the lane (`scripts/mobile/build.sh`, JOBS=2). Expected build
+   products: javac -h rewrites generated_headers/android_app_Activity.h (the
+   four deleted natives drop out of it) and now generates the committed
+   generated_headers/android_atl_ATLActivityController.h from the five new
+   natives.
+2. `tests/activity/run-unit.sh` (A01/A02 path invariants; inputs unchanged —
+   the test only drives the static transition engine).
+3. lifecycle-probe v2.1 per tests/lifecycle-probe/CONTRACT.md, after
+   regenerating the pinned baseline as Session 3 requires (generalize
+   make_fixtures.py atl_transform to every scenario with an ActB onCreate and
+   add the ActA onRestart framing group on returns), then verify_lifecycle.py.
+4. Discriminating cases still owed on top of the probe: double finish(),
+   finish-inside-onCreate, recreate() of an activity with an editable view
+   restored from the window hierarchy, new intent delivered to a resumed top
+   (no recreate, no instance change), and both targetSdk save orderings around
+   onStop (27 vs 28).

@@ -3,18 +3,10 @@
 struct handle_cache {
 	struct {
 		jclass class;
-		jmethodID performCreate;
-		jmethodID onPostCreate;
-		jmethodID performStart;
-		jmethodID performResume;
-		jmethodID onPostResume;
-		jmethodID onWindowFocusChanged;
-		jmethodID onDestroy;
-		jmethodID onStop;
-		jmethodID onPause;
-		jmethodID onBackPressed;
-		jmethodID onNewIntent;
 	} activity;
+	struct {
+		jclass class;
+	} atl_activity_controller;
 	struct {
 		jclass class;
 		jmethodID getAttributeValue_string;

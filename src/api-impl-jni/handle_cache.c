@@ -7,17 +7,10 @@ void set_up_handle_cache(JNIEnv *env)
 	handle_cache.activity.class = _REF((*env)->FindClass(env, "android/app/Activity"));
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
-	handle_cache.activity.performCreate = _METHOD(handle_cache.activity.class, "performCreate", "(Landroid/os/Bundle;)V");
-	handle_cache.activity.onPostCreate = _METHOD(handle_cache.activity.class, "onPostCreate", "(Landroid/os/Bundle;)V");
-	handle_cache.activity.performStart = _METHOD(handle_cache.activity.class, "performStart", "()V");
-	handle_cache.activity.onWindowFocusChanged = _METHOD(handle_cache.activity.class, "onWindowFocusChanged", "(Z)V");
-	handle_cache.activity.performResume = _METHOD(handle_cache.activity.class, "performResume", "()V");
-	handle_cache.activity.onPostResume = _METHOD(handle_cache.activity.class, "onPostResume", "()V");
-	handle_cache.activity.onDestroy = _METHOD(handle_cache.activity.class, "onDestroy", "()V");
-	handle_cache.activity.onStop = _METHOD(handle_cache.activity.class, "onStop", "()V");
-	handle_cache.activity.onPause = _METHOD(handle_cache.activity.class, "onPause", "()V");
-	handle_cache.activity.onBackPressed = _METHOD(handle_cache.activity.class, "onBackPressed", "()V");
-	handle_cache.activity.onNewIntent = _METHOD(handle_cache.activity.class, "onNewIntent", "(Landroid/content/Intent;)V");
+
+	handle_cache.atl_activity_controller.class = _REF((*env)->FindClass(env, "android/atl/ATLActivityController"));
+	if ((*env)->ExceptionCheck(env))
+		(*env)->ExceptionDescribe(env);
 
 	handle_cache.attribute_set.class = _REF((*env)->FindClass(env, "android/util/AttributeSet"));
 	if ((*env)->ExceptionCheck(env))
