@@ -125,7 +125,7 @@ final class RemoteScenarios {
     private void start(Scenario row, final String id, final Intent intent, final String label) {
         row.step(new Action() {
             public void run(Checks checks) {
-                expectAccepted(checks, "startService " + label, attempt(id, label, new Attempt() {
+                expectAccepted(checks, "startService " + label, attempt(row.id, id, new Attempt() {
                     public Object run() {
                         return host.startService(new Intent(intent));
                     }
@@ -139,7 +139,7 @@ final class RemoteScenarios {
         row.step(new Action() {
             public void run(Checks checks) {
                 expectReturned(checks, "bindService (BIND_AUTO_CREATE) " + label,
-                    attempt(id, label, new Attempt() {
+                    attempt(row.id, id, new Attempt() {
                         public Object run() {
                             return Boolean.valueOf(host.bindService(new Intent(intent), client,
                                 Context.BIND_AUTO_CREATE));
@@ -155,7 +155,7 @@ final class RemoteScenarios {
                                      final String message) {
         row.step(new Action() {
             public void run(Checks checks) {
-                expectUnsupported(checks, label, attempt(id, label, new Attempt() {
+                expectUnsupported(checks, label, attempt(row.id, id, new Attempt() {
                     public Object run() {
                         return Boolean.valueOf(host.bindService(new Intent(intent), client,
                             Context.BIND_AUTO_CREATE));
@@ -169,7 +169,7 @@ final class RemoteScenarios {
                                       final String label, final String message) {
         row.step(new Action() {
             public void run(Checks checks) {
-                expectUnsupported(checks, label, attempt(id, label, new Attempt() {
+                expectUnsupported(checks, label, attempt(row.id, id, new Attempt() {
                     public Object run() {
                         return host.startService(new Intent(intent));
                     }
@@ -181,7 +181,7 @@ final class RemoteScenarios {
     private void unbind(Scenario row, final String id, final Connection client, final String label) {
         row.step(new Action() {
             public void run(Checks checks) {
-                expectNoThrow(checks, "unbindService " + label, attempt(id, label, new Attempt() {
+                expectNoThrow(checks, "unbindService " + label, attempt(row.id, id, new Attempt() {
                     public Object run() {
                         host.unbindService(client);
                         return "void";
@@ -194,7 +194,7 @@ final class RemoteScenarios {
     private void stop(Scenario row, final String id, final Intent intent, final String label) {
         row.step(new Action() {
             public void run(Checks checks) {
-                expectReturned(checks, "stopService " + label, attempt(id, label, new Attempt() {
+                expectReturned(checks, "stopService " + label, attempt(row.id, id, new Attempt() {
                     public Object run() {
                         return Boolean.valueOf(host.stopService(new Intent(intent)));
                     }
@@ -217,7 +217,7 @@ final class RemoteScenarios {
                         + " (ATL_PROCESS_BACKEND=fake), so this row cannot kill a real child");
                     return;
                 }
-                EventLog.event(id, "kill", processOf(cls) + " (" + why + ")");
+                EventLog.event(row.id, "kill", processOf(cls) + " (" + why + ")");
                 fake.killProcess(processOf(cls));
             }
         });
@@ -232,7 +232,7 @@ final class RemoteScenarios {
                 into[1] = client.disconnects;
                 into[2] = client.dieds;
                 into[3] = client.nulls;
-                EventLog.event(id, "counters", label + " " + client.counters());
+                EventLog.event(row.id, "counters", label + " " + client.counters());
             }
         });
     }
@@ -668,7 +668,16 @@ final class RemoteScenarios {
                 expectCountContaining(checks, "S12", "SvcRedeliver.onStartCommand",
                     "cmd=redeliver", 3);
                 expectCount(checks, "S12", "SvcRedeliver.onCreate", "", 3);
-                expectCount(checks, "S12", "SvcRedeliver.onDestroy", "", 1);
+                // Zero onDestroy, and that is the correct count: AOSP dispatches the
+                // service's onDestroy only while its host process still has a live
+                // binder - ActiveServices.java:6964 `isThreadReady()` guards
+                // `scheduleStopService(r)` at :6992 - and a record whose process died is
+                // cleaned up through serviceProcessGoneLocked(:7334) instead. The last
+                // instance died with its process, so the torn-down record must not
+                // synthesize an onDestroy for an instance that no longer exists (the
+                // teardown is visible to the client as onServiceDisconnected +
+                // onBindingDied, asserted above).
+                expectCount(checks, "S12", "SvcRedeliver.onDestroy", "", 0);
                 EventLog.event("S12", "verdict.flags", "delivered start flags="
                     + flagsSequence("S12", cls));
                 ATLFakeProcessBackend fake = backend();
@@ -839,7 +848,12 @@ final class RemoteScenarios {
                 expectCount(checks, "S13c", "SvcCrashCap.onStartCommand", "id=2 flags=0 cmd=none", 1);
                 expectCount(checks, "S13c", "SvcCrashCap.onStartCommand", "id=3 flags=0 cmd=none", 1);
                 expectCount(checks, "S13c", "SvcCrashCap.onCreate", "", 3);
-                expectCount(checks, "S13c", "SvcCrashCap.onDestroy", "", 1);
+                // Zero onDestroy: the cap tears the record down while its process is
+                // already dead (ActiveServices.java:6964 guards the onDestroy dispatch
+                // at :6992 by `isThreadReady()`; a dead-process record is cleaned up via
+                // serviceProcessGoneLocked(:7334)), so there is no instance left to
+                // destroy - the third death's teardown is a client-side event only.
+                expectCount(checks, "S13c", "SvcCrashCap.onDestroy", "", 0);
                 expectBefore(checks, "S13c", "bound.onServiceDisconnected", "",
                     "bound.onBindingDied", "");
                 EventLog.event("S13c", "verdict.flags", "delivered start flags="
