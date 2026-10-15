@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <!--
-  Gate-2 service probe (lane B) - LOCAL gate, acceptance rows S01-S08, S14a, S14b.
+  Gate-2 service probe (lane B) - acceptance rows S01-S15.
 
-  Declared components:
+  `local` gate (ATL_SVC_GATE=local, no process backend):
+
     .ControlActivity        MAIN/LAUNCHER, exported; stays alive for the whole run,
                             drives every sub-scenario on the main Handler and emits
-                            `SVC <id> PASS|FAIL ...` plus a final `SVC_GATE_DONE local`.
+                            `SVC <id> PASS|FAIL ...` plus a final `SVC_GATE_DONE <gate>`.
     S01 .SvcIds             start ids 1..N, stopSelf(old id) vs stopSelf(current).
     S02 .SvcLifetime        started + bound lifetime across stopService.
     S02 .SvcSelfLifetime    started + bound lifetime across stopSelf().
@@ -21,8 +22,33 @@
     S14a .SvcIsolated       android:isolatedProcess="true": placement must be refused.
     S14b .SvcRemoteNoBackend android:process=":remote" with no process backend: refused.
 
-  All services are exported (the local gate resolves them by explicit component and
-  runs them in the loader's own process); S14a/S14b are declared but never run.
+  `fake`/`caps`/`fault`/`ladder`/`child` gates (rows S09-S13, S14c, S15, built by
+  RemoteScenarios): every component below that declares an android:process is placed
+  in that process by the installed process backend - on lane B's tree the in-loader
+  ATLFakeProcessBackend (ATL_PROCESS_BACKEND=fake); the `child` gate runs the loader
+  as a service child instead, so placement is refused. The process name the backend,
+  killProcess() and the fault arms all match is getPackageName() + the tag.
+
+    S09 .SvcStopSelf           :s09   stopSelf(older id) refused / stopSelf() stops.
+    S10 .SvcSurvivingClient    :s10   START_STICKY; arm 1 client bound, arm 2 client gone.
+    S11a .SvcRemoteStopSelf    :s11a  child-originated stopSelf routed to the record.
+    S11b .SvcRemoteFault       :s11b  fault arm 1, spawn (ATL_SERVICE_PROCESS_FAULT=spawn).
+    S11b .SvcRemoteFaultCrash  :s11bc fault arm 2, crash-before-ready (armed at runtime).
+    S11b .SvcRemoteFaultStall  :s11bs fault arm 3, stall-before-ready (armed at runtime).
+    S11c .SvcRemoteNullBind    :s11c  onBind() returns null -> onNullBinding.
+    S11d .SvcRemoteRebind      :s11d  onUnbind() returns true -> onRebind.
+    S12  .SvcRedeliver         :s12   START_REDELIVER_INTENT.
+    S13a .SvcLadder            :s13a  bound only; the restart-ladder deltas are measured.
+    S13b .SvcAckCap            :s13b  START_REDELIVER_INTENT; done-executing cap.
+    S13c .SvcCrashCap          :s13c  START_STICKY; crash cap.
+    S14c .SvcChildRefused      :s14c  a service child must not bind another process.
+    S15  .SvcTraceLocal        (none) trace parity: S02's sequence in the loader's process.
+    S15  .SvcTraceRemote       :s15   trace parity: the same sequence in a child process.
+
+  All services are exported (the gates resolve them by explicit component and run the
+  local rows in the loader's own process); S14a/S14b/S14c and the three fault
+  components are declared but never executed - their rows assert the refusal or the
+  failure path, never a callback of theirs.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.atl.tests.service">
@@ -63,5 +89,23 @@
             android:name=".SvcRemoteNoBackend"
             android:exported="true"
             android:process=":remote" />
+        <!-- Remote rows S09-S13, S14c, S15: one component per process, so a kill of
+             `getPackageName() + tag` can only ever take down that row's instance. -->
+        <service android:name=".SvcStopSelf" android:exported="true" android:process=":s09" />
+        <service android:name=".SvcSurvivingClient" android:exported="true" android:process=":s10" />
+        <service android:name=".SvcRemoteStopSelf" android:exported="true" android:process=":s11a" />
+        <service android:name=".SvcRemoteFault" android:exported="true" android:process=":s11b" />
+        <service android:name=".SvcRemoteFaultCrash" android:exported="true" android:process=":s11bc" />
+        <service android:name=".SvcRemoteFaultStall" android:exported="true" android:process=":s11bs" />
+        <service android:name=".SvcRemoteNullBind" android:exported="true" android:process=":s11c" />
+        <service android:name=".SvcRemoteRebind" android:exported="true" android:process=":s11d" />
+        <service android:name=".SvcRedeliver" android:exported="true" android:process=":s12" />
+        <service android:name=".SvcLadder" android:exported="true" android:process=":s13a" />
+        <service android:name=".SvcAckCap" android:exported="true" android:process=":s13b" />
+        <service android:name=".SvcCrashCap" android:exported="true" android:process=":s13c" />
+        <service android:name=".SvcChildRefused" android:exported="true" android:process=":s14c" />
+        <!-- S15 parity: the local half stays in the loader's own process (no android:process). -->
+        <service android:name=".SvcTraceLocal" android:exported="true" />
+        <service android:name=".SvcTraceRemote" android:exported="true" android:process=":s15" />
     </application>
 </manifest>
