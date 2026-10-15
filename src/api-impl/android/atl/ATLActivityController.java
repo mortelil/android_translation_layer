@@ -304,7 +304,7 @@ public final class ATLActivityController {
 		ATLActivityRecord prev = current();
 		ATLActivityRecord r = attach(activity, activity.getIntent());
 
-		if (prev != null && prev.state >= ON_RESUME) {
+		if (prev != null && prev.state == ON_RESUME) {
 			performState(prev, ON_PAUSE, null);
 			clearWindowFocus(prev);
 		}
