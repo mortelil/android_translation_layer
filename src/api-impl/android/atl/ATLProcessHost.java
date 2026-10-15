@@ -599,6 +599,21 @@ public class ATLProcessHost implements ATLProcessBackend {
 			});
 		}
 
+		@Override
+		public void onRejectedControlMessage(String reason) {
+			/*
+			 * The child sent a control message this loader rejects. Close its channel:
+			 * the child sees EOF, winds down, and the reaper's teardown() reports the loss
+			 * through onProcessDied() - never an exception on a loader thread, which the
+			 * runtime's uncaught handler turns into a whole-loader exit (status 10).
+			 */
+			Slog.e(TAG, "the process " + processName + " (pid " + pid + ") sent a control message this loader"
+			       + " rejects (" + reason + "); closing that child's link");
+			ATLBinderConnection transport = this.transport;
+			if (transport != null)
+				transport.close();
+		}
+
 		synchronized boolean isReady() {
 			return ready && !down;
 		}

@@ -23,6 +23,7 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Parcel;
+import android.util.Slog;
 import java.util.Set;
 
 /**
@@ -35,17 +36,29 @@ import java.util.Set;
  *
  * <pre>
  * READY     child -> parent : int pid, String processName, String firstHostedComponent|null
- * START     parent -> child : Intent, int startId            reply: int onStartCommand() result
- * BIND      parent -> child : Intent                         reply: int 1, IBinder|null
- * REBIND    parent -> child : Intent                         reply: int 1
- * UNBIND    parent -> child : Intent                         reply: int onUnbind() as 1/0
+ * START     parent -> child : ComponentName, Intent|null, int startId  reply: int onStartCommand() result
+ * BIND      parent -> child : ComponentName, Intent          reply: int 1, IBinder|null
+ * REBIND    parent -> child : ComponentName, Intent          reply: int 1
+ * UNBIND    parent -> child : ComponentName, Intent          reply: int onUnbind() as 1/0
  * DESTROY   parent -> child : String componentClass          reply: int 1
  * STATUS    parent -> child : -                              reply: String pkg, String process,
  *                                                            int pid, String dataDir, String[] fd names
  * STOP_SELF child -> parent : String componentClass, int startId
  * </pre>
+ *
+ * <p>Every parent->child intent payload starts with the target {@link ComponentName} and an int
+ * presence marker: {@code 0} - no intent follows, {@code 1} - the intent fields follow (see
+ * {@link #writeIntent}). An intent may legitimately be absent: AOSP fakes up a null-intent start
+ * item when it restarts a started service with nothing pending (pinned 94b4c163b7df
+ * {@code ActiveServices.java:6596-6601}) and refuses to skip that item "to support the
+ * {@code onStartCommand(null)} case" ({@code :6640-6645}). A control message this loader rejects is
+ * contained at its decode site ({@link ParentControl#onTransact}) and never reaches the runtime's
+ * uncaught-exception handler, which exits the whole loader with status 10.
  */
 public final class ATLProcessControl {
+	/** Log tag of the control wire. */
+	private static final String TAG = "ATLProcessControl";
+
 	/** child -> parent, once: pid + process name + first hosted component. */
 	public static final int READY = 1;
 	/** parent -> child: intent + startId; reply int is onStartCommand's return. */
@@ -113,12 +126,30 @@ public final class ATLProcessControl {
 	 * instead of obtaining one). Intent itself has no Parcelable implementation
 	 * in ATL, so the supported service intent fields are encoded explicitly,
 	 * retaining extras and filter identity.
+	 *
+	 * <p>A payload carries the target component first, then an int presence marker --
+	 * {@code 0} = no intent follows, {@code 1} = the intent fields follow -- because an
+	 * intent may be absent: AOSP fakes up a null-intent start item when it restarts a
+	 * started service with nothing pending ({@code ActiveServices.java:6596-6601},
+	 * {@code r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
+	 * null, null, 0, null, null, ...))}) and {@code :6640-6645} refuses to skip that item
+	 * "to support the {@code onStartCommand(null)} case", which is exactly what
+	 * {@code ATLServiceRegistry.stickyRestartItem()} fabricates. An explicit absent field
+	 * is used rather than a synthetic sentinel intent, which would leak ATL into
+	 * app-visible semantics. Both ends are the same build, so no compatibility handling
+	 * is needed.
 	 */
 	static void writeIntent(Parcel data, Intent intent, ComponentName component) {
-		if (intent.getClipData() != null || intent.getSelector() != null)
+		if (intent != null && (intent.getClipData() != null || intent.getSelector() != null))
 			throw new UnsupportedOperationException("Remote service ClipData/selectors are not implemented");
 		data.writeString(component.getPackageName());
 		data.writeString(component.getClassName());
+		if (intent == null) {
+			// Absent intent (AOSP's faked-up start item): the component alone is the payload.
+			data.writeInt(0);
+			return;
+		}
+		data.writeInt(1);
 		data.writeString(intent.getAction());
 		data.writeString(intent.getData() == null ? null : intent.getData().toString());
 		data.writeString(intent.getType());
@@ -129,8 +160,18 @@ public final class ATLProcessControl {
 		data.writeBundle(intent.getExtras());
 	}
 
-	static Intent readIntent(Parcel data) {
-		ComponentName component = new ComponentName(data.readString(), data.readString());
+	/** The target component of one control payload; always present, even when no intent follows. */
+	static ComponentName readComponent(Parcel data) {
+		return new ComponentName(data.readString(), data.readString());
+	}
+
+	/**
+	 * Reads the intent of one control payload, or {@code null} when the payload carried none
+	 * ({@code onStartCommand(null, ...)}, AOSP {@code ActiveServices.java:6640-6645}).
+	 */
+	static Intent readIntent(Parcel data, ComponentName component) {
+		if (data.readInt() == 0)
+			return null;
 		Intent intent = new Intent(data.readString()).setComponent(component);
 		String uri = data.readString(), type = data.readString();
 		intent.setDataAndType(uri == null ? null : Uri.parse(uri), type);
@@ -165,6 +206,15 @@ public final class ATLProcessControl {
 
 		/** Hands a child stopSelf report on to the loader's main looper; never blocks. */
 		void onStopSelf(String componentClass, int startId);
+
+		/**
+		 * A control message of this child was rejected at the decode site: logs it and closes
+		 * that child's channel, so the child sees EOF and winds down and the loss surfaces as
+		 * this child's death instead of as an uncaught exception on a loader thread (which
+		 * would exit the whole loader with status 10). Never blocks; runs on a transport
+		 * worker thread.
+		 */
+		void onRejectedControlMessage(String reason);
 	}
 
 	/**
@@ -182,6 +232,27 @@ public final class ATLProcessControl {
 
 		@Override
 		protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
+			try {
+				return dispatch(code, data, reply, flags);
+			} catch (RuntimeException e) {
+				/*
+				 * Control decode site. An uncaught exception on any thread exits the whole
+				 * loader (status 10), so a malformed or unauthorised message from one child
+				 * is contained here: logged against that child, the child's channel closed,
+				 * and the loss surfaced as that child's death - the reaper's teardown
+				 * reaches onProcessDied(), which the controller already handles. Rethrown so
+				 * the transport answers a still-readable child with the refusal (status 2)
+				 * rather than with silence.
+				 */
+				Slog.e(TAG, "control message " + code + " from pid " + Binder.getCallingPid()
+				       + " was rejected for process " + entry.processName(), e);
+				entry.onRejectedControlMessage(code + ": " + e);
+				throw e;
+			}
+		}
+
+		/** One control message; only called from {@link #onTransact}, which contains what it throws. */
+		private boolean dispatch(int code, Parcel data, Parcel reply, int flags) {
 			switch (code) {
 			case READY: {
 				int pid = data.readInt();

@@ -23,6 +23,7 @@ package android.atl;
 import android.app.Application;
 import android.app.ContextImpl;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageParser;
 import android.os.ATLBinderConnection;
@@ -230,18 +231,25 @@ public class ChildHost {
 		final String componentClass;
 		final int startId;
 		switch (code) {
-		case ATLProcessControl.START:
-			intent = ATLProcessControl.readIntent(data);
+		case ATLProcessControl.START: {
+			// The component is on the wire independently of the intent, so a null intent
+			// (AOSP's faked-up start item, ActiveServices.java:6596-6601/6640-6645) still
+			// reaches the app as onStartCommand(null, 0, startId).
+			ComponentName component = ATLProcessControl.readComponent(data);
+			intent = ATLProcessControl.readIntent(data, component);
 			startId = data.readInt();
-			componentClass = intent.getComponent().getClassName();
+			componentClass = component.getClassName();
 			break;
+		}
 		case ATLProcessControl.BIND:
 		case ATLProcessControl.UNBIND:
-		case ATLProcessControl.REBIND:
-			intent = ATLProcessControl.readIntent(data);
+		case ATLProcessControl.REBIND: {
+			ComponentName component = ATLProcessControl.readComponent(data);
+			intent = ATLProcessControl.readIntent(data, component);
 			startId = 0;
-			componentClass = intent.getComponent().getClassName();
+			componentClass = component.getClassName();
 			break;
+		}
 		case ATLProcessControl.DESTROY:
 			intent = null;
 			startId = 0;
