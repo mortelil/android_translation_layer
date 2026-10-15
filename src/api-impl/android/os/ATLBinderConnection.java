@@ -479,6 +479,12 @@ public final class ATLBinderConnection {
 						IBinder local = pinLocal(-ref);
 						if (local == null)
 							throw new IOException("Unknown ATL Binder handle");
+						// W2: a negative ref means the peer is echoing back one of
+						// our own exports (reference() negates a RemoteBinder of the
+						// same connection). The received value must be the local
+						// object itself, so a binder that travels out and back keeps
+						// its Java identity instead of decoding to null.
+						binders[i] = local;
 						pinned[pins++] = -ref;
 					}
 					switch (kind) {
