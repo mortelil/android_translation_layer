@@ -41,7 +41,11 @@ static GtkWidget *get_decor_view(JNIEnv *env, jobject activity)
 
 static gboolean delayed_close_window(gpointer window)
 {
-	if (GTK_IS_WINDOW(window))
+	JNIEnv *env = get_jni_env();
+	jboolean active = (*env)->CallStaticBooleanMethod(env, handle_cache.atl_activity_controller.class,
+	    _STATIC_METHOD(handle_cache.atl_activity_controller.class, "hostHasActivities", "()Z"));
+	atl_jni_handle_uncaught_exception(env, "deferred window close");
+	if (!active && GTK_IS_WINDOW(window))
 		gtk_window_close(GTK_WINDOW(window));
 	return G_SOURCE_REMOVE;
 }
@@ -96,7 +100,8 @@ JNIEXPORT void JNICALL Java_android_atl_ATLActivityController_nativeCloseIfLast(
 	 * kills the session (a window close-request still runs activity_close_all
 	 * first, via app_exit). */
 	if (remaining == 0 && native_window)
-		g_idle_add(delayed_close_window, _PTR(native_window));
+		g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, delayed_close_window,
+		                g_object_ref(_PTR(native_window)), g_object_unref);
 }
 
 JNIEXPORT void JNICALL Java_android_atl_ATLActivityController_nativeSetBackSensitive(JNIEnv *env, jclass class, jboolean sensitive)

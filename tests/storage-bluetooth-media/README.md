@@ -44,3 +44,13 @@ certificate parsing error. Neither app's complete functionality is claimed.
 AntennaPod's CollapsibleSearchView is defined in classes2.dex of the tested APK;
 its recorded ClassNotFoundException still needs a reproduction with classloader
 inspection. No speculative classloader changes are included here.
+
+Additional regressions (2026-10-15): all four public SurfaceView constructors
+must initialize a stable holder and surface. The four-argument constructor
+failed before the fix. View Z is elevation + translationZ; changing Z must
+reorder attached widgets without detaching them. FinishLaunch finishes the
+last activity and immediately requests Survivor: FINISH_LAUNCH PASS must appear
+before normal exit. Before the deferred-close fix the process exited early
+with status 0, so exit status alone is not an adequate assertion.
+Organic Maps now renders the downloaded world map and responds to panning;
+location permissions and visual styling remain incomplete.

@@ -13,6 +13,8 @@ mkdir -p "$ANDROID_APP_DATA_DIR" "$XDG_CACHE_HOME"
 cd "$build"
 timeout 60 ./android-translation-layer "$apk" -l org.atl.smallcompat.Probe > "$out/probe.log" 2>&1
 grep -a -q '^SMALL_COMPAT PASS' "$out/probe.log"
+timeout 30 ./android-translation-layer "$apk" -l org.atl.smallcompat.FinishLaunch > "$out/finish-launch.log" 2>&1
+grep -a -q '^FINISH_LAUNCH PASS' "$out/finish-launch.log"
 if test "${TEST_NATIVE_CANCEL:-0}" = 1; then
     ./android-translation-layer "$apk" -l org.atl.smallcompat.NativeCancel > "$out/cancel.log" 2>&1 &
     app=$!

@@ -144,7 +144,7 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 				sortedChildren.sort(new Comparator<View>() {
 					@Override
 					public int compare(View o1, View o2) {
-						return (int)(o1.getZ() - o2.getZ());
+						return Float.compare(o1.getZ(), o2.getZ());
 					}
 				});
 				sortedIndex = sortedChildren.indexOf(child);
@@ -346,6 +346,10 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 			return;
 		children.remove(index);
 		children.add(child);
+		atlUpdateZOrder();
+	}
+
+	void atlUpdateZOrder() {
 		ArrayList<View> drawingOrder = new ArrayList<View>(children);
 		drawingOrder.sort(new Comparator<View>() {
 			@Override

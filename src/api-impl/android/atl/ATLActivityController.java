@@ -285,6 +285,11 @@ public final class ATLActivityController {
 	 * are mirrored by HOST_EVENT_* in
 	 * src/api-impl-jni/app/android_app_Activity.c and must stay in sync.
 	 */
+	/** Recheck a deferred host close after queued activity launches have run. */
+	public static boolean hostHasActivities() {
+		return !get().records.isEmpty();
+	}
+
 	public static void hostEvent(int code, Object arg) {
 		switch (code) {
 			case HOST_EVENT_START:

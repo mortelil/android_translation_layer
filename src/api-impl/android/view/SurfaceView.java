@@ -26,6 +26,10 @@ public class SurfaceView extends View {
 
 	}
 
+	public SurfaceView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+		super(context, attrs, defStyleAttr, defStyleRes);
+	}
+
 	private boolean mSurfaceCreated;
     private boolean mIsCreating;
     private boolean mFirstSurfaceChange;

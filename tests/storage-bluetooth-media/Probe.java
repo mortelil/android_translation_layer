@@ -7,6 +7,30 @@ public class Probe extends android.app.Activity {
     public void onCreate(android.os.Bundle state) {
         super.onCreate(state);
         try {
+            android.view.SurfaceView[] surfaces = {
+                new android.view.SurfaceView(this),
+                new android.view.SurfaceView(this, null),
+                new android.view.SurfaceView(this, null, 0),
+                new android.view.SurfaceView(this, null, 0, 0)
+            };
+            for (android.view.SurfaceView surface : surfaces) {
+                check(surface.getHolder() != null);
+                check(surface.getHolder().getSurface() != null);
+                check(surface.getHolder() == surface.getHolder());
+                android.view.SurfaceHolder.Callback callback = new android.view.SurfaceHolder.Callback() {
+                    public void surfaceCreated(android.view.SurfaceHolder holder) {}
+                    public void surfaceChanged(android.view.SurfaceHolder holder, int f, int w, int h) {}
+                    public void surfaceDestroyed(android.view.SurfaceHolder holder) {}
+                };
+                surface.getHolder().addCallback(callback);
+                surface.getHolder().removeCallback(callback);
+            }
+            android.view.View zView = new android.view.View(this);
+            zView.setElevation(2.5f);
+            zView.setZ(3.25f);
+            check(zView.getTranslationZ() == .75f && zView.getZ() == 3.25f);
+            zView.setTranslationZ(-3f);
+            check(zView.getZ() == -.5f && zView.getElevation() == 2.5f);
             File root = Environment.getExternalStorageDirectory();
             check(Environment.isExternalStorageEmulated(root));
             check(Environment.isExternalStorageEmulated());
