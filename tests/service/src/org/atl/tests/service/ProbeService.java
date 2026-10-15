@@ -40,6 +40,15 @@ public abstract class ProbeService extends Service {
         return false;
     }
 
+    /**
+     * onStartCommand() result: START_NOT_STICKY by default - the local gate never
+     * restarts a service. Rows S10/S13 need a restartable policy, so they override
+     * this instead of the callback.
+     */
+    protected int startResult() {
+        return START_NOT_STICKY;
+    }
+
     /** Per-row command hook, driven by the intent extra "cmd". */
     protected void onCommand(String cmd, Intent intent, int startId) {
     }
@@ -61,7 +70,7 @@ public abstract class ProbeService extends Service {
         EventLog.event(scenario(), tag() + ".onStartCommand",
             "id=" + startId + " flags=" + flags + " cmd=" + (cmd == null ? "none" : cmd));
         onCommand(cmd, intent, startId);
-        return START_NOT_STICKY;
+        return startResult();
     }
 
     @Override

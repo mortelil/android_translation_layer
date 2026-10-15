@@ -1,22 +1,23 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /*
- * Gate-2 service probe (lane B, LOCAL gate): ordered in-process event log.
+ * Gate-2 service probe (lane B, LOCAL gate): the single log records the ordering
+ * that the acceptance rows assert (what happened, in what order, with what
+ * detail), plus the wall-clock of every event, which rows S13a/S13c assert the
+ * restart ladder against.
  *
- * One static log records ordered (scenario, what, detail) events written by the
- * probe activity, by the probe's ServiceConnection callbacks and by the services
- * under test; the activity and its services share it in-process (package-private
- * access, never across processes - the isolated/remote components of S14 never
- * run, which is exactly what those rows assert).
- *
- * Every event is echoed immediately on stdout as a compact
- * `SVC <scenario> TRACE <what> [detail]` line so the run log carries the whole
- * trace as evidence; verdict and marker lines go through line() too, so all
- * output is one serialised, autoflushed stream (the watchdog thread and the
- * executor thread in S06a write concurrently).
+ * The log goes to stdout as `<SEVERITY> <SCENARIO> <WHAT> <DETAIL>` lines, one
+ * per event, and stays machine-greppable:
+ *   SVC S01 TRACE ...     one event (t=<uptime ms>, the row/callback/step and its detail)
+ *   SVC S01 PASS          the row's single verdict line
+ *   SVC S01 FAIL <reason> the row's single verdict line
+ *   SVC_GATE <name> begin / SVC_GATE_DONE <name>   gate framing
+ * The rows are extracted per scenario by tests/service/run.sh, which greps
+ * `^SVC <id> ` out of this stream.
  */
 package org.atl.tests.service;
 
 import android.content.ComponentName;
+import android.os.SystemClock;
 import java.util.ArrayList;
 
 public final class EventLog {
@@ -26,11 +27,14 @@ public final class EventLog {
         public final String scenario;
         public final String what;
         public final String detail;
+        /** SystemClock.uptimeMillis() when the event was recorded: what rows S13a/S13c assert against. */
+        public final long t;
 
-        Entry(String scenario, String what, String detail) {
+        Entry(String scenario, String what, String detail, long t) {
             this.scenario = scenario;
             this.what = what;
             this.detail = detail;
+            this.t = t;
         }
 
         public String render() {
@@ -46,11 +50,11 @@ public final class EventLog {
 
     /** Records one event and echoes it as a TRACE line (autoflushed). */
     public static void event(String scenario, String what, String detail) {
-        Entry entry = new Entry(scenario, what, detail == null ? "" : detail);
+        Entry entry = new Entry(scenario, what, detail == null ? "" : detail, SystemClock.uptimeMillis());
         synchronized (lock) {
             entries.add(entry);
         }
-        line("SVC " + scenario + " TRACE " + entry.render());
+        line("SVC " + scenario + " TRACE t=" + entry.t + " " + entry.render());
     }
 
     /** Writes one whole stdout line; serialised so concurrent writers cannot interleave. */
@@ -89,7 +93,11 @@ public final class EventLog {
         return n;
     }
 
-    /** Number of events of {@code scenario}/{@code what} whose detail contains {@code substring}. */
+    /**
+     * Number of events of {@code scenario}/{@code what} whose detail contains {@code substring}.
+     * Containing beats a prefix anchor whenever production appends to a detail: an
+     * anchor that no longer sits at offset 0 must not silently match zero events.
+     */
     public static int countContaining(String scenario, String what, String substring) {
         int n = 0;
         for (Entry e : snapshot()) {
@@ -106,6 +114,21 @@ public final class EventLog {
         for (Entry e : snapshot()) {
             if (e.scenario.equals(scenario) && e.what.startsWith(tagPrefix)) {
                 out.add(e.what);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The ordered {@code what + " " + detail} values of {@code scenario} under
+     * {@code tagPrefix}: how S15 compares the local and the remote trace of the
+     * same call sequence, callback by callback and detail by detail.
+     */
+    public static ArrayList<String> sequenceDetailed(String scenario, String tagPrefix) {
+        ArrayList<String> out = new ArrayList<String>();
+        for (Entry e : snapshot()) {
+            if (e.scenario.equals(scenario) && e.what.startsWith(tagPrefix)) {
+                out.add(e.render());
             }
         }
         return out;
@@ -157,14 +180,56 @@ public final class EventLog {
 
     /** Position of the first {@code scenario}/{@code what} event with a matching detail prefix, or -1. */
     public static int indexOfWhere(String scenario, String what, String detailPrefix) {
-        ArrayList<Entry> all = snapshot();
+        return indexOfNth(scenario, what, detailPrefix, true, 0);
+    }
+
+    /** Position of the first event of {@code scenario}/{@code what} whose detail contains {@code substring}, or -1. */
+    public static int indexOfContaining(String scenario, String what, String substring) {
+        return indexOfNth(scenario, what, substring, false, 0);
+    }
+
+    /** Position of the {@code n}-th (0-based) containing event of {@code scenario}/{@code what}, or -1. */
+    public static int indexOfNthContaining(String scenario, String what, String substring, int n) {
+        return indexOfNth(scenario, what, substring, false, n);
+    }
+
+    /**
+     * Uptime of the {@code n}-th (0-based) event of {@code scenario}/{@code what}
+     * whose detail contains {@code substring}, or -1: the restart ladder of rows
+     * S13a/S13c is measured from these, not from the probe's own clock.
+     */
+    public static long uptimeOfNthContaining(String scenario, String what, String substring, int n) {
+        int seen = 0;
+        for (Entry e : snapshot()) {
+            if (e.scenario.equals(scenario) && e.what.equals(what) && e.detail.contains(substring)) {
+                if (seen == n) {
+                    return e.t;
+                }
+                seen++;
+            }
+        }
+        return -1L;
+    }
+
+    /**
+     * Position of the {@code n}-th (0-based) {@code scenario}/{@code what} event,
+     * matching the detail by prefix or by containment. Positions count only that
+     * scenario's events, so two lookups are directly comparable.
+     */
+    private static int indexOfNth(String scenario, String what, String needle, boolean prefix, int n) {
         int at = 0;
-        for (Entry e : all) {
+        int seen = 0;
+        for (Entry e : snapshot()) {
             if (!e.scenario.equals(scenario)) {
                 continue;
             }
-            if (e.what.equals(what) && e.detail.startsWith(detailPrefix)) {
-                return at;
+            boolean match = e.what.equals(what)
+                && (prefix ? e.detail.startsWith(needle) : e.detail.contains(needle));
+            if (match) {
+                if (seen == n) {
+                    return at;
+                }
+                seen++;
             }
             at++;
         }

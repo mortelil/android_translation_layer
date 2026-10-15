@@ -132,5 +132,25 @@ combine S12 S12
 combine S13 S13a S13b S13c
 combine S14 S14a S14b S14c
 combine S15 S15
+
+# Per-row log: every claimed row carries its own extract of its run's stdout.log
+# (its events and its single verdict line), so a row can be reviewed - and a
+# MISSING row seen to be missing - without the whole run log.
+rows="$out/rows"
+rm -rf "$rows"
+mkdir -p "$rows"
+for s in $subs; do
+	id=${s%%:*}
+	r=${s##*:}
+	log="$out/run-$r/stdout.log"
+	{
+		echo "# row $id - extracted from run-$r/stdout.log"
+		echo "# full scenario log: $log"
+		grep "^SVC $id " "$log" 2>/dev/null \
+			|| echo "SVC $id MISSING (no event of this row in $log)"
+	} > "$rows/$id.log"
+done
+say "SVC_GATE ROWS $rows"
+
 say "SVC_GATE SUMMARY $pass pass $fail fail"
 test "$fail" -eq 0

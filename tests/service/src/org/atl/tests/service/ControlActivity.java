@@ -2,12 +2,14 @@
 /*
  * Gate-2 service probe (lane B, LOCAL gate): the control Activity that drives
  * acceptance rows S01-S08, S14a and S14b through the production service path and
- * emits exactly one verdict line per row plus the final `SVC_GATE_DONE local`
+ * emits exactly one verdict line per row plus the final `SVC_GATE_DONE <gate>`
  * marker.
  *
- * Gate selection: ATL_SVC_GATE (default `local`). Any other gate prints
- * `SVC_GATE_DONE <gate>` and finishes; those sessions (S09-S15) belong to the
- * other gate assignment and to their own launches in tests/service/run.sh.
+ * Gate selection: ATL_SVC_GATE (default `local`). This file builds the local
+ * rows below; the remote gates `fake`, `caps`, `fault` and `child` (rows S09-S13,
+ * S14c, S15) have no rows in this tree yet, so they only emit
+ * `SVC_GATE_DONE <gate>` and end the session - run.sh then reports their rows
+ * MISSING, never PASS. Every gate ends with `SVC_GATE_DONE <gate>`.
  *
  * Shape of the local session:
  *
@@ -33,6 +35,8 @@
  */
 package org.atl.tests.service;
 
+import static org.atl.tests.service.Gate.*;
+
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
@@ -51,12 +55,9 @@ import java.util.concurrent.ThreadFactory;
 public class ControlActivity extends Activity {
 
     private static final long INITIAL_MS = 500L;
-    private static final long STEP_MS = 250L;
-    private static final long SETTLE_MS = 800L;
     /** Observation window of a "never" row; > 1 s, as S08 requires. */
     private static final long OBSERVE_MS = 1500L;
     private static final long STEP_TIMEOUT_MS = 5000L;
-    private static final long SCENARIO_BUDGET_MS = 20000L;
 
     private static final String ACTION_A = "org.atl.tests.service.SVC.A";
     private static final String ACTION_B = "org.atl.tests.service.SVC.B";
@@ -71,6 +72,9 @@ public class ControlActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<Scenario> scenarios = new ArrayList<Scenario>();
 
+    /** ATL_SVC_GATE of this launch; also the last line's marker. */
+    private String gate = "local";
+
     private int scenarioIndex;
     private int stepIndex;
     private int stepGeneration;
@@ -82,14 +86,14 @@ public class ControlActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        String gate = System.getenv("ATL_SVC_GATE");
-        if (gate == null || gate.length() == 0) {
-            gate = "local";
-        }
+        String requested = System.getenv("ATL_SVC_GATE");
+        this.gate = requested == null || requested.length() == 0 ? "local" : requested;
         EventLog.line("SVC_GATE " + gate + " begin");
         if (!"local".equals(gate)) {
-            // The other gates (fake/caps/fault/child) are driven by their own
-            // assignment: leave the marker the driver greps and stop.
+            // The remote gates (fake/caps/fault/child, rows S09-S13, S14c, S15) are
+            // driven through the process backend by RemoteScenarios, which is NOT
+            // implemented in this tree yet: this launch only leaves the marker the
+            // driver greps, so no row is claimed without evidence.
             EventLog.line("SVC_GATE_DONE " + gate);
             finish();
             return;
@@ -119,10 +123,10 @@ public class ControlActivity extends Activity {
         EventLog.event(row.id, "begin", "steps=" + row.steps.size());
         rowWatchdog = new Runnable() {
             public void run() {
-                abortRow("row budget " + SCENARIO_BUDGET_MS + "ms exceeded at step " + stepIndex);
+                abortRow("row budget " + row.budgetMs + "ms exceeded at step " + stepIndex);
             }
         };
-        handler.postDelayed(rowWatchdog, SCENARIO_BUDGET_MS);
+        handler.postDelayed(rowWatchdog, row.budgetMs);
         runStep();
     }
 
@@ -226,7 +230,7 @@ public class ControlActivity extends Activity {
             return;
         }
         done = true;
-        EventLog.line("SVC_GATE_DONE local");
+        EventLog.line("SVC_GATE_DONE " + gate);
         finish();
     }
 
@@ -446,10 +450,13 @@ public class ControlActivity extends Activity {
                 expectBefore(checks, "S02", "call.stopService", "", "SvcLifetime.onDestroy", "");
                 expectBefore(checks, "S02", "SvcLifetime.onUnbind", "", "SvcLifetime.onDestroy", "");
 
+                // The stopped-while-bound instance keeps running, so the sequence is
+                // the second onStartCommand, its own stopSelf event (refused), the
+                // unbind and only then the destroy.
                 expectSequence(checks, "S02", "SvcSelfLifetime.", "SvcSelfLifetime.onCreate",
                     "SvcSelfLifetime.onStartCommand", "SvcSelfLifetime.onBind",
-                    "SvcSelfLifetime.onStartCommand", "SvcSelfLifetime.onUnbind",
-                    "SvcSelfLifetime.onDestroy");
+                    "SvcSelfLifetime.onStartCommand", "SvcSelfLifetime.stopSelf",
+                    "SvcSelfLifetime.onUnbind", "SvcSelfLifetime.onDestroy");
                 checks.eq("self-stop client connects", 1, selfClient.connects);
                 expectCount(checks, "S02", "SvcSelfLifetime.stopSelf", "startId=current", 1);
                 expectBefore(checks, "S02", "SvcSelfLifetime.stopSelf", "startId=current",
@@ -516,7 +523,13 @@ public class ControlActivity extends Activity {
                 expectCount(checks, "S03", "SvcIdentity.onBind", "action=" + ACTION_B, 1);
                 expectBefore(checks, "S03", "SvcIdentity.onBind", "action=" + ACTION_A,
                     "SvcIdentity.onBind", "action=" + ACTION_B);
-                checks.eq("identity client connects (A once, B once)", 2, client.connects);
+                // LoadedApk.java:2414 doConnected() early-returns `old != null &&
+                // old.binder == service`: one connection keeps one ConnectionInfo per
+                // ComponentName, so a second identity on the same component with the
+                // same binder object delivers no second callback. onBind() still runs
+                // once per identity (2), the client connects once (1).
+                checks.eq("identity client connects (two identities, one binder object)",
+                    1, client.connects);
                 checks.ok("identity client got one binder", client.lastBinder != null);
             }
         });
@@ -530,9 +543,11 @@ public class ControlActivity extends Activity {
         final Scenario row = new Scenario("S04");
         final Connection nullClient = new Connection("S04", "null");
         final Intent nullSvc = svc(SvcNullBind.class);
-        final Connection rebindClient = new Connection("S04", "rebind");
         final Intent rebindSvc = svc(SvcRebindStarted.class);
+        final CallOutcome[] stopRebind = new CallOutcome[1];
+        final Intent cycleSvc = svc(SvcCycles.class);
 
+        // (a) onBind() == null is reported as onNullBinding(), never as a connect.
         row.step(new Action() {
             public void run(Checks checks) {
                 expectReturned(checks, "bind(SvcNullBind)", attempt("S04", "bindNull",
@@ -551,6 +566,22 @@ public class ControlActivity extends Activity {
                         public Object run() {
                             unbindService(nullClient);
                             return "void";
+                        }
+                    }));
+            }
+        });
+
+        // (b) SVC-017 started-service parity: onUnbind() == true on a *started*
+        //     instance keeps the instance, so the next bind of the same identity
+        //     does not re-run onBind() and reports onRebind() + a connect to the
+        //     SAME binder object. The instance only dies with stopService().
+        final Connection rebindClient = new Connection("S04", "rebind");
+        row.step(new Action() {
+            public void run(Checks checks) {
+                expectAccepted(checks, "startService(SvcRebindStarted)",
+                    attempt("S04", "startRebind", new Attempt() {
+                        public Object run() {
+                            return startService(new Intent(rebindSvc));
                         }
                     }));
             }
@@ -599,7 +630,68 @@ public class ControlActivity extends Activity {
                     }));
             }
         });
-        row.observe(OBSERVE_MS);
+        row.step(new Action() {
+            public void run(Checks checks) {
+                stopRebind[0] = attempt("S04", "stopRebind", new Attempt() {
+                    public Object run() {
+                        return Boolean.valueOf(stopService(new Intent(rebindSvc)));
+                    }
+                });
+            }
+        });
+        row.observe();
+
+        // (c) SVC-008 purely-bound cycles: with no start, the last unbind() of a
+        //     client whose onUnbind() returned true still destroys the instance
+        //     (ATL destroys a purely bound service on the last unbind, as the
+        //     reference does), so the next bind is a NEW instance: new onCreate(),
+        //     new onBind(), a different binder, and no onRebind().
+        final Connection cycleClient = new Connection("S04", "cycle");
+        row.step(new Action() {
+            public void run(Checks checks) {
+                expectReturned(checks, "bind(SvcCycles) #1", attempt("S04", "bindCycle1",
+                    new Attempt() {
+                        public Object run() {
+                            return Boolean.valueOf(bindService(new Intent(cycleSvc), cycleClient,
+                                Context.BIND_AUTO_CREATE));
+                        }
+                    }), "true");
+            }
+        });
+        row.step(new Action() {
+            public void run(Checks checks) {
+                expectNoThrow(checks, "unbindService(SvcCycles client) #1",
+                    attempt("S04", "unbindCycle1", new Attempt() {
+                        public Object run() {
+                            unbindService(cycleClient);
+                            return "void";
+                        }
+                    }));
+            }
+        });
+        row.step(new Action() {
+            public void run(Checks checks) {
+                expectReturned(checks, "bind(SvcCycles) #2 (new instance expected)",
+                    attempt("S04", "bindCycle2", new Attempt() {
+                        public Object run() {
+                            return Boolean.valueOf(bindService(new Intent(cycleSvc), cycleClient,
+                                Context.BIND_AUTO_CREATE));
+                        }
+                    }), "true");
+            }
+        });
+        row.step(new Action() {
+            public void run(Checks checks) {
+                expectNoThrow(checks, "unbindService(SvcCycles client) #2",
+                    attempt("S04", "unbindCycle2", new Attempt() {
+                        public Object run() {
+                            unbindService(cycleClient);
+                            return "void";
+                        }
+                    }));
+            }
+        });
+        row.observe();
 
         row.verdictChecks.add(new Action() {
             public void run(Checks checks) {
@@ -612,23 +704,51 @@ public class ControlActivity extends Activity {
                 expectSubsequence(checks, "S04", "SvcNullBind.", "SvcNullBind.onCreate",
                     "SvcNullBind.onBind", "SvcNullBind.onUnbind", "SvcNullBind.onDestroy");
 
-                // (b) onUnbind() == true arms onRebind() for the next bind of the
-                // same identity, which does not re-run onBind().
+                // (b) SVC-017: the kept instance is the same instance
                 expectCount(checks, "S04", "SvcRebindStarted.onCreate", "", 1);
+                expectCount(checks, "S04", "SvcRebindStarted.onStartCommand", "", 1);
                 expectCount(checks, "S04", "SvcRebindStarted.onBind", "", 1);
-                expectCount(checks, "S04", "SvcRebindStarted.onUnbind", "", 2);
-                expectCount(checks, "S04", "SvcRebindStarted.onUnbind", "ret=true", 2);
+                expectCountContaining(checks, "S04", "SvcRebindStarted.onUnbind", "ret=true", 2);
                 expectCount(checks, "S04", "SvcRebindStarted.onRebind", "", 1);
                 expectCount(checks, "S04", "SvcRebindStarted.onDestroy", "", 1);
                 expectSubsequence(checks, "S04", "SvcRebindStarted.", "SvcRebindStarted.onCreate",
-                    "SvcRebindStarted.onBind", "SvcRebindStarted.onUnbind",
-                    "SvcRebindStarted.onRebind", "SvcRebindStarted.onDestroy");
-                expectBefore(checks, "S04", "SvcRebindStarted.onUnbind", "ret=true",
+                    "SvcRebindStarted.onStartCommand", "SvcRebindStarted.onBind",
+                    "SvcRebindStarted.onUnbind", "SvcRebindStarted.onRebind",
+                    "SvcRebindStarted.onUnbind", "SvcRebindStarted.onDestroy");
+                expectBeforeContaining(checks, "S04", "SvcRebindStarted.onUnbind", "ret=true",
                     "SvcRebindStarted.onRebind", "");
                 expectBefore(checks, "S04", "SvcRebindStarted.onRebind", "",
                     "SvcRebindStarted.onDestroy", "");
-                checks.eq("rebind client connects (bind, rebind)", 2, rebindClient.connects);
-                checks.eq("rebind client disconnects", 0, rebindClient.disconnects);
+                expectBefore(checks, "S04", "call.stopRebind", "", "SvcRebindStarted.onDestroy", "");
+                checks.eq("started-parity client connects (bind, rebind)",
+                    2, rebindClient.connects);
+                checks.eq("started-parity client disconnects", 0, rebindClient.disconnects);
+                checks.ok("started-parity rebind reconnects to the same binder object",
+                    rebindClient.binders.size() == 2
+                        && rebindClient.binders.get(0) == rebindClient.binders.get(1));
+                expectReturned(checks, "stopService(SvcRebindStarted) after the rebind",
+                    stopRebind[0], "true");
+
+                // (c) SVC-008: a purely bound instance does not survive its last
+                //     unbind, even with onUnbind() == true
+                expectCount(checks, "S04", "SvcCycles.onCreate", "", 2);
+                expectCount(checks, "S04", "SvcCycles.onBind", "", 2);
+                expectCountContaining(checks, "S04", "SvcCycles.onUnbind", "ret=true", 2);
+                expectCount(checks, "S04", "SvcCycles.onRebind", "", 0);
+                expectCount(checks, "S04", "SvcCycles.onDestroy", "", 2);
+                // The first instance is destroyed before the second one is created:
+                // that is what makes cycle 2 a new instance rather than a rebind.
+                expectNthContainingAfter(checks, "S04", "SvcCycles.onDestroy", "",
+                    "SvcCycles.onCreate", "", 1);
+                expectSubsequence(checks, "S04", "SvcCycles.", "SvcCycles.onCreate",
+                    "SvcCycles.onBind", "SvcCycles.onUnbind", "SvcCycles.onDestroy",
+                    "SvcCycles.onCreate", "SvcCycles.onBind", "SvcCycles.onUnbind",
+                    "SvcCycles.onDestroy");
+                checks.eq("cycles client connects (one per instance)", 2, cycleClient.connects);
+                checks.eq("cycles client disconnects", 0, cycleClient.disconnects);
+                checks.ok("cycle 2 is a new instance: a different binder object",
+                    cycleClient.binders.size() == 2
+                        && cycleClient.binders.get(0) != cycleClient.binders.get(1));
             }
         });
         return row;
@@ -690,10 +810,10 @@ public class ControlActivity extends Activity {
 
         row.verdictChecks.add(new Action() {
             public void run(Checks checks) {
-                expectCount(checks, "S05", "multi.onServiceConnected", "comp=SvcMultiA", 1);
-                expectCount(checks, "S05", "multi.onServiceConnected", "comp=SvcMultiB", 1);
+                expectCountContaining(checks, "S05", "multi.onServiceConnected", "comp=SvcMultiA", 1);
+                expectCountContaining(checks, "S05", "multi.onServiceConnected", "comp=SvcMultiB", 1);
                 checks.eq("multi connects", 2, multi.connects);
-                expectBefore(checks, "S05", "multi.onServiceConnected", "comp=SvcMultiA",
+                expectBeforeContaining(checks, "S05", "multi.onServiceConnected", "comp=SvcMultiA",
                     "multi.onServiceConnected", "comp=SvcMultiB");
                 // one unbindService(connection) removed both registrations
                 expectSubsequence(checks, "S05", "SvcMultiA.", "SvcMultiA.onCreate",
@@ -792,14 +912,18 @@ public class ControlActivity extends Activity {
                     EventLog.indexOfWhere("S06", "exec.onServiceConnected", "thread=main ") < 0);
 
                 // (b) the instance-bound registration followed the instance
-                expectCount(checks, "S06", "SvcLeaky.bindOwnContext", "ret=true", 1);
-                expectCount(checks, "S06", "leak.onServiceConnected", "comp=SvcLeakTarget", 1);
+                expectCountContaining(checks, "S06", "SvcLeaky.bindOwnContext", "ret=true", 1);
+                expectCountContaining(checks, "S06", "leak.onServiceConnected", "comp=SvcLeakTarget", 1);
                 expectBefore(checks, "S06", "SvcLeaky.bindOwnContext", "",
                     "SvcLeakTarget.onCreate", "");
                 expectSubsequence(checks, "S06", "SvcLeakTarget.", "SvcLeakTarget.onCreate",
                     "SvcLeakTarget.onBind", "SvcLeakTarget.onUnbind", "SvcLeakTarget.onDestroy");
+                // SVC-004 parity: this instance was only started, never bound, so
+                // production must not deliver onUnbind() - there is no binding to
+                // release - and the started-only sequence is onCreate/onDestroy.
+                expectCount(checks, "S06", "SvcLeaky.onUnbind", "", 0);
                 expectSubsequence(checks, "S06", "SvcLeaky.", "SvcLeaky.onCreate",
-                    "SvcLeaky.onUnbind", "SvcLeaky.onDestroy");
+                    "SvcLeaky.onDestroy");
                 expectReturned(checks, "stopService(SvcLeaky)", stopLeaky[0], "true");
                 expectThrew(checks, "late unbindService(leaked connection)", leakLateUnbind[0],
                     "java.lang.IllegalArgumentException", "Service not registered: ");
@@ -910,7 +1034,8 @@ public class ControlActivity extends Activity {
                 expectReturned(checks, "bindService() from inside onServiceConnected()",
                     reentrantBind[0], "true");
                 checks.eq("nested client connects", 1, second.connects);
-                expectCount(checks, "S07", "second.onServiceConnected", "comp=SvcReenterSecond", 1);
+                expectCountContaining(checks, "S07", "second.onServiceConnected",
+                    "comp=SvcReenterSecond", 1);
                 expectSubsequence(checks, "S07", "SvcReenterSecond.", "SvcReenterSecond.onCreate",
                     "SvcReenterSecond.onBind", "SvcReenterSecond.onUnbind",
                     "SvcReenterSecond.onDestroy");
@@ -1039,190 +1164,4 @@ public class ControlActivity extends Activity {
         return row;
     }
 
-    // ---------------------------------------------------------------------
-    // row model and assertion helpers
-    // ---------------------------------------------------------------------
-
-    /** One step of a row; a null {@code action} means "observation window only". */
-    private interface Action {
-        void run(Checks checks) throws Exception;
-    }
-
-    private static final class Step {
-        final long delay;
-        final Action action;
-
-        Step(long delay, Action action) {
-            this.delay = delay;
-            this.action = action;
-        }
-    }
-
-    /** One acceptance row: ordered steps, its own Checks, exactly one verdict. */
-    private static final class Scenario {
-        final String id;
-        final Checks checks;
-        final ArrayList<Step> steps = new ArrayList<Step>();
-        /** Assertions over the whole row, run once after the last observation window. */
-        final ArrayList<Action> verdictChecks = new ArrayList<Action>();
-        boolean verdictDone;
-
-        Scenario(String id) {
-            this.id = id;
-            this.checks = new Checks(id);
-        }
-
-        void step(Action action) {
-            steps.add(new Step(STEP_MS, action));
-        }
-
-        /** The row's closing observation window: no action, no new assertion. */
-        void observe() {
-            steps.add(new Step(SETTLE_MS, null));
-        }
-
-        /** Closing observation window of a row that asserts "never" (>= 1 s). */
-        void observe(long ms) {
-            steps.add(new Step(ms, null));
-        }
-    }
-
-    /** One production call whose outcome a row asserts: return value, or throwable. */
-    private interface Attempt {
-        Object run() throws Exception;
-    }
-
-    private static final class CallOutcome {
-        final String label;
-        Throwable thrown;
-        String returned;
-
-        CallOutcome(String label) {
-            this.label = label;
-        }
-
-        String describe() {
-            return thrown != null
-                ? "threw " + thrown.getClass().getName() + ": " + thrown.getMessage()
-                : "returned " + returned;
-        }
-    }
-
-    /** Runs one production call and records its outcome as a TRACE line of the row. */
-    private static CallOutcome attempt(String id, String label, Attempt attempt) {
-        CallOutcome outcome = new CallOutcome(label);
-        try {
-            outcome.returned = String.valueOf(attempt.run());
-        } catch (Throwable t) {
-            outcome.thrown = t;
-        }
-        EventLog.event(id, "call." + label, outcome.describe());
-        return outcome;
-    }
-
-    /** Ordered containment: the first event of the row must precede the second. */
-    private static void expectBefore(Checks checks, String id, String what, String detail,
-                                     String laterWhat, String laterDetail) {
-        int at = EventLog.indexOfWhere(id, what, detail);
-        int later = EventLog.indexOfWhere(id, laterWhat, laterDetail);
-        checks.ok(what + "[" + detail + "] #" + at + " must precede "
-            + laterWhat + "[" + laterDetail + "] #" + later, at >= 0 && later > at);
-    }
-
-    private static void expectCount(Checks checks, String id, String what, String detailPrefix,
-                                    int expected) {
-        checks.eq(what + "[" + detailPrefix + "] count", expected,
-            EventLog.countWhere(id, what, detailPrefix));
-    }
-
-    /** Exact service-side callback sequence, in order, nothing else. */
-    private static void expectSequence(Checks checks, String id, String tagPrefix, String... expected) {
-        checks.ok(tagPrefix + " callbacks must be exactly " + Arrays.toString(expected)
-            + " observed " + EventLog.sequenceText(id, tagPrefix),
-            EventLog.sequenceEquals(id, tagPrefix, expected));
-    }
-
-    /** Ordered containment of a service-side callback sequence. */
-    private static void expectSubsequence(Checks checks, String id, String tagPrefix, String... expected) {
-        checks.ok(tagPrefix + " callbacks must contain " + Arrays.toString(expected)
-            + " in order, observed " + EventLog.sequenceText(id, tagPrefix),
-            EventLog.isSubsequence(id, tagPrefix, expected));
-    }
-
-    /** The rows that refuse a component assert that none of its callbacks ever ran. */
-    private static void expectNeverRan(Checks checks, String id, String simpleName) {
-        ArrayList<String> events = EventLog.sequence(id, simpleName);
-        checks.eq(simpleName + " callbacks observed", 0, events.size());
-        checks.ok(simpleName + " must never run, observed " + events, events.isEmpty());
-    }
-
-    /** Placement refusal: exact type and full message (ATLServiceController.java:223/:249). */
-    private static void expectUnsupported(Checks checks, String what, CallOutcome outcome,
-                                          String message) {
-        if (outcome.thrown == null) {
-            checks.fail(what + " must be refused explicitly, observed " + outcome.describe());
-            return;
-        }
-        checks.eq(what + " exception type", "java.lang.UnsupportedOperationException",
-            outcome.thrown.getClass().getName());
-        checks.ok(what + " must throw an UnsupportedOperationException",
-            outcome.thrown instanceof UnsupportedOperationException);
-        checks.eq(what + " exception message", message, outcome.thrown.getMessage());
-    }
-
-    /**
-     * stopService() refusal check. Production resolves no placement on the
-     * stopService() path - ATLServiceController.java:584 looks the component up in
-     * the registry only and ATLServiceRegistry.java:627 returns running=false for a
-     * component that was never placed - so the refusal here is that nothing is
-     * stopped and nothing is started: the call must either throw the same exact
-     * placement refusal (if a later production change resolves placement on
-     * stopService too) or report false, and it must never report a stop it did not
-     * perform. "The component never ran" is asserted separately (expectNeverRan).
-     */
-    private static void expectStopRefusal(Checks checks, String what, CallOutcome outcome,
-                                          String message) {
-        if (outcome.thrown != null) {
-            checks.eq(what + " exception type", "java.lang.UnsupportedOperationException",
-                outcome.thrown.getClass().getName());
-            checks.eq(what + " exception message", message, outcome.thrown.getMessage());
-            return;
-        }
-        checks.eq(what + " must not stop or create anything; stopService returned",
-            "false", outcome.returned);
-    }
-
-    /** Exception type and message prefix, e.g. java.lang.IllegalArgumentException / "Service not registered: ". */
-    private static void expectThrew(Checks checks, String what, CallOutcome outcome, String type,
-                                   String messagePrefix) {
-        if (outcome.thrown == null) {
-            checks.fail(what + " expected " + type + ", observed " + outcome.describe());
-            return;
-        }
-        checks.eq(what + " exception type", type, outcome.thrown.getClass().getName());
-        String message = outcome.thrown.getMessage();
-        checks.ok(what + " message must start with [" + messagePrefix + "] observed[" + message + "]",
-            message != null && message.startsWith(messagePrefix));
-    }
-
-    /** A call that must succeed and report {@code expected}. */
-    private static void expectReturned(Checks checks, String what, CallOutcome outcome,
-                                       String expected) {
-        if (outcome.thrown != null) {
-            checks.fail(what + " must not throw, observed " + outcome.describe());
-            return;
-        }
-        checks.eq(what, expected, outcome.returned);
-    }
-
-    /** A call that must succeed (a ComponentName was resolved, or an int flag set). */
-    private static void expectAccepted(Checks checks, String what, CallOutcome outcome) {
-        checks.ok(what + " must be accepted by the service manager, observed " + outcome.describe(),
-            outcome.thrown == null && outcome.returned != null && !"null".equals(outcome.returned));
-    }
-
-    /** A void call that must not throw. */
-    private static void expectNoThrow(Checks checks, String what, CallOutcome outcome) {
-        checks.ok(what + " must not throw, observed " + outcome.describe(), outcome.thrown == null);
-    }
 }

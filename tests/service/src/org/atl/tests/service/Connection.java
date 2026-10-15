@@ -16,6 +16,7 @@ package org.atl.tests.service;
 import android.content.ComponentName;
 import android.content.ServiceConnection;
 import android.os.IBinder;
+import java.util.ArrayList;
 
 final class Connection implements ServiceConnection {
 
@@ -33,6 +34,8 @@ final class Connection implements ServiceConnection {
     int disconnects;
     int nulls;
     int dieds;
+    /** One entry per connect: which binder object this client was connected to. */
+    final ArrayList<IBinder> binders = new ArrayList<IBinder>();
 
     Connection(String scenario, String name) {
         this.scenario = scenario;
@@ -43,6 +46,7 @@ final class Connection implements ServiceConnection {
         connects++;
         this.lastComponent = name;
         this.lastBinder = service;
+        binders.add(service);
         EventLog.event(scenario, this.name + ".onServiceConnected",
             "thread=" + Thread.currentThread().getName()
             + " comp=" + EventLog.shortComponent(name)
