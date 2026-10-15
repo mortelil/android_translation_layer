@@ -1,3 +1,2 @@
-Authorization required, but no authorization protocol specified
-
-atl-x11-close: cannot open DISPLAY ':77'
+ATL_X_ENV DISPLAY=:105 XAUTHORITY=/tmp/xvfb-run.JdemBn/Xauthority
+x11-wm-close: sent WM_DELETE_WINDOW to 0x200005 (area 518400)

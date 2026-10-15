@@ -503,3 +503,59 @@ Lane-C limitations (documented, not over-claimed): the probe is one APK with
 explicit-component launches; there is no Instrumentation-driven or manifest-ordered
 scenario, no process-death restore, and no multi-window/focus-loss scenario beyond
 the recreate window sampled in A06.
+
+## Session 8 (lane C) - A04 external close really fires; runner bug corrected
+
+Session 7's A04 artifact set was honest but incomplete: its `close.log` read
+"Authorization required ... cannot open DISPLAY ':77'", so the external window
+close never reached the app, scenario S3D2 stayed open
+(`LIFE_SCEN_BEGIN S3D2` with no `LIFE_SCEN_END`, 475 LIFE_EVT) and the runner
+killed ATL. The window-close path (main.c app_exit -> activity_close_all ->
+hostEvent HOST_EVENT_WINDOW_CLOSE_REQUEST -> closeAll) therefore had no executed
+evidence at all, and neither did `closeAll()` itself.
+
+Root cause (harness, not ATL): run-probe.sh discovered the X session with
+`pgrep -f "android-translation-layer" | head -1`. Other lanes leave their own ATL
+processes and live Xvfb sessions in the shared container, so the first match was
+another lane's process; the close was posted to that lane's display (the window
+that disappeared was titled `org.atl.tests.audio`, not this lane's
+`org.atl.tests.activity.probe`). Isolation: `tests/activity/gtk-close-probe.c`
+(a GTK-only 40-line program, same window type as ATL's, driven by
+`tests/activity/gtk-close-probe.sh`) proves GTK4 on this Xvfb, with and without a
+window manager, turns an external WM_DELETE_WINDOW into `close-request` and lets
+g_application_run() return - so the environment was never the problem.
+
+Fix (committed with this section):
+- run-probe.sh matches this run's APK (`[a]ndroid-translation-layer.*<apk bn>`)
+  both for the liveness poll and for the DISPLAY/XAUTHORITY discovery.
+- the sourceless `atl-x11-close` binary is replaced by
+  `tests/activity/x11-wm-close.c` (source-available WM-protocol sender, built into
+  the lane's private probe dir) - `xdotool windowclose` is not equivalent: this
+  container's build destroys the window instead of delivering the message.
+- run-probe.sh gained `ATL_PROBE_WM=<wm>` (production ATL always has a WM; Xvfb
+  alone has none) and no longer trips `set -u` on an unset ATL_PROBE_WM.
+
+Rewritten A04 evidence (evidence/a04/, same artifact names, all run-produced):
+495 LIFE_EVT, `LIFE_SCEN_BEGIN S3D2` (487) .. `LIFE_SCEN_END S3D2` (538); the 20
+extra events are the close path - ActB#11 onStop/onDestroy then ActA#1 onDestroy,
+i.e. closeAll() ran from the GTK close-request; then `System.exit called,
+status: 0` and the runner's APK-scoped liveness poll sees the process gone
+immediately (atl_exited_after=0s). verify_lifecycle.py is byte-identical to
+session 7's output: exit 0, the same 10 pinned DIVERGENCE lines, no
+BASELINE_MISMATCH, in the same order - the stricter scenario does not disturb any
+other scenario. Identity: binary 21e17b66 (unchanged session-7 lane build), apk
+7b61db40, reference fixtures/reference-v2.1.trace, pinned fixtures/baseline-atl.trace.
+
+Row status after Session 8: A03-A10 + P11 COMPLETE, and A04 additionally covers
+the externally driven close path. Lane C now has executed evidence for every host
+event it owns (start, back, window-ready/focus, window-close/closeAll).
+
+Next actions for integration (unchanged, still not lane C):
+1. Cherry-pick lane C in order onto combined (seam d8d07766..2711907a, then
+   13234359, 5a635950, eb5aac7d, 51daa55e, 13db8fe0, then this session's
+   evidence/tooling commit); the test/evidence commits are inert for the runtime.
+2. Rerun P11 against the combined build with run-classloader-probe.sh - that
+   combined-HEAD run is the gate.
+3. Optional combined-only rerun of run-probe.sh per targetSdk (expect the same
+   34 PASS 0 FAIL) plus one ATL_PROBE_EXTERNAL_CLOSE=yes A04 rerun to confirm the
+   merged tree still closes and exits.
