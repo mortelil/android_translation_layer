@@ -74,6 +74,22 @@ final class LifetimeProbe {
             // Recycled-but-still-reachable Parcels must no longer retain references.
             require(holder != null, "keep recycled holder reachable");
     }
+    static void awaitDeferredRelease(ATLBinderConnection owner) throws Exception {
+        java.lang.reflect.Field table = ATLBinderConnection.class.getDeclaredField("objects");
+        table.setAccessible(true);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (System.nanoTime() < deadline) {
+            synchronized (owner) {
+                for (Object state : ((java.util.Map<?, ?>)table.get(owner)).values()) {
+                    java.lang.reflect.Field acks = state.getClass().getDeclaredField("releaseAcks");
+                    acks.setAccessible(true);
+                    if (!((java.util.List<?>)acks.get(state)).isEmpty()) return;
+                }
+            }
+            Thread.sleep(5);
+        }
+        throw new AssertionError("owner never deferred the in-flight release ACK");
+    }
     static void inFlight() throws Exception {
         final CountDownLatch entered = new CountDownLatch(1), unblock = new CountDownLatch(1);
         final Binder blocking = new Binder() {
@@ -105,7 +121,8 @@ final class LifetimeProbe {
                 catch (Throwable t) { error.set(t); }
             }});
             release.start();
-            require(!acknowledged.await(100, TimeUnit.MILLISECONDS), "release ACK preceded in-flight completion");
+            awaitDeferredRelease(owner);
+            require(acknowledged.getCount() == 1, "release ACK preceded in-flight completion");
             unblock.countDown();
             caller.join(5000); release.join(5000);
             require(!caller.isAlive() && !release.isAlive() && error.get() == null, "pinned release failed: " + error.get());
