@@ -447,7 +447,12 @@ public final class ATLBinderConnection {
 					byte[] data = new byte[length];
 					in.readFully(data);
 					int count = bounded(in.readInt(), MAX_OBJECTS);
-					if (4L * (long)count + 4L + 4L > (long)in.available())
+					// Minimum footprint after the count field: the refs table
+					// (4*count) plus the descriptor-table length field (4). A
+					// frame with zero descriptors is legal, so exactly one 4-byte
+					// field beyond the refs must still be present; the refs and
+					// the descriptor table are then read with EOF rejection.
+					if (4L * (long)count + 4L > (long)in.available())
 						throw new IOException("ATL IPC binder table exceeds the record");
 					int[] refs = new int[count];
 					for (int i = 0; i < count; ++i)
