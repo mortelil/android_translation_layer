@@ -52,6 +52,12 @@ run_part() {
 
 for row in "$@"; do
 	log="$out/proc-$row.log"
+	# One run's evidence per log file: each row starts from an empty log so a
+	# stale failure line from an earlier run can never be mistaken for this run's
+	# verdict. P04 appends its two parts to one log and truncates it itself.
+	if [ "$row" != "P04" ]; then
+		: > "$log"
+	fi
 	case "$row" in
 	P01)
 		if run_part P01 120 "$log"; then
