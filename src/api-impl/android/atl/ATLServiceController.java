@@ -121,6 +121,10 @@ public final class ATLServiceController {
 	static final String ENV_PROCESS_BACKEND = "ATL_PROCESS_BACKEND";
 	/** Env marking this loader as a service child (PR31 ATL_SERVICE_PROCESS refusal). */
 	static final String ENV_SERVICE_PROCESS = "ATL_SERVICE_PROCESS";
+	/** Env the lane-D transport sets in a spawned service child (see ATLProcessHost). */
+	static final String ENV_SERVICE_HOST = "ATL_SERVICE_HOST";
+	/** The lane-D transport host: combined tree only, hence the reflective lookup. */
+	private static final String ATL_PROCESS_HOST_CLASS = "android.atl.ATLProcessHost";
 
 	/**
 	 * Posts policy work to the main looper. Created on first use, never in a field
@@ -670,14 +674,17 @@ public final class ATLServiceController {
 	// ---------------------------------------------------------------------
 
 	/**
-	 * Installs the process backend for remote services: the fake in-loader
-	 * host, and only when env {@code ATL_PROCESS_BACKEND=fake}. With no backend
-	 * (the production default) remote services stay explicitly unsupported.
+	 * Installs the process backend for remote services: the in-loader test fake
+	 * (env {@code ATL_PROCESS_BACKEND=fake}) or the lane-D transport host, which
+	 * exists only on the combined tree and is therefore looked up reflectively
+	 * ({@link #ATL_PROCESS_HOST_CLASS}#get()) - a direct reference would not build
+	 * in a tree without it. With no backend at all (the production default) remote
+	 * services stay explicitly unsupported.
 	 */
 	private ATLProcessBackend installProcessBackend() {
-		if (!"fake".equals(System.getenv(ENV_PROCESS_BACKEND)))
+		ATLProcessBackend backend = selectProcessBackend();
+		if (backend == null)
 			return null;
-		ATLFakeProcessBackend backend = new ATLFakeProcessBackend(app);
 		backend.setProcessDeathListener(new ATLProcessBackend.ProcessDeathListener() {
 			@Override
 			public void onProcessDied(final String processName, final int generation) {
@@ -727,6 +734,33 @@ public final class ATLServiceController {
 			}
 		});
 		return backend;
+	}
+
+	/**
+	 * The backend to install: the test fake, the lane-D transport host, or null.
+	 * Order: {@code ATL_PROCESS_BACKEND=fake} first (lane-B test seam), then the
+	 * {@code ATL_SERVICE_HOST} child guard (this process IS a service child, so it
+	 * hosts nothing itself), then the reflective host lookup: a
+	 * {@link ClassNotFoundException} means a tree without the lane-D host and
+	 * leaves remote placements refused, any other reflective failure is loud
+	 * (never a silent degradation), and a {@link LinkageError} from loading the
+	 * host propagates untouched.
+	 */
+	private ATLProcessBackend selectProcessBackend() {
+		if ("fake".equals(System.getenv(ENV_PROCESS_BACKEND)))
+			return new ATLFakeProcessBackend(app);
+		if (System.getenv(ENV_SERVICE_HOST) != null)
+			return null;
+		final Object host;
+		try {
+			host = Class.forName(ATL_PROCESS_HOST_CLASS).getMethod("get").invoke(null);
+		} catch (ClassNotFoundException e) {
+			// No lane-D host in this tree: remote services stay refused.
+			return null;
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException(ATL_PROCESS_HOST_CLASS + ".get() failed", e);
+		}
+		return host == null ? null : (ATLProcessBackend)host;
 	}
 
 	/**
