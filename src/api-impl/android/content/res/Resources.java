@@ -18,6 +18,7 @@ package android.content.res;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.atl.ATLFontTrace;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.graphics.drawable.ColorDrawable;
@@ -1130,6 +1131,7 @@ public class Resources {
 		getValue(id, value, true);
 
 		try {
+			ATLFontTrace.log("Resources.openRawResource(" + describeRawResource(id, value) + ")");
 			return mAssets.openNonAsset(value.assetCookie, value.string.toString(),
 			                            AssetManager.ACCESS_STREAMING);
 		} catch (Exception e) {
@@ -1137,6 +1139,27 @@ public class Resources {
 			rnf.initCause(e);
 			throw rnf;
 		}
+	}
+
+	/**
+	 * @return a one-line description of the asset a raw-resource id resolves to, for the
+	 *         ATL_DEBUG_FONT trace. The entry's length is reported when it is stored
+	 *         uncompressed (an AssetFileDescriptor can be obtained for it).
+	 */
+	private String describeRawResource(int id, TypedValue value) {
+		String description = "id=0x" + Integer.toHexString(id) + " path=" + value.string
+		                     + " assetCookie=" + value.assetCookie;
+		try {
+			AssetFileDescriptor fd = mAssets.openNonAssetFd(value.assetCookie, value.string.toString());
+			try {
+				description += " bytes=" + fd.getLength() + " offset=" + fd.getStartOffset();
+			} finally {
+				fd.close();
+			}
+		} catch (Exception e) {
+			description += " (no fd: " + e + ")";
+		}
+		return description;
 	}
 
 	/**
@@ -1172,6 +1195,7 @@ public class Resources {
 			getValue(id, value, true);
 		}
 		try {
+			ATLFontTrace.log("Resources.openRawResourceFd(" + describeRawResource(id, value) + ")");
 			return mAssets.openNonAssetFd(
 			    value.assetCookie, value.string.toString());
 		} catch (Exception e) {
