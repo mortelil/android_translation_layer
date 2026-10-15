@@ -25,6 +25,14 @@ JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeHoldApp
 JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeReleaseApp
   (JNIEnv *, jclass);
 
+/*
+ * Class:     android_atl_ATLProcessHost
+ * Method:    nativeMarkServiceHost
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeMarkServiceHost
+  (JNIEnv *, jclass);
+
 #ifdef __cplusplus
 }
 #endif

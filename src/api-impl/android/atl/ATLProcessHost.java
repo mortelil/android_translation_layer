@@ -71,6 +71,17 @@ public class ATLProcessHost implements ATLProcessBackend {
 	/** Releases one hold taken by {@link #nativeHoldApp}; implemented in main.c. */
 	private static native void nativeReleaseApp();
 
+	/**
+	 * Sets this loader process' explicit service-host marker
+	 * ({@code ATL_SERVICE_HOST}). Called once per process, from the constructor
+	 * below, before any spawn: the marker is part of the environment every child
+	 * of this host inherits, so it reaches the child without changing the frozen
+	 * {@link ATLBinderConnection#spawn} signature or environment. Only the
+	 * windowless service-child boot in main.c reads it; implemented in
+	 * src/api-impl-jni/android_atl_ATLProcessHost.c.
+	 */
+	private static native void nativeMarkServiceHost();
+
 	/** The child link broke (transport failure); the child is presumed dying. */
 	private static final class LinkFailure extends RuntimeException {
 		LinkFailure(String message, Throwable cause) {
@@ -93,7 +104,16 @@ public class ATLProcessHost implements ATLProcessBackend {
 	private volatile ProcessDeathListener deathListener;
 	private volatile ChildEventListener childEventListener;
 
-	private ATLProcessHost() {}
+	private ATLProcessHost() {
+		/*
+		 * Explicit child-boot gate (architecture.md §8): a child started from this host
+		 * takes main.c's windowless service-child boot. A bare transport spawn from a
+		 * process that never ran this host keeps the windowed PR31 child, because
+		 * spawn() only adds ATL_SERVICE_FD to the environment it was handed and this
+		 * marker is not in it then.
+		 */
+		nativeMarkServiceHost();
+	}
 
 	@Override
 	public void setProcessDeathListener(ProcessDeathListener listener) {
