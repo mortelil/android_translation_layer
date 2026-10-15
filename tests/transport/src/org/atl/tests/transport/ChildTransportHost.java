@@ -267,9 +267,17 @@ public final class ChildTransportHost {
 					log(context, "code=10 identity calling=" + Binder.getCallingPid()
 					             + "/" + Binder.getCallingUid());
 					if (reply != null) {
+						int[] channel = ATLBinderConnection.peerCredentials(
+						    Integer.parseInt(System.getenv("ATL_SERVICE_FD").trim()));
 						reply.writeInt(Binder.getCallingPid());
 						reply.writeInt(Binder.getCallingUid());
 						reply.writeInt(Process.myPid());
+						/* W1: what the kernel says about the caller on our own
+						 * channel end - the value that cannot be spoofed by a
+						 * message field (pid/uid of the process that created
+						 * the pair, i.e. the parent). */
+						reply.writeInt(channel[0]);
+						reply.writeInt(channel[1]);
 					}
 					return true;
 				case NEW_BINDER: {

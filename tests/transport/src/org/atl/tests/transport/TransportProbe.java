@@ -152,6 +152,7 @@ public class TransportProbe extends Activity implements Frames.Sink {
 
 			t09SaturationAndDeadline(callback);
 			t06ForgedIdentity();
+			t06ForgedSpawnPid();
 			Frames.run(this);
 			checkFrameBattery();
 			redBaseline(callback);
@@ -447,32 +448,89 @@ public class TransportProbe extends Activity implements Frames.Sink {
 	void t06Identity(Child child) throws Exception {
 		Parcel data = Parcel.obtain();
 		Parcel reply = Parcel.obtain();
-		int callingPid, callingUid, childPid;
+		int callingPid, callingUid, childPid, childChannelPid, childChannelUid;
 		try {
 			check(child.root.transact(ChildTransportHost.IDENTITY, data, reply, 0),
 			      "identity transact failed");
 			callingPid = reply.readInt();
 			callingUid = reply.readInt();
 			childPid = reply.readInt();
+			childChannelPid = reply.readInt();
+			childChannelUid = reply.readInt();
 		} finally {
 			data.recycle();
 			reply.recycle();
 		}
 		int myPid = Process.myPid(), myUid = android.os.Process.myUid();
+		int realUid = realUid();
 		int[] creds = ATLBinderConnection.peerCredentials(child.fd);
-		boolean ok = callingPid == myPid && callingUid == myUid && childPid == child.pid
-		             && creds[0] == child.pid && creds[1] == myUid;
+		/* W1 (android_os_ATLBinderConnection.c:33, verified on Linux 6.8): a
+		 * socketpair records the process that created the pair, so OUR end of a
+		 * pair we created reports US - never the child that inherited the other
+		 * end. What the channel can therefore prove, kernel-side and
+		 * un-spoofable by message fields, is: (a) the child's own pid is the one
+		 * spawn() returned and holds the channel, (b) the child's channel view of
+		 * the caller is our kernel pid/uid. callingUid equals myUid because ATL
+		 * emulates one app uid per process (Binder.atlEnter uses the local
+		 * Process.myUid), while peerCredentials reports raw kernel credentials -
+		 * which is why the two uids differ here. */
+		boolean ok = callingPid == myPid && callingUid == myUid
+		             && childPid == child.pid && childChannelPid == myPid
+		             && childChannelUid == realUid && creds[0] == myPid
+		             && creds[1] == realUid;
 		probeEvent("t06-peer-identity", "calling=" + callingPid + "/" + callingUid
 		                                  + ";local=" + myPid + "/" + myUid
+		                                  + ";realUid=" + realUid
 		                                  + ";childPid=" + childPid
+		                                  + ";childChannel=" + childChannelPid + "/"
+		                                  + childChannelUid
 		                                  + ";peerCred=" + creds[0] + "/" + creds[1] + "/" + creds[2]);
 		if (ok)
 			caseMarker("T06", "t06-peer-identity", "calling=" + callingPid + "/" + callingUid
-			                      + " soPeerCred=" + creds[0] + "/" + creds[1]);
+			                      + " childPid=" + childPid + " childChannel=" + childChannelPid
+			                      + "/" + childChannelUid + " realUid=" + realUid);
 		else
 			caseFail("t06-peer-identity", "calling=" + callingPid + "/" + callingUid
 			                                + " childPid=" + childPid
+			                                + " childChannel=" + childChannelPid + "/" + childChannelUid
+			                                + " realUid=" + realUid
 			                                + " peerCred=" + creds[0] + "/" + creds[1]);
+	}
+
+	/** Real (kernel) uid of this process: the value SO_PEERCRED carries, as
+	 * opposed to ATL's emulated per-app Process.myUid(). */
+	static int realUid() throws Exception {
+		for (String line : java.nio.file.Files.readAllLines(
+		                     java.nio.file.Paths.get("/proc/self/status")))
+			if (line.startsWith("Uid:"))
+				return Integer.parseInt(line.split("\\s+")[1]);
+		throw new IllegalStateException("no Uid: line in /proc/self/status");
+	}
+
+	/**
+	 * W1: a channel this process created has no kernel-supplied peer, so the
+	 * claimed peer pid is cross-checked against /proc (the claimed child must
+	 * hold the channel socket at the fd 3 spawn() hands out). A wrong claim is
+	 * rejected - the missing half of "identity comes from the channel": the
+	 * constructor argument is not trusted on its own.
+	 */
+	void t06ForgedSpawnPid() throws Exception {
+		int[] pair = ATLBinderConnection.socketPair();
+		boolean rejected = false;
+		String detail;
+		try {
+			// pid 1 is a live process, but it does not hold a socket at fd 3.
+			new ATLBinderConnection(pair[0], 1, null);
+			detail = "accepted-claimed-pid-1";
+		} catch (IllegalStateException expected) {
+			rejected = true;
+			detail = "rejected:" + expected.getMessage();
+		}
+		probeEvent("t06-forged-spawn-pid", detail);
+		if (rejected)
+			caseMarker("T06", "t06-forged-spawn-pid", detail);
+		else
+			caseFail("t06-forged-spawn-pid", detail);
 	}
 
 	void t06ForgedIdentity() throws Exception {
