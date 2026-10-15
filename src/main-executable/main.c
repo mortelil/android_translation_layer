@@ -656,14 +656,21 @@ static int run_service_child(int argc, char **argv)
 	return 0;
 }
 
-/* Parent side: keeps the launcher alive while a child process is running. */
-JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeHoldApp(JNIEnv *env, jclass cls)
+/* Parent side: keeps the launcher alive while a child process is running.
+ * The JNI entry points themselves live in
+ * src/api-impl-jni/android_atl_ATLProcessHost.c: JNI resolution for a hax class
+ * searches the libraries the process loaded, so an implementation compiled into
+ * this executable is not reachable (measured: UnsatisfiedLinkError for
+ * nativeHoldApp in integration/proc-P01.log even though the symbol is in the
+ * executable's dynamic table). These two are exported instead (-rdynamic) and
+ * resolved by that library at load time. */
+void atl_launcher_app_hold(void)
 {
 	if (launcher_app)
 		g_application_hold(G_APPLICATION(launcher_app));
 }
 
-JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeReleaseApp(JNIEnv *env, jclass cls)
+void atl_launcher_app_release(void)
 {
 	if (launcher_app)
 		g_application_release(G_APPLICATION(launcher_app));
