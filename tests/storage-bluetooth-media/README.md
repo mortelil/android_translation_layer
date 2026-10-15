@@ -85,3 +85,14 @@ Directory/audio milestone:
   With directory lookup and genre lookup working, Rhythm next terminates on
   missing android.media.MediaExtractor in AudioFormatDetector. This milestone
   does not implement extraction/playback or claim a working Rhythm library UI.
+
+Notification people regression (2026-10-16): NotificationPeople calls the
+legacy addPerson(String) entry point directly, then checks ordered metadata,
+duplicates/nulls, array isolation and an empty independent builder. No real
+contacts are used and no notification is posted. The unpatched runtime fails
+with NoSuchMethodError; require NOTIFICATION_PEOPLE PASS after rebuilding.
+Contract reference: AOSP frameworks/base android-6.0.1_r1,
+core/java/android/app/Notification.java, Builder.addPerson and buildExtras
+(EXTRA_PEOPLE). This is an ATL implementation of the legacy metadata contract,
+not full modern Person, notification ranking, or desktop presentation support.
+Existing Builder.build object reuse and extras setter stubs are unchanged.

@@ -14,6 +14,8 @@ import java.util.List;
 
 public class Notification implements Parcelable {
 
+	public static final String EXTRA_PEOPLE = "android.people";
+
 	public static final AudioAttributes AUDIO_ATTRIBUTES_DEFAULT = new AudioAttributes();
 
 	public long when;
@@ -50,7 +52,7 @@ public class Notification implements Parcelable {
 
 	public AudioAttributes audioAttributes;
 
-	public Bundle extras;
+	public Bundle extras = new Bundle();
 
 	public String category;
 
@@ -71,6 +73,7 @@ public class Notification implements Parcelable {
 	public static class Builder {
 		private final Context mContext;
 		private Notification notification;
+		private final ArrayList<String> people = new ArrayList<>();
 
 		public Builder(Context context) {
 			mContext = context;
@@ -150,6 +153,12 @@ public class Notification implements Parcelable {
 
 		public Builder setGroupSummary(boolean isGroupSummary) { return this; }
 
+		// Legacy API-23 contract: retain order, duplicates and null entries.
+		public Builder addPerson(String uri) {
+			people.add(uri);
+			return this;
+		}
+
 		public Builder setCategory(String category) { return this; }
 
 		public Builder setColor(int argb) { return this; }
@@ -200,6 +209,8 @@ public class Notification implements Parcelable {
 		public Builder addExtras(Bundle bundle) { return this; }
 
 		public Notification build() {
+			if (!people.isEmpty())
+				notification.extras.putStringArray(EXTRA_PEOPLE, people.toArray(new String[people.size()]));
 			return notification;
 		}
 	}

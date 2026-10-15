@@ -7,6 +7,7 @@ public class Probe extends android.app.Activity {
     public void onCreate(android.os.Bundle state) {
         super.onCreate(state);
         try {
+            NotificationPeople.run(this);
             android.view.SurfaceView[] surfaces = {
                 new android.view.SurfaceView(this),
                 new android.view.SurfaceView(this, null),
