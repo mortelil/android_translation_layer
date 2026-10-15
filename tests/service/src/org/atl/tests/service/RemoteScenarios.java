@@ -9,6 +9,17 @@
  *   ladder - S13a                                          (fake, MIN_CRASH_INTERVAL_MS=1000)
  *   fault  - S11b                                          (fake, ATL_SERVICE_PROCESS_FAULT=spawn)
  *   child  - S14c                                          (ATL_SERVICE_PROCESS: this loader IS a child)
+ *   realhost - S09, S10, S11c, S15 (NO ATL_PROCESS_BACKEND: real spawned children
+ *              through android.atl.ATLProcessHost, one child per android:process)
+ *
+ * Rows S11a, S11b, S11d, S12, S13a, S13b and S13c are NOT run in the realhost
+ * launch: their row path needs the fake kill (ATLFakeProcessBackend.killProcess)
+ * or the fake fault-arming seam (armProcessFault), which the real host does not
+ * expose. run.sh reports them `not-run` for that launch - never PASS, never FAIL.
+ * S09, S11c and S15 need no change for it: they only use production calls and
+ * event counts, so they run unmodified against real children. S10 gets its own
+ * body ({@link #s10Real()}), because in that arm the child exits ITSELF instead
+ * of being killed through the fake seam.
  *
  * Every row states the backend it ran against in its own log: run.sh writes the
  * `SVC_GATE BACKEND <name> <backend>` annotation into the launch's stdout.log
@@ -23,16 +34,23 @@
  * restarts after max(restartDurationMs, 2 x the age of the oldest delivered
  * start), a later death with crashCount > 1 after
  * boundCrashRestartDurationMs x (crashCount - 1), and otherwise after the x4
- * branch - so each row kills as early as its assertions allow (short run time =
+ * so each row kills as early as its assertions allow (short run time =
  * short first delay) and its observation windows are sized for the delay that
  * schedule produces under that gate's env.
+ *
+ * The realhost arm has no kill at all: its deaths are the child exiting itself
+ * (the S10 fixture's cmd=die, a real death for ATLProcessHost.startReaper), so
+ * that row's windows cover the very same planRestart delay a kill would produce
+ * - the restart policy is production's either way, only the way the process ends
+ * differs.
  *
  * What each row asserts and why (frozen anchors):
  *   S09  Service.stopSelf(int)/(), remote: the record's start-id rule
  *        (`startId >= 0 && lastStartId != startId`) - the same contract as S01.
  *   S10  START_STICKY: the onStartCommand() return code is captured, the record
  *        survives the child's death and is redelivered with a fabricated null
- *        intent, with a bound client and after that client left.
+ *        intent, with a bound client and after that client left (fake arm: the
+ *        kill seam; realhost arm: the child exits itself).
  *   S11a a child-originated stopSelf() drives the authoritative record's teardown.
  *   S11b the three spawn faults: spawn failure (the client learns through
  *        onServiceDisconnected, never a false connect - the approved deviation),
@@ -81,7 +99,7 @@ final class RemoteScenarios {
     static void build(ControlActivity host, ArrayList<Scenario> rows, String gate) {
         RemoteScenarios r = new RemoteScenarios(host);
         if ("fake".equals(gate)) {
-            rows.add(r.s09());
+            rows.add(r.s09(FAKE));
             rows.add(r.s10());
             rows.add(r.s11a());
             rows.add(r.s11c());
@@ -97,6 +115,14 @@ final class RemoteScenarios {
             rows.add(r.s11b());
         } else if ("child".equals(gate)) {
             rows.add(r.s14c());
+        } else if ("realhost".equals(gate)) {
+            // No fake, no fault, no ATL_SERVICE_PROCESS: the remote fixtures resolve
+            // the REAL android.atl.ATLProcessHost, so every row's component runs in
+            // a really spawned child and S09/S11c/S15 need no change for that.
+            rows.add(r.s09(REAL));
+            rows.add(r.s10Real());
+            rows.add(r.s11c());
+            rows.add(r.s15());
         }
     }
 
@@ -120,6 +146,116 @@ final class RemoteScenarios {
     /** The in-loader hosting fake; null when this launch resolves the real process host. */
     private static ATLFakeProcessBackend backend() {
         return ATLFakeProcessBackend.instance();
+    }
+
+    /**
+     * The hosting side one row body runs against, so the same body can be used by
+     * the fake arm and by the real-host arm without either of them silently
+     * standing in for the other.
+     */
+    private interface HostView {
+        Liveness liveness(String process, String unusableWhy);
+    }
+
+    /**
+     * What a {@link HostView} can say about a process. {@code usable} is false when
+     * the hosting side this row needs is not in this build: the row then FAILS with
+     * {@code why} instead of asserting against a process nobody can see.
+     */
+    static final class Liveness {
+        final boolean usable;
+        final boolean up;
+        final String why;
+
+        Liveness(boolean usable, boolean up, String why) {
+            this.usable = usable;
+            this.up = up;
+            this.why = why;
+        }
+    }
+
+    /** The in-loader fake (ATL_PROCESS_BACKEND=fake); a launch without it cannot use this view. */
+    private static final class FakeHostView implements HostView {
+        public Liveness liveness(String process, String unusableWhy) {
+            ATLFakeProcessBackend fake = backend();
+            if (fake == null) {
+                return new Liveness(false, true, unusableWhy);
+            }
+            return new Liveness(true, fake.isProcessUp(process), null);
+        }
+    }
+
+    /**
+     * The real process host of the candidate build, resolved exactly as production
+     * resolves it (ATLServiceController.selectProcessBackend:
+     * `Class.forName("android.atl.ATLProcessHost").getMethod("get")`). A build
+     * without the host class makes this view unusable and the row FAILS with that
+     * reason: it never falls back to the fake, and never to a local instance. Any
+     * other reflective failure is reported just as loudly.
+     */
+    private static final class RealHostView implements HostView {
+        /** The host class' get() and isProcessUp(String), cached once. */
+        private final java.lang.reflect.Method get;
+        private final java.lang.reflect.Method isProcessUp;
+        private final String unusableWhy;
+
+        RealHostView() {
+            java.lang.reflect.Method getter = null;
+            java.lang.reflect.Method up = null;
+            String why = null;
+            try {
+                Class<?> cls = Class.forName("android.atl.ATLProcessHost");
+                getter = cls.getMethod("get");
+                up = cls.getMethod("isProcessUp", String.class);
+            } catch (ClassNotFoundException e) {
+                why = "the real process host (android.atl.ATLProcessHost) is not in this build";
+            } catch (NoClassDefFoundError e) {
+                why = "the real process host (android.atl.ATLProcessHost) is not in this build";
+            } catch (ReflectiveOperationException e) {
+                getter = null;
+                up = null;
+                why = "the real process host (android.atl.ATLProcessHost) is not usable: " + e;
+            }
+            this.get = getter;
+            this.isProcessUp = up;
+            this.unusableWhy = why;
+        }
+
+        public Liveness liveness(String process, String unusableWhy) {
+            if (get == null) {
+                // The host's own reason wins over the row's: a build without the host
+                // is not the row's missing seam, it is the missing host.
+                return new Liveness(false, false, this.unusableWhy);
+            }
+            final Object host;
+            try {
+                host = get.invoke(null);
+            } catch (ReflectiveOperationException e) {
+                return new Liveness(false, false,
+                    "android.atl.ATLProcessHost.get() failed: " + e);
+            }
+            if (host == null) {
+                return new Liveness(false, false, "android.atl.ATLProcessHost.get() returned null");
+            }
+            try {
+                return new Liveness(true, Boolean.TRUE.equals(isProcessUp.invoke(host, process)), null);
+            } catch (ReflectiveOperationException e) {
+                return new Liveness(false, false,
+                    "android.atl.ATLProcessHost.isProcessUp(" + process + ") failed: " + e);
+            }
+        }
+    }
+
+    private static final HostView FAKE = new FakeHostView();
+    private static final HostView REAL = new RealHostView();
+
+    /**
+     * The real host's view of {@code process}, for the S14b row that has to name
+     * the arm it landed in (ControlActivity.scenarioS14b): one reflective lookup,
+     * shared with the realhost gate's rows instead of a second one.
+     */
+    static Liveness realHostLiveness(String process, String unusableWhy) {
+        return REAL.liveness(process, unusableWhy);
     }
 
     private void start(Scenario row, final String id, final Intent intent, final String label) {
@@ -280,7 +416,7 @@ final class RemoteScenarios {
     // ---------------------------------------------------------------------
     // S09 - a remote record's stopSelf(olderId) must be refused, stopSelf() stops
     // ---------------------------------------------------------------------
-    private Scenario s09() {
+    private Scenario s09(final HostView host) {
         final Scenario row = new Scenario("S09").budget(30000);
         final Class<?> cls = SvcStopSelf.class;
         final String process = processOf(cls);
@@ -314,12 +450,13 @@ final class RemoteScenarios {
                 expectBefore(checks, "S09", "SvcStopSelf.stopSelf", "startId=current",
                     "SvcStopSelf.onDestroy", "");
                 expectCount(checks, "S09", "SvcStopSelf.onDestroy", "", 1);
-                ATLFakeProcessBackend fake = backend();
-                if (fake == null) {
-                    checks.fail("S09 needs the fake backend to observe the process going down");
+                Liveness live = host.liveness(process,
+                    "S09 needs the fake backend to observe the process going down");
+                if (!live.usable) {
+                    checks.fail(live.why);
                 } else {
                     checks.ok("the hosting process must be gone after the teardown, observed up="
-                        + fake.isProcessUp(process), !fake.isProcessUp(process));
+                        + live.up, !live.up);
                 }
             }
         });
@@ -392,6 +529,123 @@ final class RemoteScenarios {
             }
         });
         return row;
+    }
+
+    // ---------------------------------------------------------------------
+    // S10 (realhost arm) - the same START_STICKY restart policy, with the child
+    //       exiting ITSELF instead of being killed through the fake seam
+    // ---------------------------------------------------------------------
+    /**
+     * No {@code kill()} anywhere: this arm's deaths are the child's own
+     * {@code cmd=die}, which is a real death for ATLProcessHost.startReaper
+     * (teardown(childDied=true) -> the production ProcessDeathListener), so the
+     * restart policy under test is production's, not a synthesized callback.
+     * The observation windows cover the same planRestart delay the fake arm's
+     * kill produces. Every verdict anchor is the merged view, so an in-loader
+     * instance would be visible as a local event and FAIL the row.
+     */
+    private Scenario s10Real() {
+        final Scenario row = new Scenario("S10").budget(60000);
+        final Class<?> cls = SvcSurvivingClient.class;
+        final String process = processOf(cls);
+        final Intent intent = svc(cls);
+        final Connection survivor = new Connection("S10", "survivor");
+        final int[] afterDeath = new int[4];
+        final int[] afterUnbind = new int[4];
+
+        bindAuto(row, "bind1", intent, survivor, "survivor (AUTO_CREATE: the first child)");
+        row.observe(1500);
+        start(row, "start1", intent.putExtra("cmd", "die"),
+            "#1: the child exits itself while the client is bound");
+        observes(row, 2, 3000);
+        snapshot(row, "afterDeath", "after the death and the restart", survivor, afterDeath);
+        unbind(row, "unbind1", survivor, "the client leaves");
+        row.observe(800);
+        snapshot(row, "afterUnbind", "the client has left", survivor, afterUnbind);
+        start(row, "start2", intent.putExtra("cmd", "die"),
+            "#2: the child exits itself with no client");
+        observes(row, 2, 3000);
+        row.observe(1500);
+
+        row.verdictChecks.add(new Action() {
+            public void run(Checks checks) {
+                expectCount(checks, "S10", "SvcSurvivingClient.onCreate", "", 3);
+                // The fixture's own self-exit marker: two deaths, both the child's.
+                expectCount(checks, "S10", "SvcSurvivingClient.die", "", 2);
+                expectCount(checks, "S10", "SvcSurvivingClient.onStartCommand",
+                    "id=1 flags=0 cmd=die", 1);
+                // START_STICKY redelivers a FABRICATED null intent: cmd=none, flags=0.
+                expectCount(checks, "S10", "SvcSurvivingClient.onStartCommand",
+                    "id=2 flags=0 cmd=none", 1);
+                expectCount(checks, "S10", "SvcSurvivingClient.onStartCommand",
+                    "id=3 flags=0 cmd=die", 1);
+                expectCount(checks, "S10", "SvcSurvivingClient.onStartCommand",
+                    "id=4 flags=0 cmd=none", 1);
+                // Zero onDestroy, and that is the correct count: AOSP dispatches a
+                // service's onDestroy only while its host process still has a live
+                // binder - ActiveServices.java:6964 `isThreadReady()` guards
+                // `scheduleStopService(r)` at :6992 - and a record whose process died
+                // is cleaned up through serviceProcessGoneLocked(:7334) instead. A
+                // death is never an onDestroy (S12/S13c's rule).
+                expectCount(checks, "S10", "SvcSurvivingClient.onDestroy", "", 0);
+                checks.eq("S10 (real): no in-loader instance may serve the component", 0,
+                    EventLog.countLocal("S10", "SvcSurvivingClient."));
+                int[] pids = EventLog.foreignPids("S10", "SvcSurvivingClient.");
+                checks.eq("three generations ran in three distinct spawned children", 3,
+                    pids.length);
+                checks.ok("no generation may run in the loader (pids " + pidsText(pids)
+                    + ", loader pid " + EventLog.pid() + ")",
+                    !containsPid(pids, EventLog.pid()));
+                // Death 1 (bound): a disconnect, then the restart reconnects.
+                checks.eq("after the death and the restart: connects", 2, afterDeath[0]);
+                checks.eq("after the death and the restart: disconnects", 1, afterDeath[1]);
+                checks.eq("after the death and the restart: binding-died", 0, afterDeath[2]);
+                // The client left before the second death: it is never called again.
+                checks.eq("after the unbind: connects (unchanged)", afterDeath[0], afterUnbind[0]);
+                checks.eq("after the unbind: disconnects (unchanged)", afterDeath[1],
+                    afterUnbind[1]);
+                checks.eq("after the unbind: binding-died (unchanged)", afterDeath[2],
+                    afterUnbind[2]);
+                checks.eq("final connects (the client was gone before the second death)",
+                    afterDeath[0], survivor.connects);
+                checks.eq("final disconnects (the client was gone before the second death)",
+                    afterDeath[1], survivor.disconnects);
+                checks.eq("final binding-died (the client was gone before the second death)",
+                    afterDeath[2], survivor.dieds);
+                EventLog.event("S10", "verdict.flags", "delivered start flags="
+                    + flagsSequence("S10", cls));
+                Liveness live = REAL.liveness(process,
+                    "S10 needs the real process host to observe the sticky restart");
+                if (!live.usable) {
+                    checks.fail(live.why);
+                } else {
+                    checks.ok("a started START_STICKY record must be up again after the second death,"
+                        + " observed up=" + live.up, live.up);
+                }
+            }
+        });
+        return row;
+    }
+
+    /** A pid array rendered for a failure message. */
+    private static String pidsText(int[] pids) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < pids.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(pids[i]);
+        }
+        return sb.append("]").toString();
+    }
+
+    private static boolean containsPid(int[] pids, int pid) {
+        for (int i = 0; i < pids.length; i++) {
+            if (pids[i] == pid) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------------

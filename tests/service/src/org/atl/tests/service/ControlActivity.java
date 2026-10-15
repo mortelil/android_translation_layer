@@ -29,7 +29,7 @@
  *
  * Production anchors this file asserts against (no production edit):
  *   ContextImpl.java:377                bindService(Intent,int,Executor,ServiceConnection)
- *   ATLServiceController.java:223/:249  isolated / remote placement refusal
+ *   ATLServiceController.java:243/:269  isolated / remote placement refusal
  *   ATLServiceController.java:584       stopService() (registry lookup only)
  *   ATLServiceRegistry.java:627         stop(): keptBound while clients remain
  *   ATLServiceRegistry.java:680         unbind(): IllegalArgumentException "Service not registered: "
@@ -64,7 +64,7 @@ public class ControlActivity extends Activity {
     private static final String ACTION_B = "org.atl.tests.service.SVC.B";
     private static final String EXTRA = "tag";
 
-    /** The exact placement refusals, ATLServiceController.java:223/:249. */
+    /** The exact placement refusals, ATLServiceController.java:243/:269. */
     private static final String REFUSAL_ISOLATED =
         "ATL does not support remote or isolated services: org.atl.tests.service.SvcIsolated";
     private static final String REFUSAL_REMOTE =
@@ -90,13 +90,24 @@ public class ControlActivity extends Activity {
         String requested = System.getenv("ATL_SVC_GATE");
         this.gate = requested == null || requested.length() == 0 ? "local" : requested;
         EventLog.line("SVC_GATE " + gate + " begin");
+        // The app's OWN record of this launch, next to the driver's annotation:
+        // without it a row log cannot tell WHICH loader process and WHICH backend
+        // produced the lines below, and a row served by a spawned child would look
+        // exactly like a row served by a local instance.
+        EventLog.line("SVC_APP_PID " + gate + " " + android.os.Process.myPid()
+            + " (the loader process; a row served by a spawned child must show a different pid)");
+        EventLog.line("SVC_APP_BACKEND " + gate
+            + " ATL_PROCESS_BACKEND=" + envOrUnset("ATL_PROCESS_BACKEND")
+            + " ATL_SERVICE_PROCESS_FAULT=" + envOrUnset("ATL_SERVICE_PROCESS_FAULT")
+            + " ATL_SERVICE_PROCESS=" + envOrUnset("ATL_SERVICE_PROCESS")
+            + " realHost=" + realHostState());
         if ("local".equals(gate)) {
             buildScenarios();
         }
-        // The remote gates (fake/caps/fault/ladder/child, rows S09-S13, S14c, S15)
-        // are built against the process backend here. A gate this tree does not
-        // know adds no row, so its launch leaves only the driver's marker and
-        // run.sh reports those rows MISSING instead of a PASS nobody earned.
+        // The remote gates (fake/caps/fault/ladder/child/realhost, rows S09-S13,
+        // S14c, S15) are built against the process backend here. A gate this tree
+        // does not know adds no row, so its launch leaves only the driver's marker
+        // and run.sh reports those rows MISSING instead of a PASS nobody earned.
         RemoteScenarios.build(this, scenarios, gate);
         if (scenarios.isEmpty()) {
             EventLog.line("SVC_GATE_DONE " + gate);
@@ -242,6 +253,31 @@ public class ControlActivity extends Activity {
         return new Intent(this, cls);
     }
 
+    /** The value of an env var, or "unset": the app's own record of what it was launched with. */
+    private static String envOrUnset(String name) {
+        String value = System.getenv(name);
+        return value == null ? "unset" : value;
+    }
+
+    /**
+     * Whether the candidate build's real process host is loadable as production
+     * loads it (ATLServiceController.selectProcessBackend, Class.forName). A
+     * reflective failure must never be silent, so anything but a clean load is
+     * reported in the same line, which is what the driver greps into a row log.
+     */
+    private static String realHostState() {
+        try {
+            Class.forName("android.atl.ATLProcessHost");
+            return "present";
+        } catch (ClassNotFoundException e) {
+            return "absent";
+        } catch (NoClassDefFoundError e) {
+            return "absent";
+        } catch (RuntimeException e) {
+            return "absent (probe failed: " + e + ")";
+        }
+    }
+
     private void buildScenarios() {
         scenarios.add(scenarioS01());
         scenarios.add(scenarioS02());
@@ -252,7 +288,7 @@ public class ControlActivity extends Activity {
         scenarios.add(scenarioS07());
         scenarios.add(scenarioS08());
         scenarios.add(scenarioS14("S14a", SvcIsolated.class, REFUSAL_ISOLATED));
-        scenarios.add(scenarioS14("S14b", SvcRemoteNoBackend.class, REFUSAL_REMOTE));
+        scenarios.add(scenarioS14b());
     }
 
     // ---------------------------------------------------------------------
@@ -1115,8 +1151,8 @@ public class ControlActivity extends Activity {
     }
 
     // ---------------------------------------------------------------------
-    // S14a/S14b - isolatedProcess and no-backend :remote must refuse placement
-    // explicitly, with the exact message, before anything runs
+    // S14a - isolatedProcess must refuse placement explicitly, with the exact
+    // message, before anything runs
     // ---------------------------------------------------------------------
     private Scenario scenarioS14(String id, final Class<?> cls, final String refusal) {
         final Scenario row = new Scenario(id);
@@ -1166,6 +1202,119 @@ public class ControlActivity extends Activity {
             }
         });
         return row;
+    }
+
+    // ---------------------------------------------------------------------
+    // S14b - a `:remote` placement: served by a real spawned child, or refused
+    // with the frozen message - never a silent local instance in the loader
+    // ---------------------------------------------------------------------
+    private Scenario scenarioS14b() {
+        final Scenario row = new Scenario("S14b").budget(40000);
+        final Class<?> cls = SvcRemoteNoBackend.class;
+        final String process = getPackageName() + ":remote";
+        final Intent intent = svc(cls);
+        final Connection client = new Connection("S14b", "remote");
+        final CallOutcome[] start = new CallOutcome[1];
+        final CallOutcome[] bind = new CallOutcome[1];
+        final CallOutcome[] stop = new CallOutcome[1];
+        final boolean[] hostUp = new boolean[1];
+        final String[] hostWhy = new String[1];
+        final int[] childPid = new int[1];
+
+        // No assertion here: which of the two arms these three calls land in is
+        // decided by the verdict, once the hosting side has been observed.
+        row.step(new Action() {
+            public void run(Checks checks) {
+                start[0] = attempt("S14b", "startRemote", new Attempt() {
+                    public Object run() {
+                        return startService(new Intent(intent));
+                    }
+                });
+            }
+        });
+        row.observe(2500);
+        row.step(new Action() {
+            public void run(Checks checks) {
+                bind[0] = attempt("S14b", "bindRemote", new Attempt() {
+                    public Object run() {
+                        return Boolean.valueOf(bindService(new Intent(intent), client,
+                            Context.BIND_AUTO_CREATE));
+                    }
+                });
+            }
+        });
+        row.observe(2500);
+        row.step(new Action() {
+            public void run(Checks checks) {
+                // The real host's own view, taken through the shared reflective
+                // resolver instead of a second one, and only here: by now a spawned
+                // child that serves this process must exist and may have appended
+                // its own trace lines.
+                RemoteScenarios.Liveness live = RemoteScenarios.realHostLiveness(process,
+                    "S14b needs the real process host (android.atl.ATLProcessHost) to see whether the"
+                    + " :remote process is up");
+                hostUp[0] = live.up;
+                hostWhy[0] = live.usable ? null : live.why;
+                childPid[0] = EventLog.foreignPid("S14b", "SvcRemoteNoBackend.");
+                EventLog.event("S14b", "observedHost", "process=" + process + " up=" + hostUp[0]
+                    + " childPid=" + childPid[0] + (live.usable ? "" : " host=" + live.why));
+            }
+        });
+        row.step(new Action() {
+            public void run(Checks checks) {
+                stop[0] = attempt("S14b", "stopRemote", new Attempt() {
+                    public Object run() {
+                        return Boolean.valueOf(stopService(new Intent(intent)));
+                    }
+                });
+            }
+        });
+        row.observe(1500);
+
+        row.verdictChecks.add(new Action() {
+            public void run(Checks checks) {
+                int local = EventLog.countLocal("S14b", "SvcRemoteNoBackend.");
+                // The merged view: a child's callbacks count here, the loader's do not.
+                int ran = EventLog.count("S14b", "SvcRemoteNoBackend.onCreate");
+                checks.eq("the loader must never run the component (no silent local instance)",
+                    0, local);
+                boolean refused = isUnsupported(start[0], REFUSAL_REMOTE)
+                    && isUnsupported(bind[0], REFUSAL_REMOTE)
+                    && isUnsupported(stop[0], REFUSAL_REMOTE);
+                boolean started = start[0].thrown == null
+                    && String.valueOf(start[0].returned).contains("SvcRemoteNoBackend");
+                boolean bound = "true".equals(bind[0].returned);
+                boolean connected = client.connects >= 1 && client.lastBinder != null;
+                boolean childRan = childPid[0] > 0 && childPid[0] != EventLog.pid() && ran >= 1;
+                if (refused) {
+                    checks.ok("arm (b): a :remote placement with no hosting backend is refused"
+                        + " with the frozen message", true);
+                    checks.eq("arm (b): the refused client is never called", 0, client.connects);
+                    checks.eq("arm (b): no process ran the component", 0, ran);
+                } else if (started && bound && connected && childRan && hostUp[0]) {
+                    checks.ok("arm (a): the :remote placement is served by a spawned child (pid "
+                        + childPid[0] + " != loader " + EventLog.pid()
+                        + "), never by a silent local instance", true);
+                } else {
+                    checks.fail("S14b: neither arm held: start=" + start[0].describe()
+                        + " bind=" + bind[0].describe() + " stop=" + stop[0].describe()
+                        + " connects=" + client.connects + " ran=" + ran + " localEvents=" + local
+                        + " childPid=" + childPid[0] + " hostUp=" + hostUp[0]
+                        + (hostWhy[0] == null ? "" : " host=" + hostWhy[0])
+                        + " (a local instance serving a remote request is the failure mode)");
+                }
+            }
+        });
+        return row;
+    }
+
+    /**
+     * expectUnsupported's exact rule as a boolean, for the S14b verdict that has
+     * to branch on which arm held before it can assert anything.
+     */
+    private static boolean isUnsupported(CallOutcome outcome, String message) {
+        return outcome.thrown instanceof UnsupportedOperationException
+            && message.equals(outcome.thrown.getMessage());
     }
 
 }

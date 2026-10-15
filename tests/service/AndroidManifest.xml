@@ -20,13 +20,17 @@
     S07 .SvcReenterFirst/Second/Third  re-entrancy from onServiceConnected().
     S08 .SvcUnbindRace      bindService() + unbindService() in one main-looper tick.
     S14a .SvcIsolated       android:isolatedProcess="true": placement must be refused.
-    S14b .SvcRemoteNoBackend android:process=":remote" with no process backend: refused.
+    S14b .SvcRemoteNoBackend android:process=":remote": served by a spawned child when a
+                             hosting backend is installed, otherwise refused with the frozen
+                             message; never a silent local instance in the loader.
 
-  `fake`/`caps`/`fault`/`ladder`/`child` gates (rows S09-S13, S14c, S15, built by
+  `fake`/`caps`/`fault`/`ladder`/`child`/`realhost` gates (rows S09-S13, S14c, S15, built by
   RemoteScenarios): every component below that declares an android:process is placed
   in that process by the installed process backend - on lane B's tree the in-loader
   ATLFakeProcessBackend (ATL_PROCESS_BACKEND=fake); the `child` gate runs the loader
-  as a service child instead, so placement is refused. The process name the backend,
+  as a service child instead, so placement is refused; the `realhost` gate installs no
+  backend at all, so production resolves the real android.atl.ATLProcessHost and every
+  remote component runs in a really spawned child. The process name the backend,
   killProcess() and the fault arms all match is getPackageName() + the tag.
 
     S09 .SvcStopSelf           :s09   stopSelf(older id) refused / stopSelf() stops.
@@ -46,9 +50,12 @@
     S15  .SvcTraceRemote       :s15   trace parity: the same sequence in a child process.
 
   All services are exported (the gates resolve them by explicit component and run the
-  local rows in the loader's own process); S14a/S14b/S14c and the three fault
-  components are declared but never executed - their rows assert the refusal or the
-  failure path, never a callback of theirs.
+  local rows in the loader's own process); S14a, S14c and the three fault components
+  are declared but never executed - their rows assert the refusal or the failure path,
+  never a callback of theirs. S14b is the two-armed row: with a hosting backend this
+  component's callbacks are logged by the spawned child that serves `:remote`, and with
+  no hosting backend all three placement calls are refused with the frozen message and
+  no process runs it. Either way the loader must never run it itself.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.atl.tests.service">
