@@ -1,8 +1,8 @@
 # Small compatibility contracts
 
 ATL-specific tests for its current storage mapping and absent Bluetooth backend,
-plus cancellation of the legacy single-file media provider. No user app data is
-used. `ATL_MEDIA_ROOT` must be unset to exercise the fallback provider.
+plus cancellation and persistence of the directory-based media provider. No user app data is
+used. `ATL_MEDIA_ROOT` must be unset to exercise the directory chooser.
 
 Build inside Alpine:
 
@@ -26,7 +26,7 @@ Contracts:
   null is rejected. Nonexistent descendants of the known root are accepted.
 - Both Bluetooth lookup APIs report no adapter; isEnabled exists for linkage.
 - Cancelled media selection returns no rows/type, and openFile throws instead
-  of dereferencing null. Selecting a test file restores usable metadata/opening.
+  of dereferencing null. Selecting a directory exposes indexed media files.
 - Cancelling a real GTK chooser releases the waiting query and returns no rows.
 
 Storage contract reference: AOSP android-17.0.0_r1,
@@ -54,3 +54,34 @@ before normal exit. Before the deferred-close fix the process exited early
 with status 0, so exit status alone is not an adequate assertion.
 Organic Maps now renders the downloaded world map and responds to panning;
 location permissions and visual styling remain incomplete.
+
+
+Directory/audio milestone:
+- Native folder selection persists a canonical directory per app. An explicit
+  ATL_MEDIA_ROOT overrides it. Cancelling does not choose a default directory or
+  repeatedly reopen the dialog during the same process.
+- Audio headers/tags are read with libavformat, without playback. Supported
+  extensions: mp3, flac, wav, ogg, opus, m4a, aac. Network protocols/playlists
+  are excluded. Unknown tags/durations remain unknown; display title falls back
+  to the filename. Audio tracks expose stable IDs and artist/album grouping IDs.
+- Existing image indexing, .nomedia/hidden/symlink filtering and read-only file
+  access remain in place. Audio cannot be opened using an images URI.
+- Global and per-track genre queries expose scanned genre tags. The per-track
+  URI follows AOSP frameworks/base commit af74e66,
+  core/java/android/provider/MediaStore.java (getContentUriForAudioId).
+- Separate albums/artists/playlists collection APIs are not implemented;
+  requesting them fails explicitly rather than returning track rows as albums.
+- No live filesystem observer or complete MediaScanner/MediaStore write API.
+  Queries on the UI thread return empty while the chooser is pending to avoid
+  deadlock; such clients may require refresh/restart after choosing a directory.
+- The native cancellation test and run-folder.sh use a private D-Bus session and
+  Xvfb. run-folder.sh BUILD APK FIXTURES OUTPUT selects the synthetic fixture
+  directory, then starts a second process and requires FOLDER_PROBE PASS in
+  both runs. Generate fixtures with tests/mobile-smoke/fixtures.py first.
+- mobile-smoke tests real WAV tags/duration, corrupt audio rejection, hidden and
+  symlink filtering, collection isolation, and reading bytes through content URI.
+  Actual Rhythm playback is not established: its media-session rejection is a
+  separate existing failure, and its GUI also has font/icon/layout defects.
+  With directory lookup and genre lookup working, Rhythm next terminates on
+  missing android.media.MediaExtractor in AudioFormatDetector. This milestone
+  does not implement extraction/playback or claim a working Rhythm library UI.

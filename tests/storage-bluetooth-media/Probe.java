@@ -50,7 +50,7 @@ public class Probe extends android.app.Activity {
             // Exercise the legacy provider without ATL_MEDIA_ROOT or a user chooser.
             Class<?> cls = Class.forName("android.atl.ATLMediaContentProvider");
             android.content.ContentProvider provider = (android.content.ContentProvider)cls.newInstance();
-            java.lang.reflect.Method selected = cls.getDeclaredMethod("setSelectedFile", String.class);
+            java.lang.reflect.Method selected = cls.getDeclaredMethod("setSelectedDirectory", String.class);
             selected.setAccessible(true);
             selected.invoke(provider, new Object[] { null });
             android.net.Uri uri = android.net.Uri.parse("content://media/external/images/media/0");
@@ -59,15 +59,6 @@ public class Probe extends android.app.Activity {
             check(provider.getType(uri) == null);
             try { provider.openFile(uri, "r"); throw new AssertionError("opened cancelled selection"); }
             catch (java.io.FileNotFoundException expected) {}
-            File file = new File(getFilesDir(), "probe.unknownextension");
-            new java.io.FileOutputStream(file).close();
-            selected.invoke(provider, file.getAbsolutePath());
-            check(provider.getType(uri) != null);
-            cursor = provider.query(uri, new String[]{"_id", "date_modified", "_size"}, null, null, null);
-            check(cursor.getCount() == 1); cursor.close();
-            provider.openFile(uri, "r").close();
-            selected.invoke(provider, new Object[] { null });
-            check(provider.getType(uri) == null);
             System.out.println("SMALL_COMPAT PASS");
             System.exit(0);
         } catch (Throwable t) {

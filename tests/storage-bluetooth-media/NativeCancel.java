@@ -10,9 +10,7 @@ public class NativeCancel extends android.app.Activity {
                 android.database.Cursor cursor = provider.query(
                     android.net.Uri.parse("content://media/external/images/media/123"),
                     new String[]{"_id", "_size"}, null, null, null);
-                java.lang.reflect.Field field = provider.getClass().getDeclaredField("selectedFile");
-                field.setAccessible(true);
-                if (cursor.getCount() != 0) throw new AssertionError("cancel must return no rows: selected=" + field.get(provider));
+                if (cursor.getCount() != 0) throw new AssertionError("cancel must return no rows");
                 cursor.close();
                 System.out.println("NATIVE_CANCEL PASS"); System.exit(0);
             } catch (Throwable t) { t.printStackTrace(); System.exit(1); }

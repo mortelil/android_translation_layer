@@ -21,7 +21,7 @@ if test "${TEST_NATIVE_CANCEL:-0}" = 1; then
     trap 'kill "$app" 2>/dev/null || true' EXIT INT TERM
     found=0
     for n in $(seq 1 60); do
-        id=$(xdotool search --onlyvisible --name '^Open Media File$' 2>/dev/null | head -1)
+        id=$(xdotool search --onlyvisible --name '^Choose Media Folder$' 2>/dev/null | head -1)
         if test -n "$id"; then
             sleep 1
             xdotool windowfocus --sync "$id" key --clearmodifiers Escape
