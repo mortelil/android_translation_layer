@@ -375,3 +375,54 @@ Not yet done (exact next actions, in order):
 4. A03 single-dispatch code-review evidence (grep: the only native -> Java
    lifecycle entry is controller_host_event), P11 classloader-probe rerun with
    the clean-diff assertion, A10 limitation note.
+
+## Session 6 (lane C) - generalized ATL baseline (A04 preparation)
+
+Commit `06e986d4` (branch lifecycle/activity): `atl_transform` in
+tests/lifecycle-probe/make_fixtures.py is now scenario-derived.
+
+- Every scenario that really launches a secondary Activity (S2, S4.1-S4.5,
+  S3D1, L-SNAP, L-REGD, L-EQUALS) gets the launcher ordering the controller
+  implements: ActA onPause -> ActB onCreate/onStart/onResume -> ActA onStop ->
+  ActB onPause -> ActA onRestart/onStart/onResume -> ActB onStop/onDestroy.
+  This is AOSP order (ActivityThread.handleLaunchActivity/handleStartActivity/
+  callActivityOnStop, TransactionExecutorHelper.getLifecyclePath), not a new
+  ATL divergence: the previous baseline modelled the RETIRED C dispatcher
+  (ActA onStop before the incoming create, no onRestart).
+- Extra groups are accepted by `compare_groups` -> `_validate_extra_group`
+  (framing phase, callback_map name, Bundle); manifests event lists unchanged.
+  Observer lists are taken from the scenario's own ActA#1 onResume group, so
+  L-SNAP keeps AppObs-VICT out, L-REGD includes AppObs-NEW and S4.3 keeps the
+  duplicate AppObs-C twice.
+- Preamble/S1, the FT-only scenarios and the terminal L-THROW prefix are
+  returned unchanged.
+- Regenerated artifacts: fixtures/baseline-atl.trace plus the derived fixtures
+  and cases.json; rationale in fixtures/baseline-atl.rationale.md; the
+  `cross_activity_ordering.divergence` prose in manifest.json updated.
+- `bash tests/lifecycle-probe/run_analyzer_selftests.sh` -> ANALYZER SELFTESTS
+  OK: 62/62 cases behaved as intended (includes the pinned-baseline trio).
+
+Not yet executed (the A04 real run). Exact next commands from this worktree:
+
+1. Build + sign the probe APK (inside the container; FRAMEWORK_RES must point
+   at the LANE framework-res):
+   `toolbox run --container atl_dev sh -lc "ATL_WORKSPACE=.../activity/env
+    ATL_PREFIX=.../activity/prefix ATL_BUILD_DIR=.../repo/build-mobile
+    FRAMEWORK_RES=.../repo/build-mobile/res/framework-res/framework-res.apk
+    sh /home/morten/ATL/lifecycle-foundation/activity/repo/tests/lifecycle-probe/build.sh
+    <OUTDIR>"`, then sign the aligned APK with
+   /home/morten/Android/Sdk/build-tools/37.0.0/apksigner on the host.
+2. Run it with the existing runner (it owns xvfb/dbus/marker polling and can
+   drive ATL's own close-request through ATL_UI_SCRIPT='wait:...;close:'):
+   `ATL_PROBE_SOURCE_DIR=<repo> ATL_PROBE_BUILD_DIR=<repo>/build-mobile \
+    ANDROID_APP_DATA_DIR=<lane-private dir> \
+    /home/morten/ATL/tools/run-atl-probe.sh <apk> <out> LIFE_ALL_DONE 300`
+   then poll/confirm TERMINAL_THROW_DONE, then collect files/trace.log.
+3. Splice + verify (the same algorithm as tests/acceptance.sh extract_trace):
+   `python3 tests/lifecycle-probe/verify_lifecycle.py \
+      tests/lifecycle-probe/fixtures/...-android-reference.trace <spliced-candidate.trace> \
+      tests/lifecycle-probe/fixtures/baseline-atl.trace`
+   Expected: exit 0 (OK, divergences pinned), a DIVERGENCE line per launching
+   scenario, and no BASELINE_MISMATCH. A non-zero exit with BASELINE_MISMATCH
+   means the controller ordering and the regenerated baseline disagree: fix the
+   controller or the transform, never the manifest.
