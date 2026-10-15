@@ -2,6 +2,8 @@
 package android.os;
 
 import java.io.*;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -21,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <ul>
  * <li>W1 peer identity from the established channel (SO_PEERCRED), never from
  * trust in message fields; the spawn path cross-checks the child.</li>
- * <li>W2 monotonic export handles plus the W-7 ACQUIRE / W-8 RELEASE
+ * <li>W2 monotonic export handles plus the transfer-credit / RELEASE
  * reference-lifetime protocol of §3 (in-flight references, proxy collection,
  * teardown, simultaneous release/death).</li>
  * <li>W3 receive-side adversarial validation: overflow-safe long-arithmetic
@@ -47,11 +49,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>Wire format (one SOCK_SEQPACKET record per message, ≤ 128 KiB, ≤ 64
  * descriptors per message, ≤ 4096 objects per connection):
  * <pre>
- *  int32 MAGIC 0x41544c31
+ *  int32 MAGIC 0x41544c32
  *  int32 id          correlation id (sender's sequence)
- *  int32 kind        0 call, 1 reply, 2 acquire (W-7), 3 release (W-8)
+ *  int32 kind        0 call, 1 reply, 2 reserved, 3 release
  *  int32 target      binder handle the call targets / handle being referenced
- *  int32 code        transaction code
+ *  int32 code        transaction code / released credit count
  *  int32 flags       IBinder flags; bit 0 FLAG_ONEWAY, bit 0 of a release asks
  *                    for an acknowledgement reply
  *  int64 callChain   reentrancy chain (pid&lt;&lt;32 | seq); 0 for oneway
@@ -65,27 +67,24 @@ import java.util.concurrent.atomic.AtomicInteger;
  *      descriptors arrive as SCM_RIGHTS of the same record
  * </pre>
  *
- * <p>Reference-lifetime protocol (§3, written before implementation — T12):
- * handles are never GC-inferred. A handle is allocated monotonically and never
+ * <p>Reference-lifetime protocol (wire version 2):
+ * handle identity is independent of garbage collection. A handle is allocated monotonically and never
  * retargeted, so a stale reference can never name a different object. The
- * sender of a message that carries one of its own binders follows it with
- * ACQUIRE(handle) while the handle is not yet referenced; the receiver pins
- * the proxy. When a side drops its last use of a proxy (explicit
- * {@link #drop(IBinder)}: dispatcher doForget / record teardown) it sends
- * RELEASE(handle), optionally asking for an acknowledgement; the owner removes
- * its exported entry once no in-flight message still resolves it. RELEASE or
- * ACQUIRE naming an unknown handle is a protocol fault and closes the link.
- * A holder only releases after every message that still referenced the handle;
- * the owner's in-flight bookkeeping covers the overlap. Process death closes
- * the connection: all proxies die (linkToDeath delivery), the exported table
- * is cleared and unclaimed descriptors are closed exactly once.
+ * sender of a message that carries one of its own binders accounts for
+ * reference credits in the data frame itself. The receiver records each credit before
+ * publishing a proxy. Proxies are weakly cached; app references, Parcels and active
+ * calls keep them alive. A ReferenceQueue releases the collected proxy's credits.
+ * Repeated transfers have separate credits, so collecting an old proxy cannot free
+ * a newly received reference to the same export. The root is pinned until close.
+ * RELEASE carries its credit count in code; acknowledgements wait for in-flight
+ * calls to drain. No GC or timing-dependent acquisition handshake is used.
  *
  * <p>Behavioral references: AOSP frameworks/base
  * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d (IBinder, Binder, Parcel transport
  * contracts). New transport code is original GPL-3.0-only ATL implementation.
  */
 public final class ATLBinderConnection {
-	private static final int MAGIC = 0x41544c31, LIMIT = 128 * 1024, MAX_OBJECTS = 4096, MAX_FDS = 64;
+	private static final int MAGIC = 0x41544c32, LIMIT = 128 * 1024, MAX_OBJECTS = 4096, MAX_FDS = 64;
 	private static final int KIND_CALL = 0, KIND_REPLY = 1, KIND_ACQUIRE = 2, KIND_RELEASE = 3;
 	private static final int FLAG_RELEASE_REPLY = 1;
 	private static final long DEADLINE_NANOS = deadlineNanos();
@@ -101,9 +100,15 @@ public final class ATLBinderConnection {
 	private int nextHandle;
 	private final IdentityHashMap<IBinder, Integer> exported = new IdentityHashMap<>();
 	private final HashMap<Integer, Export> objects = new HashMap<>();
-	private final HashMap<Integer, RemoteBinder> proxies = new HashMap<>();
-	/** Peer handles this side holds after ACQUIRE; makes RELEASE exactly-once. */
-	private final HashSet<Integer> acquired = new HashSet<>();
+	private final HashMap<Integer, ProxyReference> proxies = new HashMap<>();
+	private final HashSet<ProxyReference> proxyReferences = new HashSet<>();
+	private final ReferenceQueue<RemoteBinder> collectedProxies = new ReferenceQueue<>();
+	/** One credit per received positive reference; never retains its proxy. */
+	private final class ProxyReference extends WeakReference<RemoteBinder> {
+		final int id;
+		int credits;
+		ProxyReference(RemoteBinder binder) { super(binder, collectedProxies); id = binder.id; }
+	}
 	private final HashMap<Integer, Pending> pending = new HashMap<>();
 	private final HashMap<Long, Pending> waiting = new HashMap<>();
 	private final ThreadLocal<Long> chain = new ThreadLocal<>();
@@ -157,8 +162,10 @@ public final class ATLBinderConnection {
 	/** Owner-side state of an exported binder (§3 reference lifetime). */
 	private static final class Export {
 		final IBinder binder;
-		/** Set while the peer holds a reference (ACQUIRE sent/received). */
-		boolean referenced;
+		/** Outstanding transfer credits, including the permanent root credit. */
+		int references;
+		boolean permanent;
+		final ArrayList<Integer> releaseAcks = new ArrayList<>();
 		/** Messages of ours still resolving this handle (target or ref &lt; 0). */
 		int inFlight;
 		/** RELEASE seen; the entry goes away once inFlight drains. */
@@ -188,7 +195,8 @@ public final class ATLBinderConnection {
 		this.peerPid = resolvePeerPid(peerPid);
 		if (root != null) {
 			export(root); // Root has handle 1, permanently referenced by the peer.
-			objects.get(1).referenced = true;
+			objects.get(1).references = 1; // permanent root credit
+			objects.get(1).permanent = true;
 		}
 	}
 	/**
@@ -227,6 +235,18 @@ public final class ATLBinderConnection {
 		Thread reader = new Thread(new Runnable() { public void run() { readLoop(); } }, "ATL-Binder-reader");
 		reader.setDaemon(true);
 		reader.start();
+		Thread collector = new Thread(new Runnable() { public void run() {
+			while (alive) {
+				try {
+					ProxyReference ref = (ProxyReference)collectedProxies.remove(1000);
+					if (ref != null) releaseProxy(ref, false);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt(); return;
+				} catch (Exception e) { close(); }
+			}
+		} }, "ATL-Binder-references");
+		collector.setDaemon(true);
+		collector.start();
 	}
 	public void onDeath(Runnable listener) {
 		synchronized (this) {
@@ -238,18 +258,34 @@ public final class ATLBinderConnection {
 		listener.run();
 	}
 	public synchronized IBinder remote(int id) {
-		RemoteBinder result = proxies.get(id);
+		if (id <= 0) throw new IllegalArgumentException("Invalid Binder handle");
+		ProxyReference ref = proxies.get(id);
+		RemoteBinder result = ref == null ? null : ref.get();
 		if (result == null) {
+			if (ref == null && proxies.size() >= MAX_OBJECTS)
+				throw new IllegalStateException("ATL IPC proxy limit reached");
 			result = new RemoteBinder(id);
-			proxies.put(id, result);
+			ProxyReference fresh = new ProxyReference(result);
+			proxies.put(id, fresh);
+			proxyReferences.add(fresh);
 		}
 		return result;
+	}
+	/** Publish ownership before any worker or waiting caller can see the proxy. */
+	private synchronized IBinder receiveReference(int id) {
+		IBinder binder = remote(id);
+		ProxyReference ref = proxies.get(id);
+		if (ref.credits == Integer.MAX_VALUE) throw new IllegalStateException("Binder reference overflow");
+		++ref.credits;
+		return binder;
 	}
 	private synchronized int export(IBinder binder) {
 		Integer id = exported.get(binder);
 		if (id == null) {
 			if (objects.size() >= MAX_OBJECTS)
 				throw new IllegalStateException("ATL IPC object limit reached");
+			if (nextHandle == Integer.MAX_VALUE)
+				throw new IllegalStateException("ATL IPC handle space exhausted");
 			id = ++nextHandle; // W2: monotonic; never size()+1 reuse after removal.
 			Export state = new Export(binder);
 			exported.put(binder, id);
@@ -260,6 +296,7 @@ public final class ATLBinderConnection {
 	private int reference(IBinder binder) {
 		if (binder instanceof RemoteBinder) {
 			RemoteBinder remote = (RemoteBinder)binder;
+			if (remote.released) throw new IllegalStateException("Released Binder proxy");
 			if (remote.connection() != this)
 				throw new UnsupportedOperationException("Binder forwarding between ATL connections is not supported");
 			return -remote.id;
@@ -267,27 +304,37 @@ public final class ATLBinderConnection {
 		return export(binder);
 	}
 	/**
-	 * Drops this side's last use of a remote proxy and releases the peer's
-	 * export (§3). Deterministic transport-internal trigger for the service
-	 * dispatcher's doForget/record teardown; never GC-inferred.
+	 * Test-only deterministic release of a proxy. Ordinary app ownership is
+	 * handled by ProxyReference and its queue: unbind must not invalidate a
+	 * proxy the app still holds. This seam deliberately invalidates its argument.
 	 *
 	 * @param waitForAcknowledgement block until the owner confirms removal
 	 */
 	void drop(IBinder proxy, boolean waitForAcknowledgement) throws DeadObjectException {
-		final int handle;
-		RemoteBinder remote = (RemoteBinder)proxy;
-		if (remote == null || remote.connection() != this)
+		if (!(proxy instanceof RemoteBinder) || ((RemoteBinder)proxy).connection() != this)
 			throw new IllegalArgumentException("Not a proxy of this connection");
+		ProxyReference ref;
 		synchronized (this) {
-			if (!acquired.remove(remote.id))
-				return; // never referenced here, or already released exactly once
-			proxies.remove(remote.id);
-			handle = remote.id;
+			ref = proxies.get(((RemoteBinder)proxy).id);
+			if (ref == null || ref.get() != proxy) return;
+			((RemoteBinder)proxy).released = true;
+		}
+		releaseProxy(ref, waitForAcknowledgement);
+	}
+	private void releaseProxy(ProxyReference ref, boolean waitForAcknowledgement) throws DeadObjectException {
+		final int handle = ref.id;
+		final int credits;
+		synchronized (this) {
+			proxyReferences.remove(ref);
+			credits = ref.credits;
+			ref.credits = 0;
+			if (proxies.get(handle) == ref) proxies.remove(handle);
+			if (credits == 0 || !alive) return;
 		}
 		int id = sequence.getAndIncrement();
 		if (!waitForAcknowledgement) {
 			try {
-				sendControl(id, KIND_RELEASE, handle, 0);
+				sendMessage(id, KIND_RELEASE, handle, credits, 0, 0, 0, null);
 			} catch (IOException | RuntimeException e) {
 				close(); // the link is the only way to release; without it we die
 			}
@@ -300,7 +347,7 @@ public final class ATLBinderConnection {
 			pending.put(id, call);
 		}
 		try {
-			sendControl(id, KIND_RELEASE, handle, FLAG_RELEASE_REPLY);
+			sendMessage(id, KIND_RELEASE, handle, credits, FLAG_RELEASE_REPLY, 0, 0, null);
 			synchronized (call) {
 				long deadline = System.nanoTime() + DEADLINE_NANOS;
 				while (!call.done) {
@@ -325,20 +372,14 @@ public final class ATLBinderConnection {
 			}
 		}
 	}
-	private void sendControl(int id, int kind, int handle, int flags) throws IOException {
-		sendMessage(id, kind, handle, 0, flags, 0, 0, null);
-	}
-	/** Wire id for {@code binder} inside an outbound message, remembering handles whose ACQUIRE must follow it. */
-	private int referenceOutbound(IBinder binder, ArrayList<Integer> announce) {
+	/** Each outbound occurrence owns a credit until its receiving proxy is collected. */
+	private synchronized int referenceOutbound(IBinder binder) {
 		int handle = reference(binder);
 		if (handle > 0) {
-			synchronized (this) {
-				Export state = objects.get(handle);
-				if (state != null && !state.referenced) {
-					state.referenced = true;
-					announce.add(handle);
-				}
-			}
+			Export state = objects.get(handle);
+			if (state.references == Integer.MAX_VALUE) throw new IllegalStateException("Binder reference overflow");
+			++state.references;
+			state.released = false;
 		}
 		return handle;
 	}
@@ -359,34 +400,36 @@ public final class ATLBinderConnection {
 		out.writeInt(data.length);
 		out.write(data);
 		IBinder[] binders = parcel == null ? new IBinder[0] : parcel.atlBinders();
-		ArrayList<Integer> announce = new ArrayList<>();
-		out.writeInt(binders.length);
-		for (IBinder binder : binders)
-			out.writeInt(referenceOutbound(binder, announce));
-		int[] positions = parcel == null ? new int[0] : parcel.atlFdPositions();
-		out.writeInt(positions.length);
-		for (int position : positions)
-			out.writeInt(position);
-		int[] fds = parcel == null ? new int[0] : parcel.atlFds();
-		if (bytes.size() > LIMIT)
-			throw new IOException("ATL IPC transaction exceeds 128 KiB");
-		synchronized (output) {
-			if (!alive)
-				throw new IOException("ATL IPC peer is dead");
-			send(fd, bytes.toByteArray(), fds);
-		}
-		// W2 (§3): the first send of a handle pins it on the peer. ACQUIRE
-		// follows its message on this ordered channel, so the peer's pin always
-		// exists before it can possibly drop the proxy.
-		for (int handle : announce) {
-			try {
-				sendControl(sequence.getAndIncrement(), KIND_ACQUIRE, handle, 0);
-			} catch (IOException | RuntimeException e) {
-				close();
-				throw new IOException("ATL IPC peer is dead", e);
+		try {
+			out.writeInt(binders.length);
+			for (IBinder binder : binders)
+				out.writeInt(referenceOutbound(binder));
+			int[] positions = parcel == null ? new int[0] : parcel.atlFdPositions();
+			out.writeInt(positions.length);
+			for (int position : positions)
+				out.writeInt(position);
+			int[] fds = parcel == null ? new int[0] : parcel.atlFds();
+			if (bytes.size() > LIMIT)
+				throw new IOException("ATL IPC transaction exceeds 128 KiB");
+			synchronized (output) {
+				if (!alive)
+					throw new IOException("ATL IPC peer is dead");
+				try { send(fd, bytes.toByteArray(), fds); }
+				finally {
+					// In particular, returned (negative) proxy references must not be
+					// collected and RELEASEd before this frame is on the wire.
+					synchronized (binders) { /* Java 8 reachability fence. */ }
+				}
 			}
+		} catch (IOException | RuntimeException e) {
+			// Some transfer credits may already be reserved. Once sending fails,
+			// closing the channel releases all ownership on both ends; never
+			// leave a partially published export pinned on a usable connection.
+			close();
+			throw e;
 		}
 	}
+
 	private boolean transact(int target, int code, Parcel data, Parcel reply, int flags) {
 		int id = sequence.getAndIncrement();
 		Long previous = chain.get();
@@ -501,10 +544,10 @@ public final class ATLBinderConnection {
 					pinned = new int[refs.length + 1];
 					for (int i = 0; i < refs.length; ++i) {
 						int ref = refs[i];
-						if (ref > MAX_OBJECTS || ref < -MAX_OBJECTS)
+						if (ref == 0 || ref == Integer.MIN_VALUE)
 							throw new IOException("Invalid ATL Binder handle");
 						if (ref > 0) {
-							binders[i] = remote(ref);
+							binders[i] = receiveReference(ref);
 							continue;
 						}
 						IBinder local = pinLocal(-ref);
@@ -520,7 +563,7 @@ public final class ATLBinderConnection {
 					}
 					switch (kind) {
 					case KIND_CALL: {
-						if (target > MAX_OBJECTS || target <= 0)
+						if (target <= 0)
 							throw new IOException("Invalid ATL Binder target");
 						IBinder local = pinLocal(target);
 						if (local == null)
@@ -530,6 +573,7 @@ public final class ATLBinderConnection {
 						// atlReceive validates the whole descriptor table
 						// (bounds and 4-byte stride overlap) before patching.
 						parcel.atlReceive(data, binders, positions, Arrays.copyOfRange(received, 1, count + 1));
+						Arrays.fill(binders, null); // the Parcel owns them; the blocked reader must not
 						received[0] = 0;
 						final Parcel request = parcel;
 						parcel = null;
@@ -565,6 +609,7 @@ public final class ATLBinderConnection {
 					case KIND_REPLY: {
 						parcel = Parcel.obtain();
 						parcel.atlReceive(data, binders, positions, Arrays.copyOfRange(received, 1, count + 1));
+						Arrays.fill(binders, null); // the Parcel owns them; the blocked reader must not
 						received[0] = 0;
 						Pending call;
 						synchronized (this) { call = pending.get(id); }
@@ -582,29 +627,26 @@ public final class ATLBinderConnection {
 						// peer's RELEASE arrives.
 						break;
 					}
-					case KIND_ACQUIRE: {
-						if (target <= 0 || target > MAX_OBJECTS)
-							throw new IOException("Invalid ATL IPC acquire handle");
-						synchronized (this) {
-							if (!proxies.containsKey(target))
-								throw new IOException("ATL IPC acquire for unknown handle");
-							acquired.add(target);
-						}
-						break;
-					}
+					case KIND_ACQUIRE:
+						throw new IOException("Obsolete ATL IPC acquire frame");
 					case KIND_RELEASE: {
-						if (target <= 0 || target > MAX_OBJECTS)
-							throw new IOException("Invalid ATL IPC release handle");
-						boolean removed;
+						if (target <= 0 || code <= 0)
+							throw new IOException("Invalid ATL IPC release");
+						boolean deferred = false;
 						synchronized (this) {
 							Export state = objects.get(target);
-							if (state == null)
-								throw new IOException("ATL IPC release for unknown handle");
-							state.referenced = false;
-							state.released = true;
-							removed = removeIfDrained(target, state);
+							int floor = state != null && state.permanent ? 1 : 0;
+							if (state == null || code > state.references - floor)
+								throw new IOException("ATL IPC release exceeds references");
+							state.references -= code;
+							state.released = state.references == 0;
+							if (state.released && state.inFlight > 0 && (flags & FLAG_RELEASE_REPLY) != 0) {
+								state.releaseAcks.add(id);
+								deferred = true;
+							}
+							removeIfDrained(target, state);
 						}
-						if ((flags & FLAG_RELEASE_REPLY) != 0 && removed)
+						if ((flags & FLAG_RELEASE_REPLY) != 0 && !deferred)
 							sendMessage(id, KIND_REPLY, 0, 0, 0, 0, 1, null);
 						break;
 					}
@@ -649,19 +691,26 @@ public final class ATLBinderConnection {
 		}
 	}
 	private void releasePins(int[] pinned, int pins) {
-		if (pins == 0)
-			return;
+		ArrayList<Integer> acknowledgements = new ArrayList<>();
 		synchronized (this) {
 			for (int i = 0; i < pins; ++i) {
 				int handle = pinned[i];
 				Export state = objects.get(handle);
-				if (state != null && --state.inFlight == 0 && state.released)
-					removeIfDrained(handle, state);
+				if (state != null && --state.inFlight == 0) {
+					acknowledgements.addAll(state.releaseAcks);
+					state.releaseAcks.clear();
+					if (state.released) removeIfDrained(handle, state);
+				}
 			}
+		}
+		// Never hold the object-table monitor while writing to the socket.
+		for (int id : acknowledgements) {
+			try { sendMessage(id, KIND_REPLY, 0, 0, 0, 0, 1, null); }
+			catch (IOException | RuntimeException e) { close(); }
 		}
 	}
 	private boolean removeIfDrained(int handle, Export state) {
-		if (state.referenced || state.inFlight > 0)
+		if (state.references > 0 || state.inFlight > 0)
 			return false;
 		objects.remove(handle);
 		exported.remove(state.binder);
@@ -828,11 +877,15 @@ public final class ATLBinderConnection {
 				}
 			listeners = new ArrayList<>(deathListeners);
 			deathListeners.clear();
-			binders = new ArrayList<>(proxies.values());
+			binders = new ArrayList<>();
+			for (ProxyReference ref : proxies.values()) {
+				RemoteBinder binder = ref.get();
+				if (binder != null) binders.add(binder);
+			}
 			objects.clear();
 			exported.clear();
 			proxies.clear();
-			acquired.clear();
+			proxyReferences.clear();
 		}
 		// These dispatchers see !alive and only recycle their received Parcels.
 		for (Runnable callback : abandoned)
@@ -874,11 +927,16 @@ public final class ATLBinderConnection {
 	}
 	private final class RemoteBinder implements IBinder {
 		final int id;
+		volatile boolean released;
 		final ArrayList<DeathRecipient> recipients = new ArrayList<>();
 		RemoteBinder(int id) { this.id = id; }
 		ATLBinderConnection connection() { return ATLBinderConnection.this; }
 		public IInterface queryLocalInterface(String descriptor) { return null; }
-		public boolean transact(int code, Parcel data, Parcel reply, int flags) { return ATLBinderConnection.this.transact(id, code, data, reply, flags); }
+		public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+			if (released) return raise(new DeadObjectException("Released Binder proxy"));
+			try { return ATLBinderConnection.this.transact(id, code, data, reply, flags); }
+			finally { synchronized (this) { /* Java 8 reachability fence through call completion. */ } }
+		}
 		public String getInterfaceDescriptor() {
 			Parcel reply = Parcel.obtain();
 			try {
@@ -888,13 +946,13 @@ public final class ATLBinderConnection {
 				reply.recycle();
 			}
 		}
-		public boolean isBinderAlive() { return alive; }
-		public boolean pingBinder() { return alive; }
+		public boolean isBinderAlive() { return alive && !released; }
+		public boolean pingBinder() { return isBinderAlive(); }
 		public void linkToDeath(DeathRecipient recipient, int flags) throws RemoteException {
 			if (recipient == null)
 				throw new NullPointerException();
 			synchronized (ATLBinderConnection.this) {
-				if (!alive)
+				if (!alive || released)
 					throw new DeadObjectException();
 				recipients.add(recipient);
 			}

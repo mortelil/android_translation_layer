@@ -64,6 +64,9 @@ public class Parcel {
 		for (int fd : ownedFds)
 			ATLBinderConnection.closeFd(fd);
 		ownedFds = new int[0];
+		binders = null;
+		fdPositions.clear();
+		hasFileDescriptors = false;
 	}
 	IBinder[] atlBinders() { return binders == null ? new IBinder[0] : binders.toArray(new IBinder[0]); }
 	int[] atlFdPositions() {
@@ -116,6 +119,7 @@ public class Parcel {
 		size = source.size;
 		pos = 0;
 		binders = source.binders;
+		source.binders = null;
 		hasFileDescriptors = source.hasFileDescriptors;
 		ownedFds = source.ownedFds;
 		source.ownedFds = new int[0];

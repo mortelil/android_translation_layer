@@ -146,6 +146,8 @@ public class TransportProbe extends Activity implements Frames.Sink {
 			t07FdTransfer(child);
 			t11HandleChurn(child, orderProxy);
 			t10DeathWake(child);
+			LifetimeProbe.run();
+			probeEvent("t11-lifetime-ownership", "pass=1;transfers=4224;publication=1;deferredAck=1;parcelOwner=1");
 
 			Child child2 = spawnChild(":transport-child2", callback, 90000);
 			t12ReleaseVsDeathRace(child2);

@@ -52,7 +52,7 @@ PROBE_CASES = [
     "t04-oneway-order", "t05-failure-distinction", "t06-peer-identity",
     "t06-forged-identity", "t07-fd-transfer", "t09-saturation-deadline",
     "t09b-close-under-load",
-    "t10-death-wake", "t11-handle-churn", "t12-release-vs-death-race",
+    "t10-death-wake", "t11-handle-churn", "t11-lifetime-ownership", "t12-release-vs-death-race",
 ]
 RED_CASES = [
     ("redlink:red-concurrent", "RED"), ("redlink:red-oneway", "RED"),

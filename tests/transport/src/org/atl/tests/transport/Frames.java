@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
  * Port of the Firefox local-service-probe IpcFrames battery (Firefox b51e45f,
  * tests/local-service-probe/src/org/atl/tests/svc/IpcFrames.java, GPL-3.0-only;
  * reuse-ledger R09/R20) re-encoded for the PR31-family wire format of
- * ATLBinderConnection (MAGIC 0x41544c31, kind/target/code/flags/callChain/
+ * ATLBinderConnection (MAGIC 0x41544c32, kind/target/code/flags/callChain/
  * status header, binder-ref table, descriptor-position table; architecture
  * §2). The Firefox parser itself is not copied - the INVARIANTS are, and the
  * decoder under test is the production readLoop reached over a real
@@ -525,7 +525,7 @@ final class Frames {
 
 	private byte[] cutRecord(int length) {
 		byte[] record = new byte[length];
-		putInt(record, 0, 0x41544c31);
+		putInt(record, 0, 0x41544c32);
 		return record;
 	}
 
@@ -564,7 +564,7 @@ final class Frames {
 		int length = lengthOverride == null ? body.length : lengthOverride.intValue();
 		int total = 36 + 4 + body.length + 4 + 4 + 4 * positions.length;
 		byte[] record = new byte[total];
-		putInt(record, 0, 0x41544c31);          // MAGIC
+		putInt(record, 0, 0x41544c32);          // MAGIC
 		putInt(record, 4, ++caseSeq);           // id
 		putInt(record, 8, KIND_CALL);           // kind
 		putInt(record, 12, target);             // target (root = 1)
@@ -601,7 +601,7 @@ final class Frames {
 
 	private static byte[] staticRecord(int code, long callChain, int target, byte[] body) {
 		byte[] record = new byte[48 + body.length];
-		putInt(record, 0, 0x41544c31);
+		putInt(record, 0, 0x41544c32);
 		putInt(record, 4, 900000);
 		putInt(record, 8, KIND_CALL);
 		putInt(record, 12, target);

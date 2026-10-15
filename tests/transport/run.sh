@@ -1,48 +1,27 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-#
-# TRN-011/TRN-014 transport battery runner (HOST side).
-#
-# Wraps the shared lane probe runner so the battery runs exactly like the
-# other lane evidence: this lane's repo/build-mobile/prefix, dbus session +
-# Xvfb through the loader's own run path, logs captured under the lane
-# evidence directory, results.json collected from the app files dir.
-#
-#   /home/morten/ATL/lifecycle-foundation/transport/repo/tests/transport/run.sh \
-#     /path/to/transport-probe-aligned.apk [EVIDENCE_DIR]
-#
-# Environment:
-#   ATL_IPC_TIMEOUT_MS  forwarded into the app (deadline of every wait);
-#                       default 30000. The T09 timeout case always uses
-#                       deadlineMs + 3s as its server delay, so any value
-#                       >= 1000 works.
+# Inside Alpine: run.sh BUILD_DIR SIGNED_APK NEW_OUTPUT_DIR
+# Uses only this checkout and the caller's ATL_PREFIX/ATL_CORE_JAR runtime.
 set -eu
-if [ "$#" -lt 1 ]; then
-	printf 'Usage: %s APK [EVIDENCE_DIR]\n' "$0" >&2
-	exit 2
-fi
-apk=$(realpath "$1")
-lane_root=${ATL_LANE_ROOT:-/home/morten/ATL/lifecycle-foundation}
-evidence=${2:-$lane_root/transport}
-mkdir -p "$evidence" "$lane_root/transport/data/apps" "$lane_root/transport/data/cache"
-: "${ATL_IPC_TIMEOUT_MS:=30000}"
-export ATL_IPC_TIMEOUT_MS
-export ATL_LANE_ROOT="$lane_root"
-export ATL_LANE=transport
-export ATL_PROBE_ENV=ATL_IPC_TIMEOUT_MS
-here=$(dirname "$0")
-results="$evidence/app-results.json"
-rc=0
-/home/morten/ATL/parallel-apps/tools/run-atl-probe-lane.sh \
-	"$apk" "$evidence" 'TRANSPORT BATTERY PASSED' 900 || rc=$?
-# The probe's own markers are not the verdict: re-derive every required row
-# from the collected results file so a silently dropped or mislabelled row
-# cannot pass as evidence.
-if [ -f "$results" ]; then
-	printf '\n--- independent result verification ---\n'
-	python3 "$here/verify_transport_frames.py" "$results" || rc=$?
-else
-	printf 'no results file at %s\n' "$results" >&2
-	rc=1
-fi
-exit $rc
+test "$#" -eq 3 || { echo 'Usage: run.sh BUILD_DIR APK NEW_OUTPUT_DIR' >&2; exit 2; }
+atl_repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+export ATL_BUILD_DIR=$(realpath "$1")
+apk=$(realpath "$2")
+mkdir -p "$3"
+out=$(realpath "$3")
+test ! -e "$out/stdout.log" || { echo 'Use a new output directory; refusing stale evidence' >&2; exit 2; }
+. "$atl_repo/scripts/mobile/environment.sh"
+export ANDROID_APP_DATA_DIR="$out/data" XDG_CACHE_HOME="$out/cache"
+export ATL_IPC_TIMEOUT_MS=3000
+mkdir -p "$ANDROID_APP_DATA_DIR" "$XDG_CACHE_HOME"
+seconds=${ATL_TEST_TIMEOUT:-180}
+setsid timeout "$seconds" dbus-run-session -- xvfb-run -a sh "$atl_repo/scripts/mobile/run.sh" "$apk" > "$out/stdout.log" 2> "$out/stderr.log" &
+pid=$!
+trap 'kill -TERM -- "-$pid" 2>/dev/null || true' EXIT HUP INT TERM
+n=0
+while kill -0 "$pid" 2>/dev/null && [ "$n" -lt "$seconds" ]; do
+    if grep -aq 'TRANSPORT BATTERY PASSED' "$out/stdout.log"; then break; fi
+    sleep 1; n=$((n + 1))
+done
+grep -aq 'TRANSPORT BATTERY PASSED' "$out/stdout.log" || { tail -40 "$out/stdout.log"; exit 1; }
+python3 "$atl_repo/tests/transport/verify_transport_frames.py" "$out/data/$(basename "$apk")_/files/results.json"

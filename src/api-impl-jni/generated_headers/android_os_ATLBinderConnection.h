@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 #undef android_os_ATLBinderConnection_MAGIC
-#define android_os_ATLBinderConnection_MAGIC 1096043569L
+#define android_os_ATLBinderConnection_MAGIC 1096043570L
 #undef android_os_ATLBinderConnection_LIMIT
 #define android_os_ATLBinderConnection_LIMIT 131072L
 #undef android_os_ATLBinderConnection_MAX_OBJECTS
