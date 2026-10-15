@@ -14,5 +14,8 @@ public class ActA extends Base {
 
 	void startR() { startActivity(new Intent(this, ActR.class).putExtra("app", "v1")); }
 
+	/** A05: the recreate-from-inside-onResume scenario (ActQ instance #1). */
+	void startQ() { startActivity(new Intent(this, ActQ.class)); }
+
 	void startB(String req) { startActivity(new Intent(this, ActB.class).putExtra("req", req)); }
 }

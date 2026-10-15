@@ -17,20 +17,23 @@ import java.util.List;
  * stays distinct from lifecycle), A07 (navigation/result/new-intent) and
  * A08/A09 (restored state, targetSdk-ordered save).
  *
- * The driver runs entirely on the main looper from Activity.onResume; every
- * step is a queued transaction in ATL, so each action is posted with a short
- * delay instead of being re-entered from inside the callback.
+ * The driver runs entirely on the main looper from Activity.onResume; nearly
+ * every step is a queued transaction in ATL, so its action is posted with a
+ * short delay instead of being re-entered from inside the callback. Step S5 is
+ * the deliberate exception: ActQ instance #1 calls recreate() synchronously
+ * inside its own onResume, so the queued relaunch transaction must not re-enter
+ * the in-flight resume (A05).
  */
 public class Probe extends Application implements Application.ActivityLifecycleCallbacks {
 	static final String PKG = "org.atl.tests.activity.probe";
-	static final String PROBE_ID = "atl-activity-seam-probe-v1";
+	static final String PROBE_ID = "atl-activity-seam-probe-v2";
 
 	private static Probe instance;
 	private static Trace trace;
 
 	private final Handler main = new Handler(Looper.getMainLooper());
 
-	private int step;          // 0 = idle, 1..4 = running, 5 = done
+	private int step;          // 0 = idle, 1..5 = running, 6 = done
 	private int mark;          // trace index at the start of the current step
 	private boolean finished;
 
@@ -64,6 +67,10 @@ public class Probe extends Application implements Application.ActivityLifecycleC
 	private String bTag = "<none>";
 	private int bNewIntents, bResumes;
 	private String bNewIntentExtra = "<none>", bRecordIntentExtra = "<none>";
+
+	// S5 (A05: recreate() issued from inside ActQ#1's own onResume)
+	private String q1Tag = "<none>", q2Tag = "<none>";
+	private boolean qEvaluated;
 
 	public static Trace trace() { return trace; }
 	public static Probe get() { return instance; }
@@ -104,6 +111,7 @@ public class Probe extends Application implements Application.ActivityLifecycleC
 			if (b instanceof ActA) onA((ActA) b);
 			else if (b instanceof ActB) onB((ActB) b);
 			else if (b instanceof ActR) onR((ActR) b);
+			else if (b instanceof ActQ) onQ((ActQ) b);
 		} catch (Throwable t) {
 			trace.recordException("driver " + t);
 		}
@@ -140,7 +148,7 @@ public class Probe extends Application implements Application.ActivityLifecycleC
 		if (step == 1) { endStep1(a); return; }
 		if (step == 2) { endStep2(a); return; }
 		if (step == 3) { endStep3(a); return; }
-		if (step == 4) { endStep4(); return; }
+		if (step == 4) { endStep4(a); return; }
 	}
 
 	private void onB(final ActB b) {
@@ -371,7 +379,7 @@ public class Probe extends Application implements Application.ActivityLifecycleC
 		later(new Runnable() { @Override public void run() { a.startB("orig"); } });
 	}
 
-	private void endStep4() {
+	private void endStep4(final ActA a) {
 		List<String> bTags = trace.tagsCreated(mark, trace.size(), "ActB");
 		trace.check("A07-new-intent-single-instance", bTags.size() == 1, "ActB instances=" + bTags);
 		trace.check("A07-new-intent-delivered-once", bNewIntents == 1, "onNewIntent count=" + bNewIntents);
@@ -385,7 +393,86 @@ public class Probe extends Application implements Application.ActivityLifecycleC
 			+ " onResume=" + trace.countPre(mark, trace.size(), bTag, "onResume")
 			+ " onNewIntent=" + trace.countPre(mark, trace.size(), bTag, "onNewIntent"));
 		trace.scenEnd("S4-NEW-INTENT");
+		// Step 5: the launcher stops first (exactly as it does when ActC/ActR
+		// start); ActQ#1 then calls recreate() from inside its own onResume.
 		step = 5;
+		trace.scenBegin("S5-RECREATE-IN-CALLBACK");
+		mark = trace.size();
+		later(new Runnable() { @Override public void run() { a.startQ(); } });
+	}
+
+	// S5 ---------------------------------------- recreate from inside onResume
+
+	/**
+	 * Driver side of ActQ. Its first notification is the instance whose resume
+	 * is still on the stack (Base.onResume notifies after super.onResume(), and
+	 * ActQ then calls recreate() in that same frame). The second, DIFFERENT
+	 * instance is the relaunched one; once it resumes, the A05 window can be
+	 * judged.
+	 */
+	private void onQ(final ActQ q) {
+		if (step != 5) return;
+		if ("<none>".equals(q1Tag)) {
+			q1Tag = q.tag;
+			trace.info("S5-Q1-resumed", q1Tag
+				+ " inCallbackRecreator=" + q.inCallbackRecreator()
+				+ " (recreate() follows super.onResume() in this frame)");
+			return;
+		}
+		if (q.tag.equals(q1Tag) || qEvaluated) return;
+		q2Tag = q.tag;
+		qEvaluated = true;
+		trace.info("S5-Q2-resumed", q2Tag);
+
+		final int end = trace.size();
+		int oldResumes = trace.countPre(mark, end, q1Tag, "onResume");
+		int oldDestroys = trace.countPre(mark, end, q1Tag, "onDestroy");
+		int newCreates = trace.countPre(mark, end, q2Tag, "onCreate");
+		int newResumes = trace.countPre(mark, end, q2Tag, "onResume");
+
+		trace.check("A05-incallback-recreate-distinct-instance", !q1Tag.equals(q2Tag),
+			"old=" + q1Tag + " new=" + q2Tag);
+		trace.check("A05-incallback-recreate-old-resumed-once", oldResumes == 1,
+			"old onResume count=" + oldResumes + " (" + q1Tag + ")");
+		trace.check("A05-incallback-recreate-old-destroyed-once", oldDestroys == 1,
+			"old onDestroy count=" + oldDestroys + " (" + q1Tag + ")");
+		trace.check("A05-incallback-recreate-new-created-once", newCreates == 1,
+			"new onCreate count=" + newCreates + " (" + q2Tag + ")");
+		trace.check("A05-incallback-recreate-new-resumed-once", newResumes == 1,
+			"new onResume count=" + newResumes + " (" + q2Tag + ")");
+
+		// Not re-entrant: the old instance's onResume must have RETURNED (its
+		// post-super line, which is its last onResume event in this window)
+		// before its own teardown and before the new instance is created. A
+		// queued relaunch re-entering the in-flight resume would put onPause /
+		// the new onCreate before that post line.
+		int q1ResumePost = trace.lastIndex(mark, end, q1Tag, "onResume");
+		int q1Pause = trace.firstPre(mark, q1Tag, "onPause");
+		int q2Create = trace.firstPre(mark, q2Tag, "onCreate");
+		trace.check("A05-incallback-recreate-not-reentrant",
+			q1ResumePost >= 0 && q1Pause > q1ResumePost && q2Create > q1ResumePost,
+			"old.onResume.post=" + q1ResumePost + " old.onPause=" + q1Pause
+			+ " new.onCreate=" + q2Create + " (required: post < old.onPause and post < new.onCreate)");
+
+		final String[] oneEach = {"onCreate", "onStart", "onResume", "onPause", "onStop", "onDestroy"};
+		StringBuilder counts = new StringBuilder();
+		boolean clean = true;
+		for (String e : oneEach) {
+			int n = trace.countPre(mark, end, q1Tag, e);
+			if (n != 1) clean = false;
+			counts.append(q1Tag).append(':').append(e).append('=').append(n).append(' ');
+		}
+		for (String e : new String[] {"onCreate", "onStart", "onResume"}) {
+			int n = trace.countPre(mark, end, q2Tag, e);
+			if (n != 1) clean = false;
+			counts.append(q2Tag).append(':').append(e).append('=').append(n).append(' ');
+		}
+		trace.check("A05-incallback-recreate-no-double-transition", clean,
+			counts.toString().trim());
+
+		trace.info("S5-lifecycle-window", String.valueOf(trace.lifecycleEvents(mark, end)));
+		trace.scenEnd("S5-RECREATE-IN-CALLBACK");
+		step = 6;
 		finishProbe();
 	}
 

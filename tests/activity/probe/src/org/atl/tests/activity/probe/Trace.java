@@ -92,6 +92,19 @@ final class Trace {
 		return -1;
 	}
 
+	/**
+	 * Index of the LAST event >= from and < to with (activity tag, event), any
+	 * phase, else -1. Used to reach a callback's post-super line (A05
+	 * in-callback recreate), which {@link #firstPre} cannot express.
+	 */
+	synchronized int lastIndex(int from, int to, String tag, String event) {
+		for (int i = Math.min(to, evs.size()) - 1; i >= Math.max(from, 0); i--) {
+			Ev e = evs.get(i);
+			if (e.activity.equals(tag) && e.event.equals(event)) return i;
+		}
+		return -1;
+	}
+
 	synchronized int countPre(int from, int to, String tag, String event) {
 		int n = 0;
 		for (int i = Math.max(from, 0); i < Math.min(to, evs.size()); i++) {

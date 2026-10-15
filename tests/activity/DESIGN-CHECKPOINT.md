@@ -1,9 +1,6 @@
-# Lane C design checkpoint — JNI seam + host events (pre-implementation)
+# Lane C design checkpoint - JNI seam + host events (implemented)
 
-Status: surveyed, not yet implemented. Written at the 2026-10-15 budget cutoff
-so the next resume does not redo the survey. Companion to DESIGN notes in
-ATLActivityController.java's header. All facts below were verified on disk this
-run (repo @ d0c8fefb).
+Status: IMPLEMENTED. Correction, session 9: earlier sessions left a "surveyed, not yet implemented" status line here after the seam had landed (commits d8d07766/1e915925/76ce4357) and after the executed per-host-event evidence; this header was stale. Sessions 3-9 below are kept as the design/implementation history, and the current per-row status + evidence paths are in LANE-C-REPORT.md.
 
 ## Verified current native contract (files D owns — signatures FROZEN)
 
@@ -559,3 +556,29 @@ Next actions for integration (unchanged, still not lane C):
 3. Optional combined-only rerun of run-probe.sh per targetSdk (expect the same
    34 PASS 0 FAIL) plus one ATL_PROBE_EXTERNAL_CLOSE=yes A04 rerun to confirm the
    merged tree still closes and exits.
+
+## Session 9 (lane C) - reconciliation; A05 in-callback recreate executed
+
+- Row reconciliation against the frozen acceptance.csv methods: A01-A10 all had
+  executed evidence on disk; the one real gap was A05's "recreate() inside
+  onResume" half, because the probe driver deferred every action via
+  Handler.postDelayed, so no in-callback reentrancy was ever exercised
+  (a05-a09's 34 checks cover the finish()-inside-onCreate half plus the deferred
+  recreate).
+- Added ActQ to the probe (PROBE_ID atl-activity-seam-probe-v2): recreate() called
+  synchronously inside ActQ#1's own onResume, with a static instance guard so only
+  #1 recreates. 7 new checks A05-incallback-recreate-*; re-run at targetSdk
+  27/28/35 -> APROBE ALL_DONE 41 PASS 0 FAIL each, the v1 34 unchanged. sdk27
+  window: ActQ#8 create/start/postCreate/resume -> [recreate() in the same
+  onResume frame] -> pause, save(nonnull), stop, destroy -> ActQ#9 create(saved),
+  start, restore, postCreate, resume. Evidence (additive, a05-a09 untouched):
+  tests/activity/evidence/a05-incallback-recreate/.
+- Documented the 10 pinned cross-Activity divergences (S2, S4.1-S4.5, S3D1,
+  L-SNAP, L-REGD, L-EQUALS) and the A10 limitation boundary in
+  tests/activity/LANE-C-REPORT.md, which is also the A10/V01 input.
+- P11 state: lane candidate green (41/41, --expect-loader-source own-classloader,
+  no loader visibility patch in the lane diff); the row's combined-HEAD run is the
+  integration gate, not lane C's to run.
+- Next action is unchanged and still not lane C: cherry-pick lane C onto combined,
+  rerun run-classloader-probe.sh there (P11 gate), optionally rerun run-probe.sh
+  per targetSdk (now 41 PASS 0 FAIL) and one ATL_PROBE_EXTERNAL_CLOSE=yes A04 run.

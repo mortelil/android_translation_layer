@@ -17,5 +17,6 @@
         <activity android:name=".ActB" android:launchMode="singleTop" android:exported="false" />
         <activity android:name=".ActC" android:exported="false" />
         <activity android:name=".ActR" android:exported="false" />
+        <activity android:name=".ActQ" android:exported="false" />
     </application>
 </manifest>
