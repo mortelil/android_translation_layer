@@ -104,12 +104,20 @@ def _check_shape(rows, component):
     if ops != list(OPS):
         reject(CODE_PLACEMENT, '%s: expected ops %s in order, got %s'
                % (component, list(OPS), ops))
+    # The real probe adds a pump step for remoteIdentity, with its own barrier.
+    # Historical fixtures insert identity into the bind step and have three.
+    # Permit the fourth only immediately after identity; retain all API barriers.
+    if names.count('barrier') == 4 and names.count('remoteIdentity') == 1:
+        identity = names.index('remoteIdentity')
+        if identity + 1 >= len(names) or names[identity + 1] != 'barrier':
+            reject(CODE_EVIDENCE, '%s: extra barrier is not the identity barrier' % component)
+        names = names[:identity + 1] + names[identity + 2:]
     barriers = [i for i, n in enumerate(names) if n == 'barrier']
     if len(barriers) != len(OPS):
         reject(CODE_EVIDENCE, '%s: %d barrier(s), want %d'
                % (component, len(barriers), len(OPS)))
     for i, op in enumerate(OPS):
-        if barriers[i] <= names.index(op):
+        if barriers[i] <= names.index(op) or (i + 1 < len(OPS) and barriers[i] >= names.index(OPS[i + 1])):
             reject(CODE_EVIDENCE, '%s: %s has no barrier (incomplete evidence)' % (component, op))
 
 
