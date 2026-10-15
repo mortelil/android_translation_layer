@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.activity.probe">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="@TARGET_SDK@" />
+    <application
+        android:name=".Probe"
+        android:label="ATL activity seam probe (A05-A09)"
+        android:debuggable="true">
+        <activity
+            android:name=".ActA"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ActB" android:launchMode="singleTop" android:exported="false" />
+        <activity android:name=".ActC" android:exported="false" />
+        <activity android:name=".ActR" android:exported="false" />
+    </application>
+</manifest>
