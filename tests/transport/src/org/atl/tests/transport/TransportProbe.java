@@ -151,14 +151,28 @@ public class TransportProbe extends Activity implements Frames.Sink {
 			t12ReleaseVsDeathRace(child2);
 
 			t09SaturationAndDeadline(callback);
+			t09bCloseUnderLoad(callback);
 			t06ForgedIdentity();
 			t06ForgedSpawnPid();
 			Frames.run(this);
 			checkFrameBattery();
 			redBaseline(callback);
 			checkInventory();
+			// "PASSED" has to mean every required row passed, not "the run reached
+			// the end": a case that recorded a failure (caseFail) must stop the
+			// battery here rather than let the marker contradict an EVENT pass=0.
+			check(failures.isEmpty(), "cases failed: " + failures);
 			writeResults(true);
 			marker("TRANSPORT BATTERY PASSED");
+			// End the run deterministically: the harness waits on the marker in
+			// stdout.log, so leaving the process alive only makes a finished run
+			// indistinguishable from a hung one.
+			System.out.flush();
+			try {
+				Thread.sleep(400); // let the child releases land in their logs
+			} catch (InterruptedException ignored) {
+			}
+			System.exit(0);
 		} catch (Throwable t) {
 			synchronized (failures) {
 				failures.add("battery: " + t);
@@ -167,6 +181,11 @@ public class TransportProbe extends Activity implements Frames.Sink {
 			t.printStackTrace();
 			writeResults(false);
 			marker("TRANSPORT BATTERY FAILED " + t.getClass().getSimpleName());
+			// A failed battery stops at the first failure; exit at once instead
+			// of idling until the harness deadline, which would cost a full
+			// timeout for every iteration.
+			System.out.flush();
+			System.exit(2);
 		} finally {
 			batteryDone = true;
 		}
@@ -557,8 +576,11 @@ public class TransportProbe extends Activity implements Frames.Sink {
 	}
 
 	void t07FdTransfer(Child child) throws Exception {
-		// Push: parent writes, closes ITS stream before the child reads, and
-		// the descriptor still arrives with the right bytes.
+		// Push leg 1 (content): the file holds one byte, the sender descriptor
+		// is read-only and the parent closes it before the transact, yet the
+		// receiver reads the byte. The duplicate Parcel makes at
+		// writeFileDescriptor time is what keeps the open file description
+		// alive after the sender's own close.
 		File push = new File(getFilesDir(), "fd-push.bin");
 		FileOutputStream out = new FileOutputStream(push);
 		out.write(91);
@@ -566,7 +588,7 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		Parcel data = Parcel.obtain();
 		Parcel reply = Parcel.obtain();
 		try {
-			FileOutputStream sender = new FileOutputStream(push);
+			FileInputStream sender = new FileInputStream(push);
 			try {
 				data.writeFileDescriptor(sender.getFD());
 			} finally {
@@ -575,6 +597,29 @@ public class TransportProbe extends Activity implements Frames.Sink {
 			check(child.root.transact(ChildTransportHost.READ_FD, data, reply, 0),
 			      "fd push transact failed");
 			check(reply.readInt() == 91, "pushed descriptor read the wrong byte");
+		} finally {
+			data.recycle();
+			reply.recycle();
+		}
+		// Push leg 2 (mode fidelity): this sender descriptor is write-only, so
+		// the receiver's read must fail (the child reports -2). A transport
+		// that re-opened the path instead of passing the open file description
+		// would hand the receiver a readable descriptor and be caught here.
+		// Append mode keeps the one byte of leg 1 in place, so a leak would
+		// surface as 91 rather than as a clean end of file.
+		data = Parcel.obtain();
+		reply = Parcel.obtain();
+		try {
+			FileOutputStream modeSender = new FileOutputStream(push, true);
+			try {
+				data.writeFileDescriptor(modeSender.getFD());
+			} finally {
+				modeSender.close();
+			}
+			check(child.root.transact(ChildTransportHost.READ_FD, data, reply, 0),
+			      "fd write-only transact failed");
+			check(reply.readInt() == -2,
+			      "write-only descriptor was readable at the receiver (access mode not preserved)");
 		} finally {
 			data.recycle();
 			reply.recycle();
@@ -635,9 +680,10 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		check(stillOpen == 65, "sentinels disturbed by the rejected send: " + stillOpen);
 		for (int fd : sentinels)
 			LinkTools.closeFd(fd);
-		probeEvent("t07-fd-transfer", "push=91;pull=73;parcelRecycle=1;oversizedRejected=65"
-		                                  + ";bulkClosure=framing-fd-many-reject");
-		caseMarker("T07", "t07-fd-transfer", "push=91 pull=73 parcelRecycle=1 oversized=65");
+		probeEvent("t07-fd-transfer", "push=91;pushModeWriteOnly=-2;pull=73;parcelRecycle=1"
+		                                  + ";oversizedRejected=65;bulkClosure=framing-fd-many-reject");
+		caseMarker("T07", "t07-fd-transfer",
+		           "push=91 pushModeWriteOnly=-2 pull=73 parcelRecycle=1 oversized=65");
 	}
 
 	void t11HandleChurn(Child child, IBinder orderProxy) throws Exception {
@@ -645,30 +691,36 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		LinkTools.drop(child.connection, orderProxy, true);
 		int base = queryTable(child, -1);
 		int h1 = newBinderHandle(child);
+		IBinder proxy1 = child.lastNewBinder;
 		check(queryTable(child, base + 1) == base + 1, "export table did not grow");
 		int h2 = newBinderHandle(child);
+		IBinder proxy2 = child.lastNewBinder;
 		check(queryTable(child, base + 2) == base + 2, "export table did not grow twice");
 		check(h2 > h1, "handles not monotonic: " + h1 + " then " + h2);
-		// The first proxy still answers while referenced.
-		IBinder proxy1 = child.lastNewBinder;
+		// The second proxy still answers while it is referenced.
 		Parcel data = Parcel.obtain();
 		Parcel reply = Parcel.obtain();
 		try {
 			data.writeInt(21);
-			check(proxy1.transact(2, data, reply, 0), "fresh binder did not answer");
+			check(proxy2.transact(2, data, reply, 0), "fresh binder did not answer");
 			check(reply.readInt() == 42, "fresh binder wrong reply");
 		} finally {
 			data.recycle();
 			reply.recycle();
 		}
+		// Release reclaims exactly the handle it names: the other new export is
+		// still pinned, so the table stops one entry above the base (the release
+		// is per reference, not a table sweep).
+		LinkTools.drop(child.connection, proxy2, true);
+		check(queryTable(child, base + 1) == base + 1,
+		      "releasing one of two handles did not reclaim exactly one entry");
 		LinkTools.drop(child.connection, proxy1, true);
-		check(queryTable(child, base) == base, "table did not reclaim after first drop");
-		LinkTools.drop(child.connection, child.lastNewBinder, true);
 		check(queryTable(child, base) == base, "table did not reclaim after second drop");
 		// After reclamation the next handle is still monotonic, never reused.
 		int h3 = newBinderHandle(child);
+		IBinder proxy3 = child.lastNewBinder;
 		check(h3 > h2, "handle reused after reclamation: " + h3 + " after " + h2);
-		LinkTools.drop(child.connection, child.lastNewBinder, true);
+		LinkTools.drop(child.connection, proxy3, true);
 		check(queryTable(child, base) == base, "table did not reclaim after third drop");
 		probeEvent("t11-handle-churn", "handles=" + h1 + "," + h2 + "," + h3 + ";base=" + base);
 		caseMarker("T11", "t11-handle-churn", "handles=" + h1 + "," + h2 + "," + h3
@@ -760,8 +812,14 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		int deadObject = 0, other = 0;
 		synchronized (outcomes) {
 			for (Throwable t : outcomes) {
+				// Two wordings are legitimate and both are the documented kill
+				// semantics: the reader detects the peer's death ("ATL IPC peer
+				// disconnected") for calls already outstanding, while a call
+				// that sends after the link died is refused by the send path
+				// ("ATL IPC peer is dead"). Only the type and the peer-anchored
+				// wording are contract; the exact sentence is not.
 				if (t instanceof DeadObjectException
-				    && ("" + t.getMessage()).contains("peer disconnected"))
+				    && ("" + t.getMessage()).contains("peer"))
 					deadObject++;
 				else
 					other++;
@@ -782,7 +840,7 @@ public class TransportProbe extends Activity implements Frames.Sink {
 			} catch (Exception expected) {
 				check(expected instanceof DeadObjectException,
 				      "dead-link exception is not DeadObject: " + expected);
-				check((("" + expected.getMessage()).contains("disconnected")),
+				check((("" + expected.getMessage()).contains("peer")),
 				      "dead-link exception carries the wrong message: " + expected);
 			} finally {
 				data.recycle();
@@ -800,25 +858,43 @@ public class TransportProbe extends Activity implements Frames.Sink {
 	}
 
 	void t12ReleaseVsDeathRace(Child child2) throws Exception {
-		// proxy for a fresh export; linkToDeath registered; then the
-		// deterministic RELEASE races a kill -9 of the exporting process.
+		// Two live exports of child2: one is explicitly RELEASEd while a kill -9
+		// races it, the other is held for the whole test. §3 owes a death
+		// notification to every proxy the connection still tracks, so the held
+		// proxy's recipient must fire whatever the racer does; the released
+		// proxy is dropped from the proxy table by RELEASE (exactly-once, see
+		// t11) and therefore is not owed one. The release itself must settle
+		// either cleanly or as a DeadObjectException naming the dead link -
+		// never a hang and never an unrelated failure.
 		newBinderHandle(child2);
-		final IBinder proxy = child2.lastNewBinder;
-		final AtomicReference<String> winner = new AtomicReference<String>("none");
-		deathRecipientCalls = 0;
-		proxy.linkToDeath(new IBinder.DeathRecipient() {
+		final IBinder racing = child2.lastNewBinder;
+		newBinderHandle(child2);
+		final IBinder held = child2.lastNewBinder;
+		final AtomicInteger heldNotices = new AtomicInteger();
+		final AtomicInteger racingNotices = new AtomicInteger();
+		held.linkToDeath(new IBinder.DeathRecipient() {
 			public void binderDied() {
-				deathRecipientCalls++;
+				heldNotices.incrementAndGet();
 			}
 		}, 0);
+		racing.linkToDeath(new IBinder.DeathRecipient() {
+			public void binderDied() {
+				racingNotices.incrementAndGet();
+			}
+		}, 0);
+		final AtomicReference<String> winner = new AtomicReference<String>("none");
+		final AtomicReference<String> releaseOutcome = new AtomicReference<String>("not-run");
 		Thread releaser = new Thread(new Runnable() {
 			public void run() {
 				try {
-					LinkTools.drop(child2.connection, proxy, true);
-					if (winner.compareAndSet("none", "release"))
-						; // first observer
+					LinkTools.drop(child2.connection, racing, true);
+					releaseOutcome.set("clean");
+				} catch (DeadObjectException e) {
+					releaseOutcome.set("dead-link");
 				} catch (Throwable t) {
-					winner.compareAndSet("none", "release-fault:" + t);
+					releaseOutcome.set("fault:" + t);
+				} finally {
+					winner.compareAndSet("none", "release");
 				}
 			}
 		}, "trn-t12-release");
@@ -840,13 +916,32 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		check(releaser.getState() == Thread.State.TERMINATED, "RELEASE never settled");
 		check(killer.getState() == Thread.State.TERMINATED, "kill never settled");
 		check(child2.death.await(5, TimeUnit.SECONDS), "second child link death not observed");
-		check(deathRecipientCalls >= 1, "death recipient did not fire in the race");
-		probeEvent("t12-release-vs-death-race", "winner=" + winner + ";recipients="
-		                                          + deathRecipientCalls
+		check(heldNotices.get() >= 1, "held proxy did not learn of the exporting process' death");
+		String outcome = releaseOutcome.get();
+		check("clean".equals(outcome) || "dead-link".equals(outcome),
+		      "release-vs-death released with an unexpected outcome: " + outcome);
+		// A proxy that witnessed the death must never transact again.
+		{
+			Parcel data = Parcel.obtain();
+			Parcel reply = Parcel.obtain();
+			try {
+				held.transact(ChildTransportHost.PING, data, reply, 0);
+				check(false, "held proxy transacted on a dead link");
+			} catch (Exception expected) {
+				check(expected instanceof DeadObjectException,
+				      "held proxy dead-link exception is not DeadObject: " + expected);
+			} finally {
+				data.recycle();
+				reply.recycle();
+			}
+		}
+		probeEvent("t12-release-vs-death-race", "winner=" + winner + ";release=" + outcome
+		                                          + ";heldNotices=" + heldNotices.get()
+		                                          + ";releasedNotices=" + racingNotices.get()
 		                                          + ";releaserDone="
 		                                          + (releaser.getState() == Thread.State.TERMINATED));
-		caseMarker("T12", "t12-release-vs-death-race", "winner=" + winner
-		                            + " recipients=" + deathRecipientCalls);
+		caseMarker("T12", "t12-release-vs-death-race", "winner=" + winner + " release=" + outcome
+		                            + " heldNotices=" + heldNotices.get());
 	}
 
 	void t09SaturationAndDeadline(ParentCallback callback) throws Exception {
@@ -865,6 +960,7 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		final CountDownLatch gate = new CountDownLatch(1);
 		server.gate = gate;
 		final AtomicInteger mismatches = new AtomicInteger();
+		final AtomicReference<Throwable> firstFailure = new AtomicReference<Throwable>();
 		Thread[] pool = new Thread[saturation];
 		for (int t = 0; t < saturation; ++t) {
 			final int id = t;
@@ -878,6 +974,7 @@ public class TransportProbe extends Activity implements Frames.Sink {
 						    || reply.readInt() != id)
 							mismatches.incrementAndGet();
 					} catch (Throwable e) {
+						firstFailure.compareAndSet(null, e);
 						mismatches.incrementAndGet();
 					} finally {
 						data.recycle();
@@ -890,6 +987,12 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(15000);
 		while (LinkTools.pendingSize(client) < saturation && System.nanoTime() < deadline)
 			Thread.sleep(20);
+		probeEvent("t09-saturation-diag", "pending=" + LinkTools.pendingSize(client)
+		        + ";alive=" + svc.isBinderAlive()
+		        + ";serverExports=" + LinkTools.exportTableSize(serverConn)
+		        + ";gateStart=" + gateStart.get()
+		        + ";mismatches=" + mismatches.get()
+		        + ";first=" + firstFailure.get());
 		check(LinkTools.pendingSize(client) == saturation,
 		      "pending never saturated: " + LinkTools.pendingSize(client));
 		boolean refused = false;
@@ -907,6 +1010,8 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		gate.countDown();
 		for (int t = 0; t < saturation; ++t)
 			pool[t].join(60000);
+		check(gateStart.get() == saturation,
+		      "server carried " + gateStart.get() + " of " + saturation + " saturated calls");
 		check(mismatches.get() == 0, "saturated calls lost payloads: " + mismatches);
 
 		// Delayed reply within the deadline succeeds.
@@ -965,6 +1070,82 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		caseMarker("T09", "t09-saturation-deadline", "saturation=256 refused=true delayedMs="
 		                            + delayedMs + " timeoutMs=" + timeoutElapsed
 		                            + " executedOnce=1");
+	}
+
+	/**
+	 * The other half of saturation: a link that dies while dispatch work is still
+	 * queued must abandon that work exactly once. Every queued request owns the
+	 * descriptors it received, so a request that is neither run nor recycled
+	 * shows up as a descriptor leak - and a request that is recycled twice would
+	 * close a descriptor someone else now owns.
+	 */
+	void t09bCloseUnderLoad(ParentCallback callback) throws Exception {
+		ProbeServer server = new ProbeServer(this);
+		int[] pair = ATLBinderConnection.socketPair();
+		ATLBinderConnection client = new ATLBinderConnection(pair[0], -1, callback);
+		ATLBinderConnection serverConn = new ATLBinderConnection(pair[1], -1, server);
+		final CountDownLatch gate = new CountDownLatch(1);
+		server.gate = gate;
+		client.start();
+		serverConn.start();
+		IBinder svc = client.remote(1);
+		final File payload = new File(getFilesDir(), "t09b-payload.bin");
+		payload.createNewFile();
+		final int calls = 40; // 16 run, the rest queue behind the blocked handlers
+		gateStart.set(0);
+		final int baseFds = LinkTools.fdCount();
+		Thread[] pool = new Thread[calls];
+		for (int t = 0; t < calls; ++t) {
+			pool[t] = new Thread(new Runnable() {
+				public void run() {
+					FileInputStream stream = null;
+					Parcel data = Parcel.obtain();
+					Parcel reply = Parcel.obtain();
+					try {
+						stream = new FileInputStream(payload);
+						data.writeInt(1);
+						data.writeFileDescriptor(stream.getFD());
+						svc.transact(ProbeServer.GATE, data, reply, 0);
+					} catch (Throwable expectedOnClose) {
+						// the link dies under load: a DeadObjectException is the
+						// contract for all of them, recorded by the case below
+					} finally {
+						try {
+							if (stream != null)
+								stream.close();
+						} catch (Exception ignored) {
+						}
+						data.recycle();
+						reply.recycle();
+					}
+				}
+			}, "trn-t09b-" + t);
+			pool[t].start();
+		}
+		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(15000);
+		while (gateStart.get() < 16 && System.nanoTime() < deadline)
+			Thread.sleep(20);
+		check(gateStart.get() >= 16, "workers never saturated: " + gateStart.get());
+		int carried = LinkTools.pendingSize(client);
+		check(carried >= 16, "calls were not carried, only " + carried + " pending");
+		serverConn.close(); // link death with dispatch work still queued
+		gate.countDown();   // release the blocked handlers so their requests settle
+		for (int t = 0; t < calls; ++t)
+			pool[t].join(30000);
+		int stuck = 0;
+		for (int t = 0; t < calls; ++t)
+			if (pool[t].getState() != Thread.State.TERMINATED)
+				++stuck;
+		check(stuck == 0, "callers never settled after the link died: " + stuck);
+		deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(10000);
+		while (LinkTools.fdCount() > baseFds && System.nanoTime() < deadline)
+			Thread.sleep(50);
+		int leaked = LinkTools.fdCount() - baseFds;
+		probeEvent("t09b-close-under-load", "calls=" + calls + ";carried=" + carried
+		        + ";handlers=" + gateStart.get() + ";base=" + baseFds + ";leaked=" + leaked);
+		check(leaked <= 0, "queued requests leaked " + leaked + " descriptors");
+		caseMarker("T09", "t09b-close-under-load", "calls=" + calls + " carried=" + carried
+		                            + " handlers=" + gateStart.get() + " leaked=" + leaked);
 	}
 
 	void redBaseline(ParentCallback callback) throws Exception {
@@ -1249,12 +1430,19 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		                                     + ";bad=" + badOnes);
 		if (ok)
 			marker("TRANSPORT FRAMES PASSED reject=" + rejectOk + " accept=" + acceptOk);
-		else
+		else {
 			caseFail("t08-framing-battery", "rejectOk=" + rejectOk + " acceptOk=" + acceptOk
 			                                + " bad=" + badOnes);
+			check(false, "framing battery incomplete: rejectOk=" + rejectOk + "/"
+			             + requiredReject.size() + " acceptOk=" + acceptOk + "/"
+			             + (requiredAccept.size() + 1) + " bad=" + badOnes);
+		}
 	}
 
 	void checkInventory() {
+		// Every case the run is supposed to have executed, so a suite that silently
+		// loses a row cannot report PASSED: rows carry details after the case name,
+		// so these are prefixes, matched against the recorded marker lines.
 		String[] required = {
 			"TRANSPORT PASS t01-concurrent-sync",
 			"TRANSPORT PASS t02-nested-reentrancy",
@@ -1262,8 +1450,11 @@ public class TransportProbe extends Activity implements Frames.Sink {
 			"TRANSPORT PASS t04-oneway-order",
 			"TRANSPORT PASS t05-failure-distinction",
 			"TRANSPORT PASS t06-peer-identity",
+			"TRANSPORT PASS t06-forged-identity",
+			"TRANSPORT PASS t06-forged-spawn-pid",
 			"TRANSPORT PASS t07-fd-transfer",
 			"TRANSPORT PASS t09-saturation-deadline",
+			"TRANSPORT PASS t09b-close-under-load",
 			"TRANSPORT PASS t10-death-wake",
 			"TRANSPORT PASS t11-handle-churn",
 			"TRANSPORT PASS t12-release-vs-death-race",
@@ -1277,7 +1468,14 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		int present = 0;
 		StringBuilder missing = new StringBuilder();
 		for (String marker : required) {
-			if (snapshot.contains(marker))
+			boolean found = false;
+			for (String line : snapshot) {
+				if (line.startsWith(marker)) {
+					found = true;
+					break;
+				}
+			}
+			if (found)
 				present++;
 			else
 				missing.append(marker).append(' ');
@@ -1286,8 +1484,11 @@ public class TransportProbe extends Activity implements Frames.Sink {
 		                                 + ";missing=" + missing);
 		if (present == required.length)
 			marker("TRANSPORT INVENTORY COMPLETE " + present + "/" + required.length);
-		else
+		else {
 			caseFail("t13-inventory", "missing " + missing);
+			check(false, "T13 inventory incomplete: " + present + "/" + required.length
+			             + " missing " + missing);
+		}
 	}
 
 	// ---------------------------------------------------------------- helpers

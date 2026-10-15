@@ -30,5 +30,19 @@ export ATL_IPC_TIMEOUT_MS
 export ATL_LANE_ROOT="$lane_root"
 export ATL_LANE=transport
 export ATL_PROBE_ENV=ATL_IPC_TIMEOUT_MS
-exec /home/morten/ATL/parallel-apps/tools/run-atl-probe-lane.sh \
-	"$apk" "$evidence" 'TRANSPORT BATTERY PASSED' 900
+here=$(dirname "$0")
+results="$evidence/app-results.json"
+rc=0
+/home/morten/ATL/parallel-apps/tools/run-atl-probe-lane.sh \
+	"$apk" "$evidence" 'TRANSPORT BATTERY PASSED' 900 || rc=$?
+# The probe's own markers are not the verdict: re-derive every required row
+# from the collected results file so a silently dropped or mislabelled row
+# cannot pass as evidence.
+if [ -f "$results" ]; then
+	printf '\n--- independent result verification ---\n'
+	python3 "$here/verify_transport_frames.py" "$results" || rc=$?
+else
+	printf 'no results file at %s\n' "$results" >&2
+	rc=1
+fi
+exit $rc

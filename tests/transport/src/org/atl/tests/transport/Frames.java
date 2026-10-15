@@ -225,14 +225,21 @@ final class Frames {
 		try {
 			for (int i = 0; i < sentinelCount; ++i)
 				sentinels[i] = LinkTools.sentinel();
+			int before = LinkTools.fdCount();
 			wire.send(record, sentinels);
 			boolean rejected = wire.rejected(TIMEOUT_MS);
-			int stillOpen = countOpen(sentinels);
+			// "Every unclaimed descriptor was closed" is not a statement about the
+			// sender's own sentinels (those are ours, still open here) and the
+			// receiver's copies have numbers this side never sees: SCM_RIGHTS hands
+			// the receiver a descriptor of its own. The descriptor count is the
+			// observable form of the claim.
+			boolean steady = fdSteady(before);
 			String validNext = validNext();
-			boolean ok = rejected && stillOpen == 0 && "accept".equals(validNext);
-			sink.event(name, "verdict=REJECT;stillOpen=" + stillOpen + ";validNext=" + validNext
-			                    + ";rejected=" + rejected + ";why=" + why);
-			sink.marker("TRANSPORT FRAMES " + name + " " + (ok ? "REJECT ok" : "FAIL"));
+			boolean ok = rejected && steady && "accept".equals(validNext);
+			sink.event(name, "verdict=REJECT;rejected=" + rejected + ";fdSteady=" + steady
+			                    + ";validNext=" + validNext + ";why=" + why);
+			sink.marker("TRANSPORT FRAMES " + name + " " + (ok ? "REJECT ok" : "FAIL")
+			            + " fds=" + sentinelCount);
 			closeAll(sentinels);
 		} finally {
 			wire.dispose();
@@ -246,24 +253,28 @@ final class Frames {
 		try {
 			for (int i = 0; i < sentinelCount; ++i)
 				sentinels[i] = LinkTools.sentinel();
+			int before = LinkTools.fdCount();
 			wire.send(record, sentinels);
 			Obs obs = wire.awaitObserved(codeOf(record), TIMEOUT_MS);
 			boolean observed = obs != null;
-			boolean patched = observed && wordAt(obs.raw, wordOffset) == sentinels[0];
+			// The descriptor was patched into the body at the declared offset: the
+			// word living there names a usable descriptor of this process, and the
+			// sender's placeholder is gone from the body. The number is the
+			// receiver's own (never the sender's), so the leak claim is the count.
+			int rx = observed ? wordAt(obs.raw, wordOffset) : -1;
+			boolean patched = observed && rx >= 0 && rx != FOREIGN;
 			boolean placeholder = observed && containsWord(obs.raw, FOREIGN);
-			// The dispatched Parcel owns the descriptor and closes it on recycle.
-			long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(2000);
-			while (LinkTools.fdExists(sentinels[0]) && System.nanoTime() < deadline)
-				Thread.sleep(10);
-			int stillOpen = countOpen(sentinels);
+			boolean steady = fdSteady(before);
 			String validNext = validNext();
-			boolean ok = observed && patched && !placeholder && stillOpen == 0
+			boolean ok = observed && patched && !placeholder && steady
 			             && "accept".equals(validNext) && wire.dead.getCount() != 0;
-			sink.event(name, "verdict=ACCEPT;stillOpen=" + stillOpen + ";validNext=" + validNext
-			                    + ";patched=" + patched
+			sink.event(name, "verdict=ACCEPT;observed=" + observed + ";patched=" + patched
+			                    + ";bodyWordAtOffset=" + rx
 			                    + ";senderPlaceholderInBody=" + (placeholder ? "yes" : "no")
-			                    + ";observed=" + observed + ";why=" + why);
-			sink.marker("TRANSPORT FRAMES " + name + " " + (ok ? "ACCEPT ok" : "FAIL"));
+			                    + ";fdSteady=" + steady + ";validNext=" + validNext
+			                    + ";why=" + why);
+			sink.marker("TRANSPORT FRAMES " + name + " " + (ok ? "ACCEPT ok" : "FAIL")
+			            + " offset=" + wordOffset + " bodyWord=" + rx);
 			closeAll(sentinels);
 		} finally {
 			wire.dispose();
@@ -289,11 +300,15 @@ final class Frames {
 				public void run() {
 					try {
 						for (int i = 0; i < iterations; ++i) {
-							if (decodeValid())
+							// Structure only while four threads run: the descriptor
+							// count is process-wide and another thread's transient
+							// descriptors would make the leak claim meaningless. The
+							// serial pass below repeats both with the count check.
+							if (decodeValid(false))
 								accepted[0]++;
 							else
 								mismatch[0]++;
-							if (decodeRejectedPair())
+							if (decodeRejectedPair(false))
 								rejectedCount[0]++;
 							else
 								mismatch[0]++;
@@ -330,13 +345,27 @@ final class Frames {
 	}
 
 	private boolean decodeValid() throws Exception {
+		return decodeValid(true);
+	}
+
+	/**
+	 * @param checkFds also require the descriptor count to return to its
+	 *                 pre-send level. Only meaningful when no other thread is
+	 *                 opening descriptors (the concurrent phase checks structure,
+	 *                 the serial phase after it checks the leak).
+	 */
+	private boolean decodeValid(boolean checkFds) throws Exception {
 		Wire wire = new Wire();
 		try {
 			int fd = LinkTools.sentinel();
+			int before = LinkTools.fdCount();
 			byte[] record = record(1, new int[]{0}, null, body(4), 0);
 			wire.send(record, new int[]{fd});
 			Obs obs = wire.awaitObserved(codeOf(record), TIMEOUT_MS);
-			boolean ok = obs != null && wordAt(obs.raw, 0) == fd && !LinkTools.fdExists(fd);
+			int rx = obs == null ? -1 : wordAt(obs.raw, 0);
+			boolean ok = obs != null && rx >= 0 && rx != FOREIGN;
+			if (checkFds)
+				ok &= fdSteady(before);
 			if (LinkTools.fdExists(fd))
 				LinkTools.closeFd(fd);
 			return ok;
@@ -346,12 +375,19 @@ final class Frames {
 	}
 
 	private boolean decodeRejectedPair() throws Exception {
+		return decodeRejectedPair(true);
+	}
+
+	private boolean decodeRejectedPair(boolean checkFds) throws Exception {
 		Wire wire = new Wire();
 		try {
 			int a = LinkTools.sentinel(), b = LinkTools.sentinel();
+			int before = LinkTools.fdCount();
 			byte[] record = record(2, new int[]{0, 0}, null, body(4), 0);
 			wire.send(record, new int[]{a, b});
-			boolean ok = wire.rejected(TIMEOUT_MS) && !LinkTools.fdExists(a) && !LinkTools.fdExists(b);
+			boolean ok = wire.rejected(TIMEOUT_MS);
+			if (checkFds)
+				ok &= fdSteady(before);
 			if (LinkTools.fdExists(a))
 				LinkTools.closeFd(a);
 			if (LinkTools.fdExists(b))
@@ -363,26 +399,35 @@ final class Frames {
 	}
 
 	/**
-	 * The peer's raw end is gone. Decoding a record does not depend on that:
-	 * a dead peer is the transport's business, the decoder stays a decoder.
+	 * The peer's raw end is gone after it sent a well-formed record. Decoding does
+	 * not depend on the peer: the record was already published, and losing the peer
+	 * afterwards must neither wedge the decoder (the next record still decodes) nor
+	 * leak the descriptor that arrived with it. The raw end is closed *after* the
+	 * record was observed, so the case measures the peer's disappearance instead of
+	 * racing it against the dispatch queue.
 	 */
 	private void peerEndClosed() throws Exception {
 		Wire wire = new Wire();
 		try {
 			int fd = LinkTools.sentinel();
+			int before = LinkTools.fdCount();
 			byte[] record = record(1, new int[]{0}, null, body(4), 0);
 			wire.send(record, new int[]{fd});
-			wire.closeRawEnd();
 			Obs obs = wire.awaitObserved(codeOf(record), TIMEOUT_MS);
-			boolean observed = obs != null && wordAt(obs.raw, 0) == fd;
-			long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(2000);
-			while (LinkTools.fdExists(fd) && System.nanoTime() < deadline)
-				Thread.sleep(10);
-			int stillOpen = LinkTools.fdExists(fd) ? 1 : 0;
-			boolean ok = observed && stillOpen == 0;
-			sink.event("peer-end-closed", "verdict=ACCEPT;stillOpen=" + stillOpen
-			                             + ";validNext=accept;patched=" + observed);
-			sink.marker("TRANSPORT FRAMES peer-end-closed " + (ok ? "ACCEPT ok" : "FAIL"));
+			int rx = obs == null ? -1 : wordAt(obs.raw, 0);
+			boolean observed = obs != null && rx >= 0 && rx != FOREIGN;
+			wire.closeRawEnd();
+			boolean died = wire.rejected(TIMEOUT_MS);
+			boolean steady = fdSteady(before);
+			String validNext = validNext();
+			boolean ok = observed && died && steady && "accept".equals(validNext);
+			sink.event("peer-end-closed", "verdict=" + (ok ? "ACCEPT" : "REJECT")
+			                             + ";observed=" + observed + ";bodyWord=" + rx
+			                             + ";peerGone=" + died + ";fdSteady=" + steady
+			                             + ";validNext=" + validNext
+			                             + ";why=peer raw end closed after the record");
+			sink.marker("TRANSPORT FRAMES peer-end-closed " + (ok ? "ACCEPT ok" : "FAIL")
+			            + " observed=" + observed + " peerGone=" + died);
 			if (LinkTools.fdExists(fd))
 				LinkTools.closeFd(fd);
 		} finally {
@@ -426,12 +471,17 @@ final class Frames {
 				LinkTools.closeFd(fd);
 	}
 
-	private static int countOpen(int[] fds) {
-		int open = 0;
-		for (int fd : fds)
-			if (LinkTools.fdExists(fd))
-				open++;
-		return open;
+	/**
+	 * The process-wide descriptor count comes back to `before`, i.e. every
+	 * descriptor received for a record was released. Descriptor *numbers* cannot
+	 * be compared across the SCM_RIGHTS boundary (the receiver gets a descriptor
+	 * of its own), so counting is the observable form of "no descriptor leaked".
+	 */
+	private static boolean fdSteady(int before) throws InterruptedException {
+		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(2000);
+		while (LinkTools.fdCount() > before && System.nanoTime() < deadline)
+			Thread.sleep(10);
+		return LinkTools.fdCount() <= before;
 	}
 
 	private static boolean containsWord(byte[] body, int value) {

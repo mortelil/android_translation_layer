@@ -225,7 +225,22 @@ public final class ChildTransportHost {
 						log(context, "code=7 NO DESCRIPTOR");
 						throw new IllegalStateException("no descriptor arrived");
 					}
-					int value = new FileInputStream(received.getFileDescriptor()).read();
+					int value;
+					try {
+						value = new FileInputStream(received.getFileDescriptor()).read();
+					} catch (IOException unreadable) {
+						// Expected for a write-only sender descriptor: the access
+						// mode of the open file description travels with it.
+						// Reported (not thrown) so the caller can assert it.
+						value = -2;
+						log(context, "code=7 read failed " + unreadable.getMessage());
+					} finally {
+						try {
+							received.close(); // the descriptor handed to us is ours
+						} catch (IOException closeFailure) {
+							log(context, "code=7 close failed " + closeFailure.getMessage());
+						}
+					}
 					log(context, "code=7 read " + value + " from pushed descriptor");
 					if (reply != null)
 						reply.writeInt(value);

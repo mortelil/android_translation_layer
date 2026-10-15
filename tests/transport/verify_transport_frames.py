@@ -51,6 +51,7 @@ PROBE_CASES = [
     "t01-concurrent-sync", "t02-nested-reentrancy", "t03-oneway-nonblocking",
     "t04-oneway-order", "t05-failure-distinction", "t06-peer-identity",
     "t06-forged-identity", "t07-fd-transfer", "t09-saturation-deadline",
+    "t09b-close-under-load",
     "t10-death-wake", "t11-handle-churn", "t12-release-vs-death-race",
 ]
 RED_CASES = [
@@ -97,7 +98,7 @@ def verify(data):
             if fields(ret).get("stillOpen") not in ("0", None):
                 failures.append("frames %s: stillOpen=%s want 0" % (name, fields(ret).get("stillOpen")))
         if verdict == "ACCEPT":
-            if "senderPlaceholderInBody" in str(ret):
+            if fields(ret).get("senderPlaceholderInBody") == "yes":
                 failures.append("frames %s: accepted record must not leak the sender placeholder: %s" % (name, ret))
     for name in PROBE_CASES:
         ret = rows.get("probeCase:" + name)
@@ -109,8 +110,8 @@ def verify(data):
         ret = rows.get(name)
         if ret is None:
             failures.append("red %s: no row" % name)
-        elif fields(ret).get("result") != want:
-            failures.append("red %s: result=%s want %s (%s)" % (name, fields(ret).get("result"), want, ret))
+        elif fields(ret).get("verdict") != want:
+            failures.append("red %s: verdict=%s want %s (%s)" % (name, fields(ret).get("verdict"), want, ret))
     if isinstance(data, dict) and top_pass is not True:
         failures.append("top-level pass=%r want true" % (top_pass,))
     return failures
