@@ -61,7 +61,9 @@ static void snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	PangoLayout *layout = layout_for_width(box, gtk_widget_get_width(widget));
 	GdkRGBA color;
 	gtk_widget_get_color(box->label, &color);
-	atl_layout_snapshot(snapshot, layout, &color);
+	/* The label owns its own Pango attributes and has no Android Paint to synthesise from. */
+	const AtlTextStyle style = { .color = color, .paint = NULL };
+	atl_layout_snapshot(snapshot, layout, &style);
 	g_object_unref(layout);
 }
 
