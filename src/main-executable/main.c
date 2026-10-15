@@ -402,46 +402,51 @@ static char *resolve_apk_path(JNIEnv *env)
 }
 
 
-static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
+/* The running launcher application, held while a child service process is up. */
+static GtkApplication *launcher_app;
+/* Set by boot_android_vm(); the install path of the windowed launcher reads it back. */
+static char *app_data_dir_base = NULL;
+
+static void extract_native_libraries(void)
 {
-	if (window) { // this is not the first launch, but a DBus request to open an URI in the running app
-		fprintf(stderr, "opening uri over DBus %p\n", files[0]);
-		char *uri = g_file_get_uri(files[0]);
-		JNIEnv *env = get_jni_env();
-		fprintf(stderr, "opening uri over DBus: %s\n", uri);
-		jobject activity = (*env)->CallStaticObjectMethod(env, handle_cache.activity.class,
-		                                                  _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/app/Activity;"),
-		                                                  _JSTRING(d->apk_main_activity_class), _INTPTR(window), _JSTRING(uri), NULL, NULL);
-		if ((*env)->ExceptionCheck(env))
-			atl_jni_handle_uncaught_exception(env, "Activity construction");
-		activity_start(env, activity);
-		atl_jni_handle_uncaught_exception(env, "Activity startup");
-		return;
+	/* extract native libraries from apk*/
+	if (!getenv("ATL_SKIP_NATIVES_EXTRACTION")) {
+		extract_from_apk("lib/" NATIVE_ARCH "/", "lib/");
+		/* Android extracts native libraries into ApplicationInfo.nativeLibraryDir,
+		 * a directory that NativeLibraryHelper.createNativeLibrarySubdir creates
+		 * with mode 0755, so an application may execute a binary it ships in
+		 * lib/<abi>/ (ReVanced Manager runs its bundled aapt2 that way). ATL
+		 * extracts them with the default 0644 and does not rewrite a file that is
+		 * newer than the apk, so set the platform's mode on the whole directory,
+		 * which also repairs files an earlier extraction left without the
+		 * execute bits. */
+		char *native_library_dir = g_build_filename(get_app_data_dir(), "lib", NULL);
+		chmod_tree(native_library_dir, 0755);
+		g_free(native_library_dir);
 	}
+}
+
+/*
+ * Shared VM boot: the part of application startup that both the windowed
+ * launcher (open()) and the windowless service child (run_service_child()) need
+ * before any application Java code runs. Keeping it in one place retains a
+ * single initialization path: install/dex paths, the private application data
+ * directory, the JVM, the JNI library registration, the JNI handle cache and
+ * the Java/native API-level sync. Fatal errors exit the process, as the
+ * pre-refactor inline code did.
+ *
+ * window_width/height are the launcher's logical window size; a child process
+ * has no window and passes 0.
+ */
+static JNIEnv *boot_android_vm(const char *apk_classpath, const char *apk_name,
+                               const char *instrumentation_class, const char *sdk_int,
+                               char **extra_jvm_options, int window_width, int window_height)
+{
 	char *dex_install_dir;
 	char *api_impl_jar;
 	char *test_runner_jar = NULL;
 	char *framework_res_apk = NULL;
-	const char *package_name;
 	int ret;
-	jobject activity_object;
-	jobject application_object;
-
-	char **apk_classpaths = g_new0(gchar *, nfiles + 1); // +1 for NULL terminator for g_strjoinv
-	char *apk_name = g_file_get_basename(files[0]);
-	for (int i = 0; i < nfiles; i++) {
-		apk_classpaths[i] = g_file_get_path(files[i]);
-		if (apk_classpaths[i] == NULL) {
-			fprintf(stderr, "error: the specified file path (%s) doesn't seem to be valid\n", g_file_get_uri(files[i]));
-			exit(1);
-		}
-		if (access(apk_classpaths[i], F_OK) < 0) {
-			fprintf(stderr, "error: the specified file path (%s) doesn't seem to exist (%m)\n", apk_classpaths[i]);
-			exit(1);
-		}
-	}
-	char *apk_classpath = g_strjoinv(":", apk_classpaths);
-	g_free(apk_classpaths);
 
 	Dl_info libart_so_dl_info;
 	// JNI_CreateJavaVM chosen arbitrarily, what matters is that it's a symbol exported by by libart.so
@@ -460,7 +465,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 		exit(1);
 	}
 
-	char *app_data_dir_base = getenv("ANDROID_APP_DATA_DIR");
+	app_data_dir_base = getenv("ANDROID_APP_DATA_DIR");
 	if (!app_data_dir_base) {
 		const char *user_data_dir = g_get_user_data_dir();
 		if (user_data_dir) {
@@ -492,7 +497,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	// check for jars and apks  in './' (if running from builddir), or in system install path
 	api_impl_jar = find_jar_or_die(API_IMPL_JAR_PATH_LOCAL, REL_API_IMPL_JAR_INSTALL_PATH, dex_install_dir);
 	framework_res_apk = find_jar_or_die(FRAMEWORK_RES_PATH_LOCAL, REL_FRAMEWORK_RES_INSTALL_PATH, dex_install_dir);
-	if (d->apk_instrumentation_class)
+	if (instrumentation_class)
 		test_runner_jar = find_jar_or_die(TEST_RUNNER_JAR_PATH_LOCAL, REL_TEST_RUNNER_JAR_INSTALL_PATH, dex_install_dir);
 
 	char *api_impl_natives_dir = g_strdup_printf("%s/%s", dex_install_dir, REL_API_IMPL_NATIVES_INSTALL_PATH);
@@ -513,7 +518,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	dl_parse_library_path(ld_path, ":");
 	g_free(ld_path);
 
-	JNIEnv *env = create_vm(api_impl_jar, apk_classpath, framework_res_apk, test_runner_jar, api_impl_natives_dir, app_lib_dir, d->sdk_int, d->extra_jvm_options);
+	JNIEnv *env = create_vm(api_impl_jar, apk_classpath, framework_res_apk, test_runner_jar, api_impl_natives_dir, app_lib_dir, sdk_int, extra_jvm_options);
 
 	free(app_lib_dir);
 
@@ -522,8 +527,8 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	double render_scale = (*env)->GetStaticIntField(env, metrics_class,
 	    _STATIC_FIELD_ID(metrics_class, "DENSITY_DEVICE", "I")) / 160.0;
 	(*env)->DeleteLocalRef(env, metrics_class);
-	_SET_STATIC_INT_FIELD(display_class, "window_width", (int)(d->window_width * render_scale + 0.5));
-	_SET_STATIC_INT_FIELD(display_class, "window_height", (int)(d->window_height * render_scale + 0.5));
+	_SET_STATIC_INT_FIELD(display_class, "window_width", (int)(window_width * render_scale + 0.5));
+	_SET_STATIC_INT_FIELD(display_class, "window_height", (int)(window_height * render_scale + 0.5));
 
 	/* -- register our JNI library under the appropriate classloader -- */
 
@@ -549,6 +554,160 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	// Use the same selected API level for Java and Android native libraries.
 	if (sync_android_api_level(env))
 		exit(1);
+
+	return env;
+}
+
+/*
+ * Child process of android.atl.ATLProcessHost (lifecycle foundation, lane D).
+ * The shape is from the Firefox lane's private-process host (parallel-apps
+ * firefox lane commit a9ebfe2) and the PR31 launcher child mode (baa9b489); the
+ * branch runs before any GtkApplication exists, because a GtkApplication starts
+ * GTK and would need an X display for a process that only hosts services and
+ * has no window.
+ *
+ * After the shared VM boot the child follows AOSP's
+ * ActivityThread.handleBindApplication ordering: Looper.prepareMainLooper, the
+ * Application is attached (createApplication() does not call onCreate), the
+ * process' own providers are created, then Application.onCreate runs. Finally
+ * android.atl.ChildHost takes over: it opens the control link, reports READY on
+ * the main looper and returns. The GLib main loop then dispatches the main
+ * looper, and ChildHost's own exit paths end the process.
+ */
+static int run_service_child(int argc, char **argv)
+{
+	const char *fd_text = getenv("ATL_SERVICE_FD");
+	const char *process_name = getenv("ATL_SERVICE_PROCESS");
+
+	/* The loader spawns {/proc/self/exe, <apk>, --sdk-int, <n>} and inherits its
+	 * own environment; the apk is the first non-option argument. */
+	const char *apk = NULL;
+	const char *sdk_int = NULL;
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--sdk-int") && i + 1 < argc) {
+			sdk_int = argv[++i];
+			continue;
+		}
+		if (argv[i][0] != '-' && apk == NULL)
+			apk = argv[i];
+	}
+	if (process_name == NULL || apk == NULL) {
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: ATL_SERVICE_PROCESS or the apk argument is missing\n");
+		return 11;
+	}
+
+	char *apk_classpath = g_strdup(apk);
+	char *apk_name = g_path_get_basename(apk);
+	JNIEnv *env = boot_android_vm(apk_classpath, apk_name, NULL, sdk_int, NULL, 0, 0);
+	g_free(apk_classpath);
+	g_free(apk_name);
+
+	prepare_main_looper(env);
+	extract_native_libraries();
+
+	/* Application attachment; onCreate follows the providers, as in AOSP. */
+	jobject application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,
+	    _STATIC_METHOD(handle_cache.context.class, "createApplication", "(J)Landroid/app/Application;"), (jlong)0);
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: Application attachment failed\n");
+		return 11;
+	}
+
+	jclass content_provider = (*env)->FindClass(env, "android/content/ContentProvider");
+	if (content_provider == NULL || (*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: ContentProvider lookup failed\n");
+		return 11;
+	}
+	(*env)->CallStaticVoidMethod(env, content_provider, _STATIC_METHOD(content_provider, "createContentProviders", "()V"));
+	(*env)->DeleteLocalRef(env, content_provider);
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: provider creation failed\n");
+		return 11;
+	}
+
+	(*env)->CallVoidMethod(env, application_object, _METHOD(handle_cache.application.class, "onCreate", "()V"));
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: Application.onCreate failed\n");
+		return 11;
+	}
+
+	jclass child_host = (*env)->FindClass(env, "android/atl/ChildHost");
+	jmethodID run_child = child_host ? (*env)->GetStaticMethodID(env, child_host, "runChild", "(ILjava/lang/String;)V") : NULL;
+	if (run_child == NULL || (*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: cannot resolve android.atl.ChildHost.runChild\n");
+		return 11;
+	}
+	/* ChildHost reports READY from inside this call and then returns; from here
+	 * on the control link and the GLib main loop keep the process alive. */
+	(*env)->CallStaticVoidMethod(env, child_host, run_child, (jint)atoi(fd_text), _JSTRING(process_name));
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: android.atl.ChildHost.runChild threw\n");
+		return 11;
+	}
+
+	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+	g_main_loop_run(loop);
+	return 0;
+}
+
+/* Parent side: keeps the launcher alive while a child process is running. */
+JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeHoldApp(JNIEnv *env, jclass cls)
+{
+	if (launcher_app)
+		g_application_hold(G_APPLICATION(launcher_app));
+}
+
+JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeReleaseApp(JNIEnv *env, jclass cls)
+{
+	if (launcher_app)
+		g_application_release(G_APPLICATION(launcher_app));
+}
+
+static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
+{
+	if (window) { // this is not the first launch, but a DBus request to open an URI in the running app
+		fprintf(stderr, "opening uri over DBus %p\n", files[0]);
+		char *uri = g_file_get_uri(files[0]);
+		JNIEnv *env = get_jni_env();
+		fprintf(stderr, "opening uri over DBus: %s\n", uri);
+		jobject activity = (*env)->CallStaticObjectMethod(env, handle_cache.activity.class,
+		                                                  _STATIC_METHOD(handle_cache.activity.class, "createMainActivity", "(Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/app/Activity;"),
+		                                                  _JSTRING(d->apk_main_activity_class), _INTPTR(window), _JSTRING(uri), NULL, NULL);
+		if ((*env)->ExceptionCheck(env))
+			atl_jni_handle_uncaught_exception(env, "Activity construction");
+		activity_start(env, activity);
+		atl_jni_handle_uncaught_exception(env, "Activity startup");
+		return;
+	}
+	launcher_app = app;
+	const char *package_name;
+	jobject activity_object;
+	jobject application_object;
+
+	char **apk_classpaths = g_new0(gchar *, nfiles + 1); // +1 for NULL terminator for g_strjoinv
+	char *apk_name = g_file_get_basename(files[0]);
+	for (int i = 0; i < nfiles; i++) {
+		apk_classpaths[i] = g_file_get_path(files[i]);
+		if (apk_classpaths[i] == NULL) {
+			fprintf(stderr, "error: the specified file path (%s) doesn't seem to be valid\n", g_file_get_uri(files[i]));
+			exit(1);
+		}
+		if (access(apk_classpaths[i], F_OK) < 0) {
+			fprintf(stderr, "error: the specified file path (%s) doesn't seem to exist (%m)\n", apk_classpaths[i]);
+			exit(1);
+		}
+	}
+	char *apk_classpath = g_strjoinv(":", apk_classpaths);
+	g_free(apk_classpaths);
+
+	JNIEnv *env = boot_android_vm(apk_classpath, apk_name, d->apk_instrumentation_class, d->sdk_int,
+	                              d->extra_jvm_options, d->window_width, d->window_height);
 
 	/* -- misc -- */
 
@@ -584,21 +743,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 
 	prepare_main_looper(env);
 
-	/* extract native libraries from apk*/
-	if (!getenv("ATL_SKIP_NATIVES_EXTRACTION")) {
-		extract_from_apk("lib/" NATIVE_ARCH "/", "lib/");
-		/* Android extracts native libraries into ApplicationInfo.nativeLibraryDir,
-		 * a directory that NativeLibraryHelper.createNativeLibrarySubdir creates
-		 * with mode 0755, so an application may execute a binary it ships in
-		 * lib/<abi>/ (ReVanced Manager runs its bundled aapt2 that way). ATL
-		 * extracts them with the default 0644 and does not rewrite a file that is
-		 * newer than the apk, so set the platform's mode on the whole directory,
-		 * which also repairs files an earlier extraction left without the
-		 * execute bits. */
-		char *native_library_dir = g_build_filename(get_app_data_dir(), "lib", NULL);
-		chmod_tree(native_library_dir, 0755);
-		g_free(native_library_dir);
-	}
+	extract_native_libraries();
 
 	// construct Application
 	application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,
@@ -979,6 +1124,12 @@ int main(int argc, char **argv)
 	setenv("LC_ALL", "C.UTF-8", 1);
 
 	libc_bio_set_apply_path_overrides_func(apply_path_overrides);
+
+	/* A child process of ATLProcessHost hosts services in a windowless process
+	 * that needs no X display, so it is handled before any GtkApplication
+	 * exists. run_service_child() returns only after the child's link is gone. */
+	if (getenv("ATL_SERVICE_FD"))
+		return run_service_child(argc, argv);
 
 	struct jni_callback_data *callback_data = malloc(sizeof(struct jni_callback_data));
 	callback_data->apk_main_activity_class = NULL;
