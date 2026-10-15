@@ -1,0 +1,321 @@
+APROBE_TRACE_BEGIN run_id=run-1792045702596 package=org.atl.tests.activity.probe probe=atl-activity-seam-probe-v2
+APROBE_INFO targetSdk 27
+APROBE_INFO probe atl-activity-seam-probe-v2 pkg=org.atl.tests.activity.probe filesDir=/home/morten/ATL/agent-work/LIFECYCLE-FOUNDATION/activity/a05-incallback-recreate/sdk27/data/activity-probe-v2-sdk27.apk_/files
+APROBE_EVT 1 - ActA#1 onCreate ActA#1 pre null main=true
+APROBE_EVT 2 - CB cb:onActivityCreated ActA#1 pre - main=true
+APROBE_EVT 3 - ActA#1 onCreate ActA#1 post null main=true
+APROBE_EVT 4 - ActA#1 onStart ActA#1 pre - main=true
+APROBE_EVT 5 - CB cb:onActivityStarted ActA#1 pre - main=true
+APROBE_EVT 6 - ActA#1 onStart ActA#1 post - main=true
+APROBE_EVT 7 - ActA#1 onPostCreate ActA#1 pre - main=true
+APROBE_EVT 8 - ActA#1 onPostCreate ActA#1 post - main=true
+APROBE_EVT 9 - ActA#1 onResume ActA#1 pre - main=true
+APROBE_EVT 10 - CB cb:onActivityResumed ActA#1 pre - main=true
+APROBE_EVT 11 - ActA#1 onResume ActA#1 post - main=true
+APROBE_SCEN_BEGIN S1-NAV
+APROBE_INFO actA-tag ActA#1
+APROBE_EVT 12 S1-NAV ActA#1 onWindowFocusChanged ActA#1 pre true main=true
+APROBE_EVT 13 S1-NAV ActA#1 onWindowFocusChanged ActA#1 pre true main=true
+APROBE_EVT 14 S1-NAV ActA#1 onPause ActA#1 pre - main=true
+APROBE_EVT 15 S1-NAV CB cb:onActivityPaused ActA#1 pre - main=true
+APROBE_EVT 16 S1-NAV ActA#1 onPause ActA#1 post - main=true
+APROBE_EVT 17 S1-NAV ActA#1 onWindowFocusChanged ActA#1 pre false main=true
+APROBE_EVT 18 S1-NAV ActB#2 onCreate ActB#2 pre null main=true
+APROBE_EVT 19 S1-NAV CB cb:onActivityCreated ActB#2 pre - main=true
+APROBE_EVT 20 S1-NAV ActB#2 onCreate ActB#2 post null main=true
+APROBE_EVT 21 S1-NAV ActB#2 onStart ActB#2 pre - main=true
+APROBE_EVT 22 S1-NAV CB cb:onActivityStarted ActB#2 pre - main=true
+APROBE_EVT 23 S1-NAV ActB#2 onStart ActB#2 post - main=true
+APROBE_EVT 24 S1-NAV ActB#2 onPostCreate ActB#2 pre - main=true
+APROBE_EVT 25 S1-NAV ActB#2 onPostCreate ActB#2 post - main=true
+APROBE_EVT 26 S1-NAV ActB#2 onResume ActB#2 pre - main=true
+APROBE_EVT 27 S1-NAV CB cb:onActivityResumed ActB#2 pre - main=true
+APROBE_EVT 28 S1-NAV ActB#2 onResume ActB#2 post - main=true
+APROBE_INFO S1-B-resumed ActB#2 req=first
+APROBE_EVT 29 S1-NAV ActB#2 onWindowFocusChanged ActB#2 pre true main=true
+APROBE_EVT 30 S1-NAV ActA#1 onStop ActA#1 pre - main=true
+APROBE_EVT 31 S1-NAV CB cb:onActivityStopped ActA#1 pre - main=true
+APROBE_EVT 32 S1-NAV ActA#1 onStop ActA#1 post - main=true
+APROBE_EVT 33 S1-NAV ActA#1 onActivityResult ActA#1 pre req=7 res=-1 main=true
+APROBE_EVT 34 S1-NAV ActA#1 onActivityResult ActA#1 post req=7 res=-1 main=true
+APROBE_EVT 35 S1-NAV ActB#2 onPause ActB#2 pre - main=true
+APROBE_EVT 36 S1-NAV CB cb:onActivityPaused ActB#2 pre - main=true
+APROBE_EVT 37 S1-NAV ActB#2 onPause ActB#2 post - main=true
+APROBE_EVT 38 S1-NAV ActB#2 onWindowFocusChanged ActB#2 pre false main=true
+APROBE_EVT 39 S1-NAV ActA#1 onRestart ActA#1 pre - main=true
+APROBE_EVT 40 S1-NAV ActA#1 onRestart ActA#1 post - main=true
+APROBE_EVT 41 S1-NAV ActA#1 onStart ActA#1 pre - main=true
+APROBE_EVT 42 S1-NAV CB cb:onActivityStarted ActA#1 pre - main=true
+APROBE_EVT 43 S1-NAV ActA#1 onStart ActA#1 post - main=true
+APROBE_EVT 44 S1-NAV ActA#1 onResume ActA#1 pre - main=true
+APROBE_EVT 45 S1-NAV CB cb:onActivityResumed ActA#1 pre - main=true
+APROBE_EVT 46 S1-NAV ActA#1 onResume ActA#1 post - main=true
+APROBE A07-result-request-code PASS requestCode=7
+APROBE A07-result-code-and-data PASS resultCode=-1 extra=ok
+APROBE A07-result-delivered-once PASS onActivityResult count=1
+APROBE A07-single-B-instance PASS ActB instances=[ActB#2]
+APROBE A07-nav-framing PASS A.onPause=13 B.onCreate=17 B.onResume=25 A.onStop=29 B.onPause=34 A.onRestart=38 A.onResume=43
+APROBE_INFO A07-nav-order [ActA#1:onPause, ActB#2:onCreate, ActB#2:onStart, ActB#2:onResume, ActA#1:onStop, ActB#2:onPause, ActA#1:onRestart, ActA#1:onStart, ActA#1:onResume]
+APROBE_INFO A07-observer-events created=1 resumed=1 stopped=0 destroyed=0
+APROBE A07-observer-created-once PASS cb:onActivityCreated count=1
+APROBE_SCEN_END S1-NAV
+APROBE_SCEN_BEGIN S2-FINISH-IN-CREATE
+APROBE_EVT 47 S2-FINISH-IN-CREATE ActA#1 onWindowFocusChanged ActA#1 pre true main=true
+APROBE_EVT 48 S2-FINISH-IN-CREATE ActB#2 onStop ActB#2 pre - main=true
+APROBE_EVT 49 S2-FINISH-IN-CREATE CB cb:onActivityStopped ActB#2 pre - main=true
+APROBE_EVT 50 S2-FINISH-IN-CREATE ActB#2 onStop ActB#2 post - main=true
+APROBE_EVT 51 S2-FINISH-IN-CREATE ActB#2 onDestroy ActB#2 pre - main=true
+APROBE_EVT 52 S2-FINISH-IN-CREATE CB cb:onActivityDestroyed ActB#2 pre - main=true
+APROBE_EVT 53 S2-FINISH-IN-CREATE ActB#2 onDestroy ActB#2 post - main=true
+APROBE_EVT 54 S2-FINISH-IN-CREATE ActA#1 onPause ActA#1 pre - main=true
+APROBE_EVT 55 S2-FINISH-IN-CREATE CB cb:onActivityPaused ActA#1 pre - main=true
+APROBE_EVT 56 S2-FINISH-IN-CREATE ActA#1 onPause ActA#1 post - main=true
+APROBE_EVT 57 S2-FINISH-IN-CREATE ActA#1 onWindowFocusChanged ActA#1 pre false main=true
+APROBE_EVT 58 S2-FINISH-IN-CREATE ActC#3 onCreate ActC#3 pre null main=true
+APROBE_EVT 59 S2-FINISH-IN-CREATE CB cb:onActivityCreated ActC#3 pre - main=true
+APROBE_EVT 60 S2-FINISH-IN-CREATE ActC#3 onCreate ActC#3 post null main=true
+APROBE_EVT 61 S2-FINISH-IN-CREATE ActC#3 onDestroy ActC#3 pre - main=true
+APROBE_EVT 62 S2-FINISH-IN-CREATE CB cb:onActivityDestroyed ActC#3 pre - main=true
+APROBE_EVT 63 S2-FINISH-IN-CREATE ActC#3 onDestroy ActC#3 post - main=true
+APROBE_EVT 64 S2-FINISH-IN-CREATE ActA#1 onResume ActA#1 pre - main=true
+APROBE_EVT 65 S2-FINISH-IN-CREATE CB cb:onActivityResumed ActA#1 pre - main=true
+APROBE_EVT 66 S2-FINISH-IN-CREATE ActA#1 onResume ActA#1 post - main=true
+APROBE A07-return-frame PASS S1 A.onResume=43 B.onStop=47 B.onDestroy=50
+APROBE_INFO A07-return-lifecycle [ActA#1:onPause, ActB#2:onCreate, ActB#2:onStart, ActB#2:onPostCreate, ActB#2:onResume, ActA#1:onStop, ActA#1:onActivityResult, ActB#2:onPause, ActA#1:onRestart, ActA#1:onStart, ActA#1:onResume, ActB#2:onStop, ActB#2:onDestroy, ActA#1:onPause, ActC#3:onCreate, ActC#3:onDestroy, ActA#1:onResume]
+APROBE A05-finish-in-create-single-instance PASS ActC instances=[ActC#3]
+APROBE A05-finish-in-create-never-resumed PASS onStart=0 onResume=0
+APROBE A05-finish-in-create-destroy-once PASS onDestroy count=1
+APROBE A05-finish-in-create-no-save-state PASS onSaveInstanceState count=0
+APROBE A05-finish-in-create-inline-teardown PASS A.onPause=53 C.onCreate=57 C.onDestroy=60 A.onResume=63
+APROBE A05-finish-in-create-a-resumed-once PASS A.onResume=1 A.onDestroy=0
+APROBE_SCEN_END S2-FINISH-IN-CREATE
+APROBE_SCEN_BEGIN S3-RECREATE
+APROBE_EVT 67 S3-RECREATE ActA#1 onWindowFocusChanged ActA#1 pre true main=true
+APROBE_EVT 68 S3-RECREATE ActA#1 onPause ActA#1 pre - main=true
+APROBE_EVT 69 S3-RECREATE CB cb:onActivityPaused ActA#1 pre - main=true
+APROBE_EVT 70 S3-RECREATE ActA#1 onPause ActA#1 post - main=true
+APROBE_EVT 71 S3-RECREATE ActA#1 onWindowFocusChanged ActA#1 pre false main=true
+APROBE_EVT 72 S3-RECREATE ActR#4 onCreate ActR#4 pre null main=true
+APROBE_EVT 73 S3-RECREATE CB cb:onActivityCreated ActR#4 pre - main=true
+APROBE_EVT 74 S3-RECREATE ActR#4 onCreate ActR#4 post null main=true
+APROBE_EVT 75 S3-RECREATE ActR#4 onStart ActR#4 pre - main=true
+APROBE_EVT 76 S3-RECREATE CB cb:onActivityStarted ActR#4 pre - main=true
+APROBE_EVT 77 S3-RECREATE ActR#4 onStart ActR#4 post - main=true
+APROBE_EVT 78 S3-RECREATE ActR#4 onPostCreate ActR#4 pre - main=true
+APROBE_EVT 79 S3-RECREATE ActR#4 onPostCreate ActR#4 post - main=true
+APROBE_EVT 80 S3-RECREATE ActR#4 onResume ActR#4 pre - main=true
+APROBE_EVT 81 S3-RECREATE CB cb:onActivityResumed ActR#4 pre - main=true
+APROBE_EVT 82 S3-RECREATE ActR#4 onResume ActR#4 post - main=true
+APROBE_INFO S3-R1-resumed ActR#4 text=typed focus=false
+APROBE_EVT 83 S3-RECREATE ActR#4 onWindowFocusChanged ActR#4 pre true main=true
+APROBE_EVT 84 S3-RECREATE ActA#1 onStop ActA#1 pre - main=true
+APROBE_EVT 85 S3-RECREATE CB cb:onActivityStopped ActA#1 pre - main=true
+APROBE_EVT 86 S3-RECREATE ActA#1 onStop ActA#1 post - main=true
+APROBE_EVT 87 S3-RECREATE ActR#4 onPause ActR#4 pre - main=true
+APROBE_EVT 88 S3-RECREATE CB cb:onActivityPaused ActR#4 pre - main=true
+APROBE_EVT 89 S3-RECREATE ActR#4 onPause ActR#4 post - main=true
+APROBE_EVT 90 S3-RECREATE ActR#4 onSaveInstanceState ActR#4 pre pre main=true
+APROBE_EVT 91 S3-RECREATE CB cb:onActivitySaveInstanceState ActR#4 pre - main=true
+APROBE_EVT 92 S3-RECREATE ActR#4 onSaveInstanceState ActR#4 post nonnull main=true
+APROBE_EVT 93 S3-RECREATE ActR#4 onStop ActR#4 pre - main=true
+APROBE_EVT 94 S3-RECREATE CB cb:onActivityStopped ActR#4 pre - main=true
+APROBE_EVT 95 S3-RECREATE ActR#4 onStop ActR#4 post - main=true
+APROBE_EVT 96 S3-RECREATE ActR#4 onDestroy ActR#4 pre - main=true
+APROBE_EVT 97 S3-RECREATE CB cb:onActivityDestroyed ActR#4 pre - main=true
+APROBE_EVT 98 S3-RECREATE ActR#4 onDestroy ActR#4 post - main=true
+APROBE_EVT 99 S3-RECREATE ActR#5 onCreate ActR#5 pre nonnull main=true
+APROBE_EVT 100 S3-RECREATE CB cb:onActivityCreated ActR#5 pre - main=true
+APROBE_EVT 101 S3-RECREATE ActR#5 onCreate ActR#5 post nonnull main=true
+APROBE_EVT 102 S3-RECREATE ActR#5 onStart ActR#5 pre - main=true
+APROBE_EVT 103 S3-RECREATE CB cb:onActivityStarted ActR#5 pre - main=true
+APROBE_EVT 104 S3-RECREATE ActR#5 onStart ActR#5 post - main=true
+APROBE_EVT 105 S3-RECREATE ActR#5 onRestoreInstanceState ActR#5 pre nonnull main=true
+APROBE_EVT 106 S3-RECREATE ActR#5 onRestoreInstanceState ActR#5 post nonnull main=true
+APROBE_EVT 107 S3-RECREATE ActR#5 onPostCreate ActR#5 pre - main=true
+APROBE_EVT 108 S3-RECREATE ActR#5 onPostCreate ActR#5 post - main=true
+APROBE_EVT 109 S3-RECREATE ActR#5 onResume ActR#5 pre - main=true
+APROBE_EVT 110 S3-RECREATE CB cb:onActivityResumed ActR#5 pre - main=true
+APROBE_EVT 111 S3-RECREATE ActR#5 onResume ActR#5 post - main=true
+APROBE_INFO S3-R2-resumed ActR#5 text=typed app=v1 focus=false savedBundle=true
+APROBE_EVT 112 S3-RECREATE ActR#5 onWindowFocusChanged ActR#5 pre true main=true
+APROBE_EVT 113 S3-RECREATE ActR#5 onPause ActR#5 pre - main=true
+APROBE_EVT 114 S3-RECREATE CB cb:onActivityPaused ActR#5 pre - main=true
+APROBE_EVT 115 S3-RECREATE ActR#5 onPause ActR#5 post - main=true
+APROBE_EVT 116 S3-RECREATE ActR#5 onSaveInstanceState ActR#5 pre pre main=true
+APROBE_EVT 117 S3-RECREATE CB cb:onActivitySaveInstanceState ActR#5 pre - main=true
+APROBE_EVT 118 S3-RECREATE ActR#5 onSaveInstanceState ActR#5 post nonnull main=true
+APROBE_EVT 119 S3-RECREATE ActR#5 onStop ActR#5 pre - main=true
+APROBE_EVT 120 S3-RECREATE CB cb:onActivityStopped ActR#5 pre - main=true
+APROBE_EVT 121 S3-RECREATE ActR#5 onStop ActR#5 post - main=true
+APROBE_EVT 122 S3-RECREATE ActR#5 onDestroy ActR#5 pre - main=true
+APROBE_EVT 123 S3-RECREATE CB cb:onActivityDestroyed ActR#5 pre - main=true
+APROBE_EVT 124 S3-RECREATE ActR#5 onDestroy ActR#5 post - main=true
+APROBE_EVT 125 S3-RECREATE ActR#6 onCreate ActR#6 pre nonnull main=true
+APROBE_EVT 126 S3-RECREATE CB cb:onActivityCreated ActR#6 pre - main=true
+APROBE_EVT 127 S3-RECREATE ActR#6 onCreate ActR#6 post nonnull main=true
+APROBE_EVT 128 S3-RECREATE ActR#6 onStart ActR#6 pre - main=true
+APROBE_EVT 129 S3-RECREATE CB cb:onActivityStarted ActR#6 pre - main=true
+APROBE_EVT 130 S3-RECREATE ActR#6 onStart ActR#6 post - main=true
+APROBE_EVT 131 S3-RECREATE ActR#6 onRestoreInstanceState ActR#6 pre nonnull main=true
+APROBE_EVT 132 S3-RECREATE ActR#6 onRestoreInstanceState ActR#6 post nonnull main=true
+APROBE_EVT 133 S3-RECREATE ActR#6 onPostCreate ActR#6 pre - main=true
+APROBE_EVT 134 S3-RECREATE ActR#6 onPostCreate ActR#6 post - main=true
+APROBE_EVT 135 S3-RECREATE ActR#6 onResume ActR#6 pre - main=true
+APROBE_EVT 136 S3-RECREATE CB cb:onActivityResumed ActR#6 pre - main=true
+APROBE_EVT 137 S3-RECREATE ActR#6 onResume ActR#6 post - main=true
+APROBE_INFO S3-R3-resumed ActR#6 text=typed app=v1 savedBundle=true
+APROBE_EVT 138 S3-RECREATE ActR#6 onWindowFocusChanged ActR#6 pre true main=true
+APROBE_EVT 139 S3-RECREATE ActR#6 onPause ActR#6 pre - main=true
+APROBE_EVT 140 S3-RECREATE CB cb:onActivityPaused ActR#6 pre - main=true
+APROBE_EVT 141 S3-RECREATE ActR#6 onPause ActR#6 post - main=true
+APROBE_EVT 142 S3-RECREATE ActR#6 onWindowFocusChanged ActR#6 pre false main=true
+APROBE_EVT 143 S3-RECREATE ActA#1 onRestart ActA#1 pre - main=true
+APROBE_EVT 144 S3-RECREATE ActA#1 onRestart ActA#1 post - main=true
+APROBE_EVT 145 S3-RECREATE ActA#1 onStart ActA#1 pre - main=true
+APROBE_EVT 146 S3-RECREATE CB cb:onActivityStarted ActA#1 pre - main=true
+APROBE_EVT 147 S3-RECREATE ActA#1 onStart ActA#1 post - main=true
+APROBE_EVT 148 S3-RECREATE ActA#1 onResume ActA#1 pre - main=true
+APROBE_EVT 149 S3-RECREATE CB cb:onActivityResumed ActA#1 pre - main=true
+APROBE_EVT 150 S3-RECREATE ActA#1 onResume ActA#1 post - main=true
+APROBE A08-recreate-distinct-instance PASS old=ActR#4 new=ActR#5
+APROBE A08-recreate-old-destroyed-once PASS old onDestroy count=1
+APROBE A08-recreate-new-created-once PASS new onCreate count=1
+APROBE A08-recreate-old-resumed-once PASS old resumes=1
+APROBE A08-recreate-new-resumed-once PASS new resumes=1
+APROBE A08-recreate-save-state-once PASS old onSaveInstanceState count=1
+APROBE A08-recreate-restored-app-state PASS restored app=v1
+APROBE A08-recreate-restored-view-state PASS restored view text=typed
+APROBE A06-runtime-focus-after-resume PASS hasWindowFocus after focus event=true onWindowFocusChanged=1 lifecycle callbacks in focus window=0
+APROBE A06-focus-not-yet-at-resume PASS hasWindowFocus during onResume=false (AOSP order: resume then focus)
+APROBE_INFO A06-runtime-focus-events onWindowFocusChanged events in recreate window=1
+APROBE A09-save-order-targetSdk PASS targetSdk=27 preP=true saveIdx=89 stopIdx=92 pauseIdx=86 rule=save-before-stop
+APROBE A09-repeated-recreate-distinct PASS old=ActR#5 new=ActR#6
+APROBE A09-repeated-recreate-clean PASS R2.onDestroy=1 R3.onCreate=1 R2.onStart=0
+APROBE A09-repeated-recreate-restored PASS view text=typed app=v1
+APROBE_INFO A09-repeated-recreate-lifecycle [ActR#5:onPause, ActR#5:onSaveInstanceState, ActR#5:onStop, ActR#5:onDestroy, ActR#6:onCreate, ActR#6:onStart, ActR#6:onRestoreInstanceState, ActR#6:onPostCreate, ActR#6:onResume, ActR#6:onPause, ActA#1:onRestart, ActA#1:onStart, ActA#1:onResume]
+APROBE A09-recreate-a-resumed-once PASS A.onResume count=1
+APROBE_SCEN_END S3-RECREATE
+APROBE_SCEN_BEGIN S4-NEW-INTENT
+APROBE_EVT 151 S4-NEW-INTENT ActA#1 onWindowFocusChanged ActA#1 pre true main=true
+APROBE_EVT 152 S4-NEW-INTENT ActR#6 onStop ActR#6 pre - main=true
+APROBE_EVT 153 S4-NEW-INTENT CB cb:onActivityStopped ActR#6 pre - main=true
+APROBE_EVT 154 S4-NEW-INTENT ActR#6 onStop ActR#6 post - main=true
+APROBE_EVT 155 S4-NEW-INTENT ActR#6 onDestroy ActR#6 pre - main=true
+APROBE_EVT 156 S4-NEW-INTENT CB cb:onActivityDestroyed ActR#6 pre - main=true
+APROBE_EVT 157 S4-NEW-INTENT ActR#6 onDestroy ActR#6 post - main=true
+APROBE_EVT 158 S4-NEW-INTENT ActA#1 onPause ActA#1 pre - main=true
+APROBE_EVT 159 S4-NEW-INTENT CB cb:onActivityPaused ActA#1 pre - main=true
+APROBE_EVT 160 S4-NEW-INTENT ActA#1 onPause ActA#1 post - main=true
+APROBE_EVT 161 S4-NEW-INTENT ActA#1 onWindowFocusChanged ActA#1 pre false main=true
+APROBE_EVT 162 S4-NEW-INTENT ActB#7 onCreate ActB#7 pre null main=true
+APROBE_EVT 163 S4-NEW-INTENT CB cb:onActivityCreated ActB#7 pre - main=true
+APROBE_EVT 164 S4-NEW-INTENT ActB#7 onCreate ActB#7 post null main=true
+APROBE_EVT 165 S4-NEW-INTENT ActB#7 onStart ActB#7 pre - main=true
+APROBE_EVT 166 S4-NEW-INTENT CB cb:onActivityStarted ActB#7 pre - main=true
+APROBE_EVT 167 S4-NEW-INTENT ActB#7 onStart ActB#7 post - main=true
+APROBE_EVT 168 S4-NEW-INTENT ActB#7 onPostCreate ActB#7 pre - main=true
+APROBE_EVT 169 S4-NEW-INTENT ActB#7 onPostCreate ActB#7 post - main=true
+APROBE_EVT 170 S4-NEW-INTENT ActB#7 onResume ActB#7 pre - main=true
+APROBE_EVT 171 S4-NEW-INTENT CB cb:onActivityResumed ActB#7 pre - main=true
+APROBE_EVT 172 S4-NEW-INTENT ActB#7 onResume ActB#7 post - main=true
+APROBE_INFO S4-B-first-resume ActB#7 req=orig
+APROBE_EVT 173 S4-NEW-INTENT ActB#7 onWindowFocusChanged ActB#7 pre true main=true
+APROBE_EVT 174 S4-NEW-INTENT ActA#1 onStop ActA#1 pre - main=true
+APROBE_EVT 175 S4-NEW-INTENT CB cb:onActivityStopped ActA#1 pre - main=true
+APROBE_EVT 176 S4-NEW-INTENT ActA#1 onStop ActA#1 post - main=true
+APROBE_INFO S4-startActivity-clear-top issued from ActB#7
+APROBE_EVT 177 S4-NEW-INTENT ActB#7 onPause ActB#7 pre - main=true
+APROBE_EVT 178 S4-NEW-INTENT CB cb:onActivityPaused ActB#7 pre - main=true
+APROBE_EVT 179 S4-NEW-INTENT ActB#7 onPause ActB#7 post - main=true
+APROBE_EVT 180 S4-NEW-INTENT ActB#7 onNewIntent ActB#7 pre nonnull main=true
+APROBE_EVT 181 S4-NEW-INTENT ActB#7 onNewIntent ActB#7 post nonnull main=true
+APROBE_EVT 182 S4-NEW-INTENT ActB#7 onResume ActB#7 pre - main=true
+APROBE_EVT 183 S4-NEW-INTENT CB cb:onActivityResumed ActB#7 pre - main=true
+APROBE_EVT 184 S4-NEW-INTENT ActB#7 onResume ActB#7 post - main=true
+APROBE_EVT 185 S4-NEW-INTENT ActB#7 onPause ActB#7 pre - main=true
+APROBE_EVT 186 S4-NEW-INTENT CB cb:onActivityPaused ActB#7 pre - main=true
+APROBE_EVT 187 S4-NEW-INTENT ActB#7 onPause ActB#7 post - main=true
+APROBE_EVT 188 S4-NEW-INTENT ActB#7 onWindowFocusChanged ActB#7 pre false main=true
+APROBE_EVT 189 S4-NEW-INTENT ActA#1 onRestart ActA#1 pre - main=true
+APROBE_EVT 190 S4-NEW-INTENT ActA#1 onRestart ActA#1 post - main=true
+APROBE_EVT 191 S4-NEW-INTENT ActA#1 onStart ActA#1 pre - main=true
+APROBE_EVT 192 S4-NEW-INTENT CB cb:onActivityStarted ActA#1 pre - main=true
+APROBE_EVT 193 S4-NEW-INTENT ActA#1 onStart ActA#1 post - main=true
+APROBE_EVT 194 S4-NEW-INTENT ActA#1 onResume ActA#1 pre - main=true
+APROBE_EVT 195 S4-NEW-INTENT CB cb:onActivityResumed ActA#1 pre - main=true
+APROBE_EVT 196 S4-NEW-INTENT ActA#1 onResume ActA#1 post - main=true
+APROBE A07-new-intent-single-instance PASS ActB instances=[ActB#7]
+APROBE A07-new-intent-delivered-once PASS onNewIntent count=1
+APROBE A07-new-intent-payload PASS delivered extra=new
+APROBE A07-new-intent-record-intent-preserved PASS getIntent() extra after onNewIntent=orig
+APROBE A07-new-intent-no-recreate PASS onCreate=1 onResume=2 onNewIntent=1
+APROBE_SCEN_END S4-NEW-INTENT
+APROBE_SCEN_BEGIN S5-RECREATE-IN-CALLBACK
+APROBE_EVT 197 S5-RECREATE-IN-CALLBACK ActA#1 onWindowFocusChanged ActA#1 pre true main=true
+APROBE_EVT 198 S5-RECREATE-IN-CALLBACK ActB#7 onStop ActB#7 pre - main=true
+APROBE_EVT 199 S5-RECREATE-IN-CALLBACK CB cb:onActivityStopped ActB#7 pre - main=true
+APROBE_EVT 200 S5-RECREATE-IN-CALLBACK ActB#7 onStop ActB#7 post - main=true
+APROBE_EVT 201 S5-RECREATE-IN-CALLBACK ActB#7 onDestroy ActB#7 pre - main=true
+APROBE_EVT 202 S5-RECREATE-IN-CALLBACK CB cb:onActivityDestroyed ActB#7 pre - main=true
+APROBE_EVT 203 S5-RECREATE-IN-CALLBACK ActB#7 onDestroy ActB#7 post - main=true
+APROBE_EVT 204 S5-RECREATE-IN-CALLBACK ActA#1 onPause ActA#1 pre - main=true
+APROBE_EVT 205 S5-RECREATE-IN-CALLBACK CB cb:onActivityPaused ActA#1 pre - main=true
+APROBE_EVT 206 S5-RECREATE-IN-CALLBACK ActA#1 onPause ActA#1 post - main=true
+APROBE_EVT 207 S5-RECREATE-IN-CALLBACK ActA#1 onWindowFocusChanged ActA#1 pre false main=true
+APROBE_EVT 208 S5-RECREATE-IN-CALLBACK ActQ#8 onCreate ActQ#8 pre null main=true
+APROBE_EVT 209 S5-RECREATE-IN-CALLBACK CB cb:onActivityCreated ActQ#8 pre - main=true
+APROBE_EVT 210 S5-RECREATE-IN-CALLBACK ActQ#8 onCreate ActQ#8 post null main=true
+APROBE_EVT 211 S5-RECREATE-IN-CALLBACK ActQ#8 onStart ActQ#8 pre - main=true
+APROBE_EVT 212 S5-RECREATE-IN-CALLBACK CB cb:onActivityStarted ActQ#8 pre - main=true
+APROBE_EVT 213 S5-RECREATE-IN-CALLBACK ActQ#8 onStart ActQ#8 post - main=true
+APROBE_EVT 214 S5-RECREATE-IN-CALLBACK ActQ#8 onPostCreate ActQ#8 pre - main=true
+APROBE_EVT 215 S5-RECREATE-IN-CALLBACK ActQ#8 onPostCreate ActQ#8 post - main=true
+APROBE_EVT 216 S5-RECREATE-IN-CALLBACK ActQ#8 onResume ActQ#8 pre - main=true
+APROBE_EVT 217 S5-RECREATE-IN-CALLBACK CB cb:onActivityResumed ActQ#8 pre - main=true
+APROBE_EVT 218 S5-RECREATE-IN-CALLBACK ActQ#8 onResume ActQ#8 post - main=true
+APROBE_INFO S5-Q1-resumed ActQ#8 inCallbackRecreator=true (recreate() follows super.onResume() in this frame)
+APROBE_EVT 219 S5-RECREATE-IN-CALLBACK ActQ#8 onWindowFocusChanged ActQ#8 pre true main=true
+APROBE_EVT 220 S5-RECREATE-IN-CALLBACK ActA#1 onStop ActA#1 pre - main=true
+APROBE_EVT 221 S5-RECREATE-IN-CALLBACK CB cb:onActivityStopped ActA#1 pre - main=true
+APROBE_EVT 222 S5-RECREATE-IN-CALLBACK ActA#1 onStop ActA#1 post - main=true
+APROBE_EVT 223 S5-RECREATE-IN-CALLBACK ActQ#8 onPause ActQ#8 pre - main=true
+APROBE_EVT 224 S5-RECREATE-IN-CALLBACK CB cb:onActivityPaused ActQ#8 pre - main=true
+APROBE_EVT 225 S5-RECREATE-IN-CALLBACK ActQ#8 onPause ActQ#8 post - main=true
+APROBE_EVT 226 S5-RECREATE-IN-CALLBACK ActQ#8 onSaveInstanceState ActQ#8 pre pre main=true
+APROBE_EVT 227 S5-RECREATE-IN-CALLBACK CB cb:onActivitySaveInstanceState ActQ#8 pre - main=true
+APROBE_EVT 228 S5-RECREATE-IN-CALLBACK ActQ#8 onSaveInstanceState ActQ#8 post nonnull main=true
+APROBE_EVT 229 S5-RECREATE-IN-CALLBACK ActQ#8 onStop ActQ#8 pre - main=true
+APROBE_EVT 230 S5-RECREATE-IN-CALLBACK CB cb:onActivityStopped ActQ#8 pre - main=true
+APROBE_EVT 231 S5-RECREATE-IN-CALLBACK ActQ#8 onStop ActQ#8 post - main=true
+APROBE_EVT 232 S5-RECREATE-IN-CALLBACK ActQ#8 onDestroy ActQ#8 pre - main=true
+APROBE_EVT 233 S5-RECREATE-IN-CALLBACK CB cb:onActivityDestroyed ActQ#8 pre - main=true
+APROBE_EVT 234 S5-RECREATE-IN-CALLBACK ActQ#8 onDestroy ActQ#8 post - main=true
+APROBE_EVT 235 S5-RECREATE-IN-CALLBACK ActQ#9 onCreate ActQ#9 pre nonnull main=true
+APROBE_EVT 236 S5-RECREATE-IN-CALLBACK CB cb:onActivityCreated ActQ#9 pre - main=true
+APROBE_EVT 237 S5-RECREATE-IN-CALLBACK ActQ#9 onCreate ActQ#9 post nonnull main=true
+APROBE_EVT 238 S5-RECREATE-IN-CALLBACK ActQ#9 onStart ActQ#9 pre - main=true
+APROBE_EVT 239 S5-RECREATE-IN-CALLBACK CB cb:onActivityStarted ActQ#9 pre - main=true
+APROBE_EVT 240 S5-RECREATE-IN-CALLBACK ActQ#9 onStart ActQ#9 post - main=true
+APROBE_EVT 241 S5-RECREATE-IN-CALLBACK ActQ#9 onRestoreInstanceState ActQ#9 pre nonnull main=true
+APROBE_EVT 242 S5-RECREATE-IN-CALLBACK ActQ#9 onRestoreInstanceState ActQ#9 post nonnull main=true
+APROBE_EVT 243 S5-RECREATE-IN-CALLBACK ActQ#9 onPostCreate ActQ#9 pre - main=true
+APROBE_EVT 244 S5-RECREATE-IN-CALLBACK ActQ#9 onPostCreate ActQ#9 post - main=true
+APROBE_EVT 245 S5-RECREATE-IN-CALLBACK ActQ#9 onResume ActQ#9 pre - main=true
+APROBE_EVT 246 S5-RECREATE-IN-CALLBACK CB cb:onActivityResumed ActQ#9 pre - main=true
+APROBE_EVT 247 S5-RECREATE-IN-CALLBACK ActQ#9 onResume ActQ#9 post - main=true
+APROBE_INFO S5-Q2-resumed ActQ#9
+APROBE A05-incallback-recreate-distinct-instance PASS old=ActQ#8 new=ActQ#9
+APROBE A05-incallback-recreate-old-resumed-once PASS old onResume count=1 (ActQ#8)
+APROBE A05-incallback-recreate-old-destroyed-once PASS old onDestroy count=1 (ActQ#8)
+APROBE A05-incallback-recreate-new-created-once PASS new onCreate count=1 (ActQ#9)
+APROBE A05-incallback-recreate-new-resumed-once PASS new onResume count=1 (ActQ#9)
+APROBE A05-incallback-recreate-not-reentrant PASS old.onResume.post=217 old.onPause=222 new.onCreate=234 (required: post < old.onPause and post < new.onCreate)
+APROBE A05-incallback-recreate-no-double-transition PASS ActQ#8:onCreate=1 ActQ#8:onStart=1 ActQ#8:onResume=1 ActQ#8:onPause=1 ActQ#8:onStop=1 ActQ#8:onDestroy=1 ActQ#9:onCreate=1 ActQ#9:onStart=1 ActQ#9:onResume=1
+APROBE_INFO S5-lifecycle-window [ActB#7:onStop, ActB#7:onDestroy, ActA#1:onPause, ActQ#8:onCreate, ActQ#8:onStart, ActQ#8:onPostCreate, ActQ#8:onResume, ActA#1:onStop, ActQ#8:onPause, ActQ#8:onSaveInstanceState, ActQ#8:onStop, ActQ#8:onDestroy, ActQ#9:onCreate, ActQ#9:onStart, ActQ#9:onRestoreInstanceState, ActQ#9:onPostCreate, ActQ#9:onResume]
+APROBE_SCEN_END S5-RECREATE-IN-CALLBACK
+APROBE_INFO A10-limitation no process-death restore: ATL has no saved-state persistence across process death; recreation state is in-process only
+APROBE A07-explicit-component-launch PASS startActivityForResult uses an explicit component (Intent.setClass), as ATL requires
+APROBE_JSON_BEGIN {"probe":"atl-activity-seam-probe-v2","pass":41,"fail":0,"checks":[{"name":"targetSdk","ok":true,"info":true,"detail":"27"},{"name":"probe","ok":true,"info":true,"detail":"atl-activity-seam-probe-v2 pkg=org.atl.tests.activity.probe filesDir=/home/morten/ATL/agent-work/LIFECYCLE-FOUNDATION/activity/a05-incallback-recreate/sdk27/data/activity-probe-v2-sdk27.apk_/files"},{"name":"actA-tag","ok":true,"info":true,"detail":"ActA#1"},{"name":"S1-B-resumed","ok":true,"info":true,"detail":"ActB#2 req=first"},{"name":"A07-result-request-code","ok":true,"detail":"requestCode=7"},{"name":"A07-result-code-and-data","ok":true,"detail":"resultCode=-1 extra=ok"},{"name":"A07-result-delivered-once","ok":true,"detail":"onActivityResult count=1"},{"name":"A07-single-B-instance","ok":true,"detail":"ActB instances=[ActB#2]"},{"name":"A07-nav-framing","ok":true,"detail":"A.onPause=13 B.onCreate=17 B.onResume=25 A.onStop=29 B.onPause=34 A.onRestart=38 A.onResume=43"},{"name":"A07-nav-order","ok":true,"info":true,"detail":"[ActA#1:onPause, ActB#2:onCreate, ActB#2:onStart, ActB#2:onResume, ActA#1:onStop, ActB#2:onPause, ActA#1:onRestart, ActA#1:onStart, ActA#1:onResume]"},{"name":"A07-observer-events","ok":true,"info":true,"detail":"created=1 resumed=1 stopped=0 destroyed=0"},{"name":"A07-observer-created-once","ok":true,"detail":"cb:onActivityCreated count=1"},{"name":"A07-return-frame","ok":true,"detail":"S1 A.onResume=43 B.onStop=47 B.onDestroy=50"},{"name":"A07-return-lifecycle","ok":true,"info":true,"detail":"[ActA#1:onPause, ActB#2:onCreate, ActB#2:onStart, ActB#2:onPostCreate, ActB#2:onResume, ActA#1:onStop, ActA#1:onActivityResult, ActB#2:onPause, ActA#1:onRestart, ActA#1:onStart, ActA#1:onResume, ActB#2:onStop, ActB#2:onDestroy, ActA#1:onPause, ActC#3:onCreate, ActC#3:onDestroy, ActA#1:onResume]"},{"name":"A05-finish-in-create-single-instance","ok":true,"detail":"ActC instances=[ActC#3]"},{"name":"A05-finish-in-create-never-resumed","ok":true,"detail":"onStart=0 onResume=0"},{"name":"A05-finish-in-create-destroy-once","ok":true,"detail":"onDestroy count=1"},{"name":"A05-finish-in-create-no-save-state","ok":true,"detail":"onSaveInstanceState count=0"},{"name":"A05-finish-in-create-inline-teardown","ok":true,"detail":"A.onPause=53 C.onCreate=57 C.onDestroy=60 A.onResume=63"},{"name":"A05-finish-in-create-a-resumed-once","ok":true,"detail":"A.onResume=1 A.onDestroy=0"},{"name":"S3-R1-resumed","ok":true,"info":true,"detail":"ActR#4 text=typed focus=false"},{"name":"S3-R2-resumed","ok":true,"info":true,"detail":"ActR#5 text=typed app=v1 focus=false savedBundle=true"},{"name":"S3-R3-resumed","ok":true,"info":true,"detail":"ActR#6 text=typed app=v1 savedBundle=true"},{"name":"A08-recreate-distinct-instance","ok":true,"detail":"old=ActR#4 new=ActR#5"},{"name":"A08-recreate-old-destroyed-once","ok":true,"detail":"old onDestroy count=1"},{"name":"A08-recreate-new-created-once","ok":true,"detail":"new onCreate count=1"},{"name":"A08-recreate-old-resumed-once","ok":true,"detail":"old resumes=1"},{"name":"A08-recreate-new-resumed-once","ok":true,"detail":"new resumes=1"},{"name":"A08-recreate-save-state-once","ok":true,"detail":"old onSaveInstanceState count=1"},{"name":"A08-recreate-restored-app-state","ok":true,"detail":"restored app=v1"},{"name":"A08-recreate-restored-view-state","ok":true,"detail":"restored view text=typed"},{"name":"A06-runtime-focus-after-resume","ok":true,"detail":"hasWindowFocus after focus event=true onWindowFocusChanged=1 lifecycle callbacks in focus window=0"},{"name":"A06-focus-not-yet-at-resume","ok":true,"detail":"hasWindowFocus during onResume=false (AOSP order: resume then focus)"},{"name":"A06-runtime-focus-events","ok":true,"info":true,"detail":"onWindowFocusChanged events in recreate window=1"},{"name":"A09-save-order-targetSdk","ok":true,"detail":"targetSdk=27 preP=true saveIdx=89 stopIdx=92 pauseIdx=86 rule=save-before-stop"},{"name":"A09-repeated-recreate-distinct","ok":true,"detail":"old=ActR#5 new=ActR#6"},{"name":"A09-repeated-recreate-clean","ok":true,"detail":"R2.onDestroy=1 R3.onCreate=1 R2.onStart=0"},{"name":"A09-repeated-recreate-restored","ok":true,"detail":"view text=typed app=v1"},{"name":"A09-repeated-recreate-lifecycle","ok":true,"info":true,"detail":"[ActR#5:onPause, ActR#5:onSaveInstanceState, ActR#5:onStop, ActR#5:onDestroy, ActR#6:onCreate, ActR#6:onStart, ActR#6:onRestoreInstanceState, ActR#6:onPostCreate, ActR#6:onResume, ActR#6:onPause, ActA#1:onRestart, ActA#1:onStart, ActA#1:onResume]"},{"name":"A09-recreate-a-resumed-once","ok":true,"detail":"A.onResume count=1"},{"name":"S4-B-first-resume","ok":true,"info":true,"detail":"ActB#7 req=orig"},{"name":"S4-startActivity-clear-top","ok":true,"info":true,"detail":"issued from ActB#7"},{"name":"A07-new-intent-single-instance","ok":true,"detail":"ActB instances=[ActB#7]"},{"name":"A07-new-intent-delivered-once","ok":true,"detail":"onNewIntent count=1"},{"name":"A07-new-intent-payload","ok":true,"detail":"delivered extra=new"},{"name":"A07-new-intent-record-intent-preserved","ok":true,"detail":"getIntent() extra after onNewIntent=orig"},{"name":"A07-new-intent-no-recreate","ok":true,"detail":"onCreate=1 onResume=2 onNewIntent=1"},{"name":"S5-Q1-resumed","ok":true,"info":true,"detail":"ActQ#8 inCallbackRecreator=true (recreate() follows super.onResume() in this frame)"},{"name":"S5-Q2-resumed","ok":true,"info":true,"detail":"ActQ#9"},{"name":"A05-incallback-recreate-distinct-instance","ok":true,"detail":"old=ActQ#8 new=ActQ#9"},{"name":"A05-incallback-recreate-old-resumed-once","ok":true,"detail":"old onResume count=1 (ActQ#8)"},{"name":"A05-incallback-recreate-old-destroyed-once","ok":true,"detail":"old onDestroy count=1 (ActQ#8)"},{"name":"A05-incallback-recreate-new-created-once","ok":true,"detail":"new onCreate count=1 (ActQ#9)"},{"name":"A05-incallback-recreate-new-resumed-once","ok":true,"detail":"new onResume count=1 (ActQ#9)"},{"name":"A05-incallback-recreate-not-reentrant","ok":true,"detail":"old.onResume.post=217 old.onPause=222 new.onCreate=234 (required: post < old.onPause and post < new.onCreate)"},{"name":"A05-incallback-recreate-no-double-transition","ok":true,"detail":"ActQ#8:onCreate=1 ActQ#8:onStart=1 ActQ#8:onResume=1 ActQ#8:onPause=1 ActQ#8:onStop=1 ActQ#8:onDestroy=1 ActQ#9:onCreate=1 ActQ#9:onStart=1 ActQ#9:onResume=1"},{"name":"S5-lifecycle-window","ok":true,"info":true,"detail":"[ActB#7:onStop, ActB#7:onDestroy, ActA#1:onPause, ActQ#8:onCreate, ActQ#8:onStart, ActQ#8:onPostCreate, ActQ#8:onResume, ActA#1:onStop, ActQ#8:onPause, ActQ#8:onSaveInstanceState, ActQ#8:onStop, ActQ#8:onDestroy, ActQ#9:onCreate, ActQ#9:onStart, ActQ#9:onRestoreInstanceState, ActQ#9:onPostCreate, ActQ#9:onResume]"},{"name":"A10-limitation","ok":true,"info":true,"detail":"no process-death restore: ATL has no saved-state persistence across process death; recreation state is in-process only"},{"name":"A07-explicit-component-launch","ok":true,"detail":"startActivityForResult uses an explicit component (Intent.setClass), as ATL requires"}]} APROBE_JSON_END
+APROBE ALL_DONE 41 PASS 0 FAIL
+APROBE_MARK TERMINAL_DONE
+APROBE_EVT 248 - ActQ#9 onWindowFocusChanged ActQ#9 pre true main=true

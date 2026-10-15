@@ -1,6 +1,7 @@
 package android.app;
 
 import android.app.ActionBar;
+import android.atl.ATLActivityController;
 import android.atl.ATLLoadedApp;
 import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
@@ -51,11 +52,13 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	public Intent intent;
 	private Activity resultActivity;
 	private int resultRequestCode;
-	private boolean paused = false;
 	private CharSequence title = null;
 	List<Fragment> fragments = new ArrayList<>();
 	boolean destroyed = false;
 	private boolean finishing = false;
+	// Set while a recreation destroys this instance; AOSP ActivityThread sets
+	// mChangingConfigurations during relaunch so isFinishing() stays false.
+	boolean changingConfigurations = false;
 
 	public static Activity internalCreateActivity(String className, long native_window, Intent intent) throws ReflectiveOperationException {
 		Activity activity = ATLLoadedApp.getPrimaryApplication().createActivity(className, intent);
@@ -123,7 +126,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	// AOSP Activity.performCreate dispatches activity-created only after the
 	// application's entire onCreate override has completed.
-	final void performCreate(Bundle state) {
+	public final void performCreate(Bundle state) {
 		onCreate(state);
 		fragmentManager.executePendingTransactions();
 		fragmentsActivityCreated = true;
@@ -211,7 +214,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	// 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d) dispatch upward fragment
 	// transitions AFTER the complete application override returns. Dispatching
 	// in super.onStart/onResume re-enters lifecycle observers too early.
-	final void performStart() {
+	public final void performStart() {
 		onStart();
 		fragmentManager.executePendingTransactions();
 		fragmentsStarted = true;
@@ -220,13 +223,76 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		}
 	}
 
-	final void performResume() {
+	public final void performResume() {
 		onResume();
 		fragmentManager.executePendingTransactions();
 		fragmentsResumed = true;
 		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
 			if (fragment.activity == this) fragment.performResume();
 		}
+		// AOSP Activity.performResume (Activity.java:9482-9533, android-17.0.0_r1,
+		// 94b4c163b7df) calls onPostResume at the end of the resume step, after
+		// fragment dispatchResume; keep it inside performResume so the controller
+		// (android.atl) never needs protected access.
+		onPostResume();
+	}
+
+	/**
+	 * Restart step of the AOSP lifecycle path: onRestart only. The following
+	 * ON_START path step performs the actual start, mirroring AOSP
+	 * TransactionExecutor.performLifecycleSequence (ON_RESTART ->
+	 * performRestartActivity(r, start=false), android-17.0.0_r1,
+	 * 94b4c163b7df, TransactionExecutor.java:232-233).
+	 */
+	public final void performRestart() {
+		onRestart();
+	}
+
+	/** Pause step; Application/fragment dispatch stays inside onPause (AOSP Activity.onPause). */
+	public final void performPause() {
+		onPause();
+	}
+
+	/** Stop step; Application/fragment dispatch stays inside onStop (AOSP Activity.onStop). */
+	public final void performStop() {
+		onStop();
+	}
+
+	/** Destroy step; fragment teardown + Application dispatch stay inside onDestroy. */
+	public final void performDestroy() {
+		onDestroy();
+	}
+
+	/**
+	 * AOSP Activity.performRestoreInstanceState (Activity.java:2003-2006):
+	 * restore hook invoked by the controller between onStart and onPostCreate
+	 * when the activity is being re-created (never on a fresh launch).
+	 */
+	public final void performRestoreInstanceState(Bundle savedInstanceState) {
+		onRestoreInstanceState(savedInstanceState);
+	}
+
+	/**
+	 * AOSP Activity.performSaveInstanceState (Activity.java:2536-2545): save
+	 * hook invoked by the controller around onStop per the targetSdk rule
+	 * (pre-P: before onStop; P+: after onStop — AOSP ActivityThread
+	 * callActivityOnStop, ActivityThread.java:6361-6394).
+	 */
+	public final void performSaveInstanceState(Bundle outState) {
+		onSaveInstanceState(outState);
+	}
+
+	/**
+	 * AOSP Activity.onRestoreInstanceState (Activity.java:2047-2055): restores
+	 * the view hierarchy state saved under WINDOW_HIERARCHY_TAG. Window
+	 * hierarchy state save/restore lands with the saved-state change (see
+	 * tests/activity/DESIGN-CHECKPOINT.md).
+	 */
+	protected void onRestoreInstanceState(Bundle savedInstanceState) {
+		Bundle windowState = savedInstanceState != null
+		    ? (Bundle)savedInstanceState.getBundle("android:viewHierarchyState") : null;
+		if (windowState != null && window != null)
+			window.restoreHierarchyState(windowState);
 	}
 
 	protected void onRestart() {
@@ -241,7 +307,6 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		// AOSP Activity.onResume (android-17.0.0_r1 Activity.java:2284) dispatches first.
 		getApplication().dispatchActivityResumed(this);
 
-		paused = false;
 		return;
 	}
 
@@ -261,7 +326,6 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 			if (fragment.activity == this) fragment.performPause();
 		}
 
-		paused = true;
 		return;
 	}
 
@@ -298,12 +362,43 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		return;
 	}
 
+	/**
+	 * AOSP Activity.performNewIntent (Activity.java:9355-9361): onNewIntent only.
+	 * The framework keeps the record's intent across a new-intent delivery
+	 * (ActivityThread.java:6939), so the controller never rewrites it here.
+	 */
+	public final void performNewIntent(Intent intent) {
+		onNewIntent(intent);
+	}
+
+	/**
+	 * AOSP ActivityThread.handleStartActivity calls
+	 * Instrumentation.callActivityOnPostCreate; onPostCreate is protected, so
+	 * the controller (android.atl) needs this public forwarder.
+	 */
+	public final void performPostCreate(Bundle savedInstanceState) {
+		onPostCreate(savedInstanceState);
+	}
+
+	/**
+	 * Setter for the AOSP mChangingConfigurations flag: ActivityThread.
+	 * handleRelaunchActivityInner:6862 sets it before the relaunch destroy so
+	 * isFinishing() stays false during a recreate().
+	 */
+	public void atlSetChangingConfigurations(boolean changing) {
+		this.changingConfigurations = changing;
+	}
+
 	protected void onSaveInstanceState(Bundle outState) {
-		// AOSP Activity.onSaveInstanceState (android-17.0.0_r1 Activity.java:2621)
-		// dispatches as its last statement. NOTE: ATL does not currently invoke
-		// Activity.onSaveInstanceState from the activity manager, so this path is
-		// exercised only if something calls it explicitly; no end-to-end
-		// save-state support is claimed.
+		// AOSP Activity.onSaveInstanceState (android-17.0.0_r1 Activity.java:2613-2620)
+		// saves the window hierarchy as its FIRST statement (the controller drives
+		// this path from its save/stop and recreate transactions), then
+		// dispatches as its last statement.
+		if (outState != null && window != null) {
+			Bundle hierarchy = window.saveHierarchyState();
+			if (hierarchy != null)
+				outState.putBundle("android:viewHierarchyState", hierarchy);
+		}
 		getApplication().dispatchActivitySaveInstanceState(this, outState);
 	}
 
@@ -477,16 +572,11 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	}
 
 	public void finish() {
+		// Activity.finish() flags the instance synchronously (as on Android), so a
+		// finish() inside onCreate is honored by the controller's launch sequence;
+		// the teardown itself is a queued lifecycle transaction.
 		finishing = true;
-		new Handler(Looper.getMainLooper()).post(new Runnable() {
-			@Override
-			public void run() {
-				if (window != null && window.native_window != 0) {
-					nativeFinish(getWindow().native_window);
-					window.native_window = 0;
-				}
-			}
-		});
+		ATLActivityController.get().finish(this);
 	}
 
 	public Object getLastNonConfigurationInstance() {
@@ -501,7 +591,7 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		return (LayoutInflater)getSystemService("layout_inflater");
 	}
 
-	public boolean isChangingConfigurations() { return false; }
+	public boolean isChangingConfigurations() { return changingConfigurations; }
 
 	@Override
 	public void onContentChanged() {
@@ -609,21 +699,10 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	}
 
 	public void recreate() {
-		finishing = true;
-		try {
-			/* TODO: check if this is a toplevel activity */
-			Activity activity = internalCreateActivity(this.getClass().getName(), getWindow().native_window, intent);
-			new Handler().post(new Runnable() {
-				@Override
-				public void run() {
-					nativeFinish(0);
-					nativeStartActivity(activity);
-				}
-			});
-		} catch (ReflectiveOperationException e) {
-			Slog.i(TAG, "exception in Activity.recreate, this is kinda sus");
-			e.printStackTrace();
-		}
+		// A relaunch is NOT a finish: the controller sets changingConfigurations
+		// for the relaunch destroy and reuses this instance's intent for the new
+		// instance (AOSP ActivityThread.handleRelaunchActivityInner).
+		ATLActivityController.get().recreate(this);
 	}
 
 	public String getLocalClassName() {
@@ -647,7 +726,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 	}
 
 	public boolean hasWindowFocus() {
-		return true; // FIXME?
+		// Window focus is tracked by the controller's records (A06), never by the
+		// lifecycle ladder.
+		return ATLActivityController.get().hasWindowFocus(this);
 	}
 
 	public boolean isDestroyed() {
@@ -660,7 +741,9 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	public void overridePendingTransition(int enterAnim, int exitAnim) {}
 
-	public native boolean isTaskRoot();
+	public boolean isTaskRoot() {
+		return ATLActivityController.get().isTaskRoot(this);
+	}
 
 	public void postponeEnterTransition() {}
 
@@ -672,9 +755,15 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	public void setTaskDescription(ActivityManager.TaskDescription description) {}
 
-	private native void nativeFinish(long native_window);
-	public static native void nativeStartActivity(Activity activity);
-	public static native boolean nativeResumeActivity(Class<? extends Activity> activityClass, Intent intent);
+	/* Names and signatures of the two launcher entry points are kept: the
+	 * callers (Instrumentation.java, ContextImpl.java) delegate to the
+	 * controller, which owns the whole lifecycle transaction. */
+	public static void nativeStartActivity(Activity activity) {
+		ATLActivityController.get().startActivity(activity);
+	}
+	public static boolean nativeResumeActivity(Class<? extends Activity> activityClass, Intent intent) {
+		return ATLActivityController.get().resumeActivity(activityClass, intent);
+	}
 	public static native void nativeOpenURI(String uri);
 	public native void nativeFileChooser(int action, String type, String title, int requestCode);
 	public void reportFullyDrawn() {}

@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Parcel;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
@@ -544,6 +545,8 @@ public class ControlActivity extends Activity {
         final String name;
         /** SVC-013b: unbind from inside onServiceConnected (once). */
         boolean unbindOnConnected;
+        /** The binder delivered by the last onServiceConnected (SVC-014b identity call). */
+        volatile IBinder lastService;
 
         Connection(String name) {
             this.name = name;
@@ -565,6 +568,7 @@ public class ControlActivity extends Activity {
 
         @Override
         public void onServiceConnected(ComponentName cn, IBinder service) {
+            lastService = service;
             ev("onServiceConnected", cn, service, "connected", "IBinder");
             if (unbindOnConnected) {
                 unbindOnConnected = false;
@@ -921,6 +925,64 @@ public class ControlActivity extends Activity {
         }
     }
 
+    /**
+     * SVC-014b: asks the connected service which process really serves the
+     * placement, over the binder the client received. The row records the
+     * serving pid, the client's own pid and the serving process name, so
+     * {@code verify_unsupported_remote.py} can require them to differ: an
+     * in-caller placement answers with the caller's own pid and is rejected,
+     * even though it yields the same API returns and no remote callbacks.
+     * Runs on a later pump step than the bind, so the connection has arrived.
+     */
+    private final class RemoteIdentityCall implements Runnable {
+        private final String scenario;
+        private final String component;
+        private final Connection conn;
+
+        RemoteIdentityCall(String scenario, String component, Connection conn) {
+            this.scenario = scenario;
+            this.component = component;
+            this.conn = conn;
+        }
+
+        @Override
+        public void run() {
+            String ret;
+            String retType = "String";
+            String exc = null;
+            String binderId = null;
+            try {
+                IBinder service = conn.lastService;
+                if (service == null) {
+                    throw new IllegalStateException("no binder: onServiceConnected has not arrived");
+                }
+                binderId = Integer.toString(System.identityHashCode(service));
+                Parcel data = Parcel.obtain();
+                Parcel reply = Parcel.obtain();
+                try {
+                    if (!service.transact(SvcRemote.TRANSACTION_IDENTITY, data, reply, 0)) {
+                        throw new IllegalStateException("identity transaction was not handled");
+                    }
+                    reply.readException();
+                    int pid = reply.readInt();
+                    String process = reply.readString();
+                    ret = "pid=" + pid + " client_pid=" + android.os.Process.myPid()
+                            + " process=" + (process == null ? "unknown" : process);
+                } finally {
+                    data.recycle();
+                    reply.recycle();
+                }
+            } catch (Throwable t) {
+                ret = "exception:" + t.getClass().getName();
+                retType = "exception";
+                exc = t.getClass().getName();
+                log.noteException(scenario + " remoteIdentity: " + t);
+            }
+            log.clientEventEx(scenario, "remoteIdentity", component, "none", "",
+                    conn.name, binderId, -1, ret, retType, exc);
+        }
+    }
+
     /** Runs several API calls with NO barrier inside the burst. */
     private final class BurstCall implements Runnable {
         private final Runnable[] calls;
@@ -1026,6 +1088,11 @@ public class ControlActivity extends Activity {
                     new StartCallV4(EventLog.SVC_014, comp, "none", -1));
             addV5(EventLog.SVC_014, comp, "c2", new BindCall(
                     EventLog.SVC_014, comp, c2, Context.BIND_AUTO_CREATE));
+            // SVC-014b proof of separation: the serving process' identity, asked
+            // over the delivered binder while the binding is live (never inferred
+            // from the absence of callbacks).
+            addV5(EventLog.SVC_014, comp, "c2", new RemoteIdentityCall(
+                    EventLog.SVC_014, comp, c2));
             addV5(EventLog.SVC_014, comp, null, new StopCallV4(EventLog.SVC_014, comp));
         }
         // SVC-015: N=5 started cycles, N=5 bound cycles, then the final state probe.

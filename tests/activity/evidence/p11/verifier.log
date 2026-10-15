@@ -1,0 +1,44 @@
+CLPROBE v1 results: platform=atl run_id=atlrun-1792042375-347043 loader=own-classloader
+  [PASS] format                                         clprobe-v1
+  [PASS] scenario                                       native-thread-findclass-vs-explicit-loader
+  [PASS] run_id                                         atlrun-1792042375-347043
+  [PASS] contract.firefox_class                         org.mozilla.geckoview.BuildConfig
+  [PASS] native.library_loaded                          
+  [PASS] native.attach.ok                               
+  [PASS] native.thread.kind                             
+  [PASS] native.thread.has_java_frames                  
+  [PASS] native.thread.attached_env_differs_from_caller 
+  [PASS] native.detach.ok                               
+  [PASS] caller.find.boot.result                        class
+  [PASS] caller.find.app_only.result                    class
+  [PASS] caller.find.firefox.result                     own-classloader must see Firefox, got class
+  [PASS] caller.find.firefox.atl_own_classloader_present loader.source=own-classloader result=class
+  [PASS] find.boot.result                               class
+  [PASS] find.firefox.result                            exception
+  [PASS] find.firefox.exception                         java.lang.ClassNotFoundException
+  [PASS] load.boot.result                               
+  [PASS] load.firefox.result                            class
+  [PASS] load.firefox.is_class_object                   
+  [PASS] load.firefox.name                              org.mozilla.geckoview.BuildConfig vs org.mozilla.geckoview.BuildConfig
+  [PASS] load.firefox.classloader_same                  
+  [PASS] java.forname_firefox_result                    
+  [PASS] java.firefox_name_equals_wired                 
+  [PASS] java.classloader_is_supplied_loader            
+  [PASS] java.same_object_as_native_loadclass           native loadClass object vs Class.forName through the same loader
+  [PASS] java.reflect_static_fields_match               
+  [PASS] verdict.resolved_class_same_object             
+  [PASS] field.GRE_MILESTONE                            '157.0.1' == '157.0.1'
+  [PASS] field.LIBRARY_PACKAGE_NAME                     'org.mozilla.geckoview' == 'org.mozilla.geckoview'
+  [PASS] field.MOZ_APP_BUILDID                          '20261005135250' == '20261005135250'
+  [PASS] field.MOZ_APP_VERSION                          '157.0.1' == '157.0.1'
+  [PASS] native.marker.firefox                          
+  [PASS] loader.used                                    own-classloader
+  [PASS] loader.source.expected                         own-classloader not in ['own-classloader']
+  [PASS] find.app_only.result                           exception
+  [PASS] load.app_only.result                           
+  [PASS] java.app_only_resolved_via_loader              
+  [PASS] java.app_only_marker_match                     
+  [PASS] java.app_only_same_object_as_native            
+  [INFO] app_only.mode                                  visible
+  [PASS] verdict.aosp_contract_satisfied                
+CLPROBE VERDICT=PASS platform=atl run_id=atlrun-1792042375-347043 checks=41 passed=41 failed=0

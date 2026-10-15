@@ -249,7 +249,15 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
 	public void unregisterOnProvideAssistDataListener(OnProvideAssistDataListener callback) {
 	}
 	public static String getProcessName() {
-		// note: we currently don't set the process name
-		return ATLLoadedApp.getPrimaryApplication().pkg.packageName;
+		// A service child process reports the process it was spawned for
+		// (ATL_SERVICE_PROCESS, see android.atl.ATLProcessHost and
+		// android.atl.ChildHost); the launcher reports the application's own
+		// process name. PR #31 baa9b489 added this delta for its
+		// ContentProvider process-match filter.
+		String name = System.getenv("ATL_SERVICE_PROCESS");
+		if (name != null)
+			return name;
+		android.content.pm.ApplicationInfo info = ATLLoadedApp.getPrimaryApplication().pkg.applicationInfo;
+		return info.processName != null ? info.processName : info.packageName;
 	}
 }

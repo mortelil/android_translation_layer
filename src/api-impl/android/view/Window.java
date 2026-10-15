@@ -3,6 +3,9 @@ package android.view;
 import android.R;
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.os.Bundle;
+import android.os.Parcelable;
+import android.util.SparseArray;
 import android.graphics.drawable.Drawable;
 import android.os.Binder;
 import android.os.IBinder;
@@ -88,7 +91,28 @@ public class Window {
 		this.callback = callback;
 	}
 
-	public void setContentView(View view) {
+		// Window hierarchy state (public API contract; internal bundle key is an
+	// ATL implementation detail — AOSP PhoneWindow sources are not in the
+	// pinned checkout, see tests/activity/DESIGN-CHECKPOINT.md).
+	public Bundle saveHierarchyState() {
+		if (decorView == null)
+			return null;
+		SparseArray<Parcelable> states = new SparseArray<Parcelable>();
+		decorView.saveHierarchyState(states);
+		Bundle out = new Bundle();
+		out.putSparseParcelableArray("android:viewHierarchyState", states);
+		return out;
+	}
+
+	public void restoreHierarchyState(Bundle savedState) {
+		if (savedState == null || decorView == null)
+			return;
+		SparseArray<Parcelable> states = savedState.getSparseParcelableArray("android:viewHierarchyState");
+		if (states != null)
+			decorView.restoreHierarchyState(states);
+	}
+
+public void setContentView(View view) {
 		if (decorView.getBackground() == null) {
 			TypedArray ta = context.obtainStyledAttributes(new int[] {R.attr.windowBackground});
 			if (ta.hasValue(0))
