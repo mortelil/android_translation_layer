@@ -99,13 +99,84 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 	private final HashMap<String, Integer> spawnGenerations = new HashMap<>();
 	private ProcessDeathListener deathListener;
 	private ChildEventListener childListener;
-	/** Set from env ATL_FAKE_BACKEND_FAULT=spawn: the next spawn call fails (DESIGN-BRIEF 5.6). */
-	private boolean spawnFaultArmed;
+	/** The one-shot spawn fault armed by {@link #armProcessFault}, or null; guarded by {@link #lock}. */
+	private ProcessFault processFault;
 
 	public ATLFakeProcessBackend(ATLLoadedApp app) {
 		this.app = app;
-		this.spawnFaultArmed = "spawn".equals(System.getenv("ATL_FAKE_BACKEND_FAULT"));
+		// A malformed spec is a caller error: refuse it loudly rather than run a row
+		// that believes it armed a fault it never armed.
+		armProcessFault(System.getenv(ENV_PROCESS_FAULT));
 		instance = this;
+	}
+
+	// ---------------------------------------------------------------------
+	// the spawn-fault seam (frozen spec: arm[:process], one-shot)
+	// ---------------------------------------------------------------------
+
+	/** Frozen fault-spec env: {@code spawn|crash-before-ready[:proc]|stall-before-ready[:proc]}. */
+	static final String ENV_PROCESS_FAULT = "ATL_SERVICE_PROCESS_FAULT";
+
+	/** The host never starts for this op: the op is answered with {@code onHostUnavailable}. */
+	private static final int FAULT_SPAWN = 1;
+	/** The child dies between exec and its first transaction: no op answer, a real death notice. */
+	private static final int FAULT_CRASH_BEFORE_READY = 2;
+	/** The child lives but never reports ready: the op is never answered. */
+	private static final int FAULT_STALL_BEFORE_READY = 3;
+
+	/** One parsed arm and the process it is bound to ({@code null} = the next spawn of any process). */
+	private static final class ProcessFault {
+		final int arm;
+		final String process;
+
+		ProcessFault(int arm, String process) {
+			this.arm = arm;
+			this.process = process;
+		}
+
+		boolean matches(String processName) {
+			return process == null || process.equals(processName);
+		}
+	}
+
+	/**
+	 * Parses the frozen spec, splitting at the FIRST {@code ':'} into the arm and
+	 * the optional process it is bound to. Returns null for "no fault armed". An
+	 * unknown arm is refused loudly: silently arming nothing would let a row pass
+	 * or fail for a reason it never exercised.
+	 */
+	private static ProcessFault parseProcessFault(String spec) {
+		if (spec == null)
+			return null;
+		String text = spec.trim();
+		if (text.isEmpty())
+			return null;
+		int at = text.indexOf(':');
+		String arm = at < 0 ? text : text.substring(0, at);
+		String process = at < 0 ? null : text.substring(at + 1);
+		if (process != null && process.isEmpty())
+			process = null;
+		if ("spawn".equals(arm))
+			return new ProcessFault(FAULT_SPAWN, process);
+		if ("crash-before-ready".equals(arm))
+			return new ProcessFault(FAULT_CRASH_BEFORE_READY, process);
+		if ("stall-before-ready".equals(arm))
+			return new ProcessFault(FAULT_STALL_BEFORE_READY, process);
+		throw new IllegalArgumentException("unknown " + ENV_PROCESS_FAULT + " [" + spec
+		    + "]: expected spawn|crash-before-ready[:proc]|stall-before-ready[:proc]");
+	}
+
+	/**
+	 * Arms one fault through the same parser as {@link #ENV_PROCESS_FAULT}, so a
+	 * probe can arm {@code crash-before-ready} or {@code stall-before-ready} at
+	 * runtime. The arm is one-shot and is consumed by the next spawn of a process
+	 * it matches; an arm naming a process never fires for another process.
+	 */
+	public void armProcessFault(String spec) {
+		ProcessFault fault = parseProcessFault(spec);
+		synchronized (lock) {
+			processFault = fault;
+		}
 	}
 
 	@Override
@@ -283,33 +354,66 @@ public final class ATLFakeProcessBackend implements ATLProcessBackend {
 	}
 
 	/**
-	 * The process for the next op, spawning it if needed. A spawn while the
-	 * fault seam is armed consumes the fault and reports {@code onHostUnavailable}
-	 * instead: the host "failed to spawn" (DESIGN-BRIEF 5.6).
+	 * The process for the next op, spawning it if needed. A spawn that consumes a
+	 * one-shot fault follows the frozen arm instead of the spawn: {@code spawn}
+	 * answers the op with {@code onHostUnavailable} and spawns nothing,
+	 * {@code crash-before-ready[:proc]} spawns the process, drops it immediately
+	 * and reports its death through {@link ProcessDeathListener#onProcessDied}
+	 * without ever answering the op, and {@code stall-before-ready[:proc]} spawns
+	 * the process and never answers the op.
 	 */
 	private FakeProcess acquireProcess(String processName, Callback<?> callback) {
-		boolean failed = false;
+		ProcessFault fault;
+		final FakeProcess spawned;
 		synchronized (lock) {
 			FakeProcess process = processes.get(processName);
 			if (process != null)
 				return process;
-			if (spawnFaultArmed) {
-				spawnFaultArmed = false;
-				failed = true;
+			fault = processFault != null && processFault.matches(processName) ? processFault : null;
+			if (fault != null)
+				// One-shot: consumed by this spawn, whatever the arm does next.
+				processFault = null;
+			if (fault != null && fault.arm == FAULT_SPAWN) {
+				spawned = null;
 			} else {
 				Integer last = spawnGenerations.get(processName);
 				int generation = (last == null ? 0 : last) + 1;
 				spawnGenerations.put(processName, generation);
-				process = new FakeProcess(processName, generation);
-				processes.put(processName, process);
+				spawned = new FakeProcess(processName, generation);
+				processes.put(processName, spawned);
 				Slog.i(TAG, "spawned process " + processName + " (generation " + generation + ")");
-				return process;
 			}
 		}
-		// Outside the lock: the callback re-enters the controller.
-		Slog.w(TAG, "spawn fault armed: failing spawn of " + processName);
-		if (callback != null)
-			callback.onHostUnavailable();
+		if (fault == null)
+			return spawned;
+		// Outside the lock: both the op callback and the death notice re-enter the controller.
+		if (fault.arm == FAULT_SPAWN) {
+			Slog.w(TAG, "spawn fault: failing the spawn of " + processName);
+			if (callback != null)
+				callback.onHostUnavailable();
+			return null;
+		}
+		final int generation = spawned.generation;
+		if (fault.arm == FAULT_STALL_BEFORE_READY) {
+			Slog.w(TAG, "stall-before-ready: process " + processName + " (generation " + generation
+			    + ") never reports ready; the op stays unanswered");
+			return null;
+		}
+		// crash-before-ready: the child dies between exec and its first
+		// transaction. Drop it first, then report the death - and never answer the
+		// op that triggered the spawn.
+		synchronized (lock) {
+			processes.remove(processName);
+		}
+		Slog.w(TAG, "crash-before-ready: process " + processName + " (generation " + generation
+		    + ") died before its first op");
+		main().post(new Runnable() {
+			@Override
+			public void run() {
+				if (deathListener != null)
+					deathListener.onProcessDied(processName, generation);
+			}
+		});
 		return null;
 	}
 

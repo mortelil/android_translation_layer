@@ -170,6 +170,17 @@ final class Gate {
         checks.ok(what + " measured " + actual + "ms must be >= " + floor + "ms", actual >= floor);
     }
 
+    /**
+     * A measured duration must lie in {@code [floor, ceil)} ms. Row S13a needs it:
+     * the ladder's first restart happens after exactly 300 ms and the second after
+     * the x4 branch (>= 1200 ms), and ">= 300" alone cannot tell the 300 ms branch
+     * from the 1200 ms one.
+     */
+    static void expectBetween(Checks checks, String what, long actual, long floor, long ceil) {
+        checks.ok(what + " measured " + actual + "ms must be >= " + floor + "ms and < " + ceil + "ms",
+            actual >= floor && actual < ceil);
+    }
+
     /** Exact service-side callback sequence, in order, nothing else. */
     static void expectSequence(Checks checks, String id, String tagPrefix, String... expected) {
         checks.ok(tagPrefix + " callbacks must be exactly " + Arrays.toString(expected)
