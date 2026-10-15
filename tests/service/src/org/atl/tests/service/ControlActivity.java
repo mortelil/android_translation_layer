@@ -6,9 +6,10 @@
  * marker.
  *
  * Gate selection: ATL_SVC_GATE (default `local`). This file builds the local
- * rows below; the remote gates `fake`, `caps`, `fault` and `child` (rows S09-S13,
- * S14c, S15) have no rows in this tree yet, so they only emit
- * `SVC_GATE_DONE <gate>` and end the session - run.sh then reports their rows
+ * rows below; the remote gates `fake`, `caps`, `fault`, `ladder` and `child`
+ * (rows S09-S13, S14c, S15) are built by RemoteScenarios against the process
+ * backend. A gate this tree does not know builds no row at all: it only emits
+ * `SVC_GATE_DONE <gate>` and ends the session, so run.sh reports its rows
  * MISSING, never PASS. Every gate ends with `SVC_GATE_DONE <gate>`.
  *
  * Shape of the local session:
@@ -89,16 +90,19 @@ public class ControlActivity extends Activity {
         String requested = System.getenv("ATL_SVC_GATE");
         this.gate = requested == null || requested.length() == 0 ? "local" : requested;
         EventLog.line("SVC_GATE " + gate + " begin");
-        if (!"local".equals(gate)) {
-            // The remote gates (fake/caps/fault/child, rows S09-S13, S14c, S15) are
-            // driven through the process backend by RemoteScenarios, which is NOT
-            // implemented in this tree yet: this launch only leaves the marker the
-            // driver greps, so no row is claimed without evidence.
+        if ("local".equals(gate)) {
+            buildScenarios();
+        }
+        // The remote gates (fake/caps/fault/ladder/child, rows S09-S13, S14c, S15)
+        // are built against the process backend here. A gate this tree does not
+        // know adds no row, so its launch leaves only the driver's marker and
+        // run.sh reports those rows MISSING instead of a PASS nobody earned.
+        RemoteScenarios.build(this, scenarios, gate);
+        if (scenarios.isEmpty()) {
             EventLog.line("SVC_GATE_DONE " + gate);
             finish();
             return;
         }
-        buildScenarios();
         handler.postDelayed(new Runnable() {
             public void run() {
                 startRow(0);

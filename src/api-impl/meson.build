@@ -92,6 +92,7 @@ srcs = [
 	'android/atl/ATLKeyboardViewer.java',
 	'android/atl/ATLLoadedApp.java',
 	'android/atl/ATLProcessBackend.java',
+	'android/atl/ATLFakeProcessBackend.java',
 	'android/atl/ATLProcessControl.java',
 	'android/atl/ATLProcessHost.java',
 	'android/atl/ATLServiceController.java',
