@@ -9,10 +9,10 @@
  *   ladder - S13a                                          (fake, MIN_CRASH_INTERVAL_MS=1000)
  *   fault  - S11b                                          (fake, ATL_SERVICE_PROCESS_FAULT=spawn)
  *   child  - S14c                                          (ATL_SERVICE_PROCESS: this loader IS a child)
- *   realhost - S09, S09x, S10, S11c, S15 (NO ATL_PROCESS_BACKEND: real spawned children
+ *   realhost - S09, S09x, S10, S11c, S12, S13c, S15 (NO ATL_PROCESS_BACKEND: real spawned children
  *              through android.atl.ATLProcessHost, one child per android:process)
  *
- * Rows S11a, S11b, S11d, S12, S13a, S13b and S13c are NOT run in the realhost
+ * Rows S11a, S11b, S11d, S13a and S13b are NOT run in the realhost
  * launch: their row path needs the fake kill (ATLFakeProcessBackend.killProcess)
  * or the fake fault-arming seam (armProcessFault), which the real host does not
  * expose. run.sh reports them `not-run` for that launch - never PASS, never FAIL.
@@ -39,8 +39,8 @@
  * short first delay) and its observation windows are sized for the delay that
  * schedule produces under that gate's env.
  *
- * The realhost arm has no kill at all: its deaths are the child exiting itself
- * (the S10 fixture's cmd=die, a real death for ATLProcessHost.startReaper), so
+ * Realhost deaths are the child exiting itself: S10 uses cmd=die; S12/S13c
+ * use the bound test service's crash transaction (no production kill hook). Thus
  * that row's windows cover the very same planRestart delay a kill would produce
  * - the restart policy is production's either way, only the way the process ends
  * differs.
@@ -129,6 +129,8 @@ final class RemoteScenarios {
             rows.add(r.s09(REAL));
             rows.add(r.s09x());
             rows.add(r.s10Real());
+            rows.add(r.s12());
+            rows.add(r.s13c());
             rows.add(r.s11c());
             rows.add(r.s15());
         }
@@ -363,6 +365,30 @@ final class RemoteScenarios {
                 }
                 EventLog.event(row.id, "kill", processOf(cls) + " (" + why + ")");
                 fake.killProcess(processOf(cls));
+            }
+        });
+    }
+
+    /** Crash only the bound test service, through its own Binder (no production kill hook). */
+    private void kill(Scenario row, final String id, final Class<?> cls, final String why,
+                      final Connection client) {
+        if (backend() != null) { kill(row, id, cls, why); return; }
+        row.step(new Action() {
+            public void run(Checks checks) {
+                android.os.Parcel data = android.os.Parcel.obtain();
+                android.os.Parcel reply = android.os.Parcel.obtain();
+                try {
+                    data.writeInt(android.os.Process.myPid());
+                    if (client.lastBinder == null || !client.lastBinder.transact(
+                            ProbeService.CRASH_TRANSACTION, data, reply, 0))
+                        throw new IllegalStateException("no live test-service binder");
+                    reply.readException();
+                    int pid = reply.readInt();
+                    checks.ok("crash target is a real child", pid > 0 && pid != EventLog.pid());
+                    EventLog.event(row.id, "kill", processOf(cls) + " pid=" + pid + " (" + why + ")");
+                } catch (Exception e) {
+                    checks.fail("real child crash request: " + e);
+                } finally { data.recycle(); reply.recycle(); }
             }
         });
     }
@@ -966,15 +992,15 @@ final class RemoteScenarios {
         row.observe(500);
         snapshot(row, "afterConnect", "connected", client, afterConnect);
 
-        kill(row, "kill1", cls, "death 1: a disconnect, never a binding-died");
+        kill(row, "kill1", cls, "death 1: a disconnect, never a binding-died", client);
         observes(row, 2, 2500);
         snapshot(row, "afterDeath1", "death 1 answered by a restart", client, afterDeath1);
 
-        kill(row, "kill2", cls, "death 2: still under the bound-crash cap");
+        kill(row, "kill2", cls, "death 2: still under the bound-crash cap", client);
         observes(row, 2, 2500);
         snapshot(row, "afterDeath2", "death 2 answered by a restart", client, afterDeath2);
 
-        kill(row, "kill3", cls, "death 3: the bound-crash retry cap (3) is reached");
+        kill(row, "kill3", cls, "death 3: the bound-crash retry cap (3) is reached", client);
         row.observe(2500);
         row.observe(1500);
         snapshot(row, "afterDeath3", "the torn-down binding", client, afterDeath3);
@@ -1013,12 +1039,14 @@ final class RemoteScenarios {
                 expectCount(checks, "S12", "SvcRedeliver.onDestroy", "", 0);
                 EventLog.event("S12", "verdict.flags", "delivered start flags="
                     + flagsSequence("S12", cls));
-                ATLFakeProcessBackend fake = backend();
-                if (fake == null) {
-                    checks.fail("S12 needs the fake backend to kill the child");
-                } else {
-                    checks.ok("the host must be down after the cap tore the record down, observed up="
-                        + fake.isProcessUp(processOf(cls)), !fake.isProcessUp(processOf(cls)));
+                HostView view = backend() == null ? REAL : FAKE;
+                Liveness state = view.liveness(processOf(cls), "process host unavailable");
+                checks.ok("host is gone after crash cap: " + state.why, state.usable && !state.up);
+                if (backend() == null) {
+                    checks.eq("three real child generations", 3, EventLog.foreignPids(row.id,
+                        cls.getSimpleName() + ".").length);
+                    checks.eq("no local service instance", 0, EventLog.countLocal(row.id,
+                        cls.getSimpleName() + "."));
                 }
             }
         });
@@ -1151,15 +1179,15 @@ final class RemoteScenarios {
         bindAuto(row, "bind1", intent, client, "bound client");
         row.observe(500);
 
-        kill(row, "kill1", cls, "death 1: sticky restart with a null intent");
+        kill(row, "kill1", cls, "death 1: sticky restart with a null intent", client);
         observes(row, 2, 2500);
         snapshot(row, "afterDeath1", "death 1 answered by a restart", client, afterDeath1);
 
-        kill(row, "kill2", cls, "death 2: still under the bound-crash cap");
+        kill(row, "kill2", cls, "death 2: still under the bound-crash cap", client);
         observes(row, 2, 2500);
         snapshot(row, "afterDeath2", "death 2 answered by a restart", client, afterDeath2);
 
-        kill(row, "kill3", cls, "death 3: the bound-crash retry cap (3) is reached");
+        kill(row, "kill3", cls, "death 3: the bound-crash retry cap (3) is reached", client);
         row.observe(2500);
         row.observe(1500);
         snapshot(row, "afterDeath3", "the torn-down binding", client, afterDeath3);
@@ -1191,12 +1219,14 @@ final class RemoteScenarios {
                     "bound.onBindingDied", "");
                 EventLog.event("S13c", "verdict.flags", "delivered start flags="
                     + flagsSequence("S13c", cls));
-                ATLFakeProcessBackend fake = backend();
-                if (fake == null) {
-                    checks.fail("S13c needs the fake backend to kill the child");
-                } else {
-                    checks.ok("no fourth delivery may happen: the process must stay down, observed up="
-                        + fake.isProcessUp(processOf(cls)), !fake.isProcessUp(processOf(cls)));
+                HostView view = backend() == null ? REAL : FAKE;
+                Liveness state = view.liveness(processOf(cls), "process host unavailable");
+                checks.ok("host is gone after crash cap: " + state.why, state.usable && !state.up);
+                if (backend() == null) {
+                    checks.eq("three real child generations", 3, EventLog.foreignPids(row.id,
+                        cls.getSimpleName() + ".").length);
+                    checks.eq("no local service instance", 0, EventLog.countLocal(row.id,
+                        cls.getSimpleName() + "."));
                 }
             }
         });

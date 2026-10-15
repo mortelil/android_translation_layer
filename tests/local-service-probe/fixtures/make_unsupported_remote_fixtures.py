@@ -192,14 +192,14 @@ def main():
         doc = mutate(clone(positive))
         path = os.path.join(NEG, name + ".json")
         dump(path, doc)
-        cases.append({"name": name, "cand": path, "exit": 0 if code is None else 1, "code": code})
+        cases.append({"name": name, "cand": os.path.relpath(path, OUT), "exit": 0 if code is None else 1, "code": code})
 
     def drop_row(doc):
         events = remote_events(doc)
         scenario(doc, "SVC-014")["events"] = [e for e in events if e["event"] != IDENTITY_EVENT]
         return stamp(doc)
 
-    cases.append({"name": "positive", "cand": positive_path, "exit": 0, "code": None})
+    cases.append({"name": "positive", "cand": os.path.relpath(positive_path, OUT), "exit": 0, "code": None})
 
     # Missing separation evidence: the frozen reference's own SVC-014b shape. It
     # has the placed arm and no in-caller callbacks, and must still be rejected.

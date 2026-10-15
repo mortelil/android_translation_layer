@@ -146,7 +146,7 @@ launch ladder ladder "$COMMON_ENV $LADDER_ENV"
 # component runs in a really spawned child. The one fault seam this launch carries is
 # S09x's, and it is scoped to that row's own process, so every other row of the launch
 # keeps a working control link.
-REALHOST_ENV="$RESTART_ENV ATL_SERVICE_PROCESS_FAULT=stopself-broken-link:$PROBE_PACKAGE:s09x"
+REALHOST_ENV="$RESTART_ENV ATL_SERVICE_BOUND_CRASH_MAX_RETRY=3 ATL_SERVICE_PROCESS_FAULT=stopself-broken-link:$PROBE_PACKAGE:s09x"
 launch realhost realhost "$REALHOST_ENV"
 
 # status SCENARIO RUN -> PASS | FAIL <reason> | MISSING
@@ -181,12 +181,12 @@ say "SVC_GATE MATRIX effective ATL_SERVICE_MIN_CRASH_INTERVAL_MS=120000 (fake,ca
 subs="S01:local S02:local S03:local S04:local S05:local S06:local S07:local S08:local \
 S14a:local S14b:local S09:fake S10:fake S11a:fake S11c:fake S11d:fake S12:fake S13c:fake S15:fake \
 S13b:caps S13a:ladder S11b:fault S14c:child S09x:realhost"
-# The real-host arm claims only the rows whose path uses production calls alone.
+# The real-host arm also exercises S12/S13c through a test-service crash transaction.
 # The others need the fake kill (ATLFakeProcessBackend.killProcess) or the fake
 # fault-arming seam (armProcessFault), which the real host does not expose at all:
 # they are reported not-run for that launch, never PASS and never FAIL.
-real_subs="S09 S10 S11c S15"
-realnotrun="S11a S11b S11d S12 S13a S13b S13c"
+real_subs="S09 S10 S11c S12 S13c S15"
+realnotrun="S11a S11b S11d S13a S13b"
 for s in $subs; do
 	id=${s%%:*}
 	r=${s##*:}

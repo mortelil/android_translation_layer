@@ -1,79 +1,79 @@
 [
  {
   "name": "positive",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/positive/placed.json",
+  "cand": "positive/placed.json",
   "exit": 0,
   "code": null
  },
  {
   "name": "identity_missing",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_missing.json",
+  "cand": "negative/identity_missing.json",
   "exit": 1,
   "code": "IDENTITY_MISSING"
  },
  {
   "name": "identity_same_pid",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_same_pid.json",
+  "cand": "negative/identity_same_pid.json",
   "exit": 1,
   "code": "IDENTITY_SAME_PROCESS"
  },
  {
   "name": "identity_no_client_pid",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_no_client_pid.json",
+  "cand": "negative/identity_no_client_pid.json",
   "exit": 1,
   "code": "IDENTITY_MALFORMED"
  },
  {
   "name": "identity_unparseable",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_unparseable.json",
+  "cand": "negative/identity_unparseable.json",
   "exit": 1,
   "code": "IDENTITY_MALFORMED"
  },
  {
   "name": "identity_zero_pid",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_zero_pid.json",
+  "cand": "negative/identity_zero_pid.json",
   "exit": 1,
   "code": "IDENTITY_MALFORMED"
  },
  {
   "name": "identity_unknown_process",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_unknown_process.json",
+  "cand": "negative/identity_unknown_process.json",
   "exit": 1,
   "code": "IDENTITY_MALFORMED"
  },
  {
   "name": "identity_failed_call",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_failed_call.json",
+  "cand": "negative/identity_failed_call.json",
   "exit": 1,
   "code": "IDENTITY_MALFORMED"
  },
  {
   "name": "identity_duplicate",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_duplicate.json",
+  "cand": "negative/identity_duplicate.json",
   "exit": 1,
   "code": "IDENTITY_DUPLICATE"
  },
  {
   "name": "identity_before_bind",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_before_bind.json",
+  "cand": "negative/identity_before_bind.json",
   "exit": 1,
   "code": "IDENTITY_ORDER"
  },
  {
   "name": "identity_after_stop",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/identity_after_stop.json",
+  "cand": "negative/identity_after_stop.json",
   "exit": 1,
   "code": "IDENTITY_ORDER"
  },
  {
   "name": "refusal_with_identity",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/refusal_with_identity.json",
+  "cand": "negative/refusal_with_identity.json",
   "exit": 1,
   "code": "REFUSAL_EVIDENCE"
  },
  {
   "name": "unisolated_instance",
-  "cand": "/home/morten/ATL/lifecycle-foundation/combined/repo/tests/local-service-probe/fixtures/remote/negative/unisolated_instance.json",
+  "cand": "negative/unisolated_instance.json",
   "exit": 1,
   "code": "UNISOLATED_INSTANCE"
  }

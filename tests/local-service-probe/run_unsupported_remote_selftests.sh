@@ -69,9 +69,9 @@ while IFS=$'\t' read -r name cand want_exit want_code; do
         fail=$((fail + 1))
     fi
 done < <("$PY" - "$FIX/remote/cases.json" <<'EOF'
-import json, sys
+import json, sys, os
 for c in json.load(open(sys.argv[1])):
-    print("\t".join([c["name"], c["cand"], str(c["exit"]), c["code"] or "-"]))
+    print("\t".join([c["name"], os.path.join(os.path.dirname(sys.argv[1]), c["cand"]), str(c["exit"]), c["code"] or "-"]))
 EOF
 )
 

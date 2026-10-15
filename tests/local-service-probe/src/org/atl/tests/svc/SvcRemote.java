@@ -44,7 +44,7 @@ public class SvcRemote extends Service {
      */
     private static final class IdentityBinder extends Binder {
         @Override
-        protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
+        protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws android.os.RemoteException {
             if (code != TRANSACTION_IDENTITY) {
                 return super.onTransact(code, data, reply, flags);
             }

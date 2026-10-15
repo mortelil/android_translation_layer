@@ -20,7 +20,23 @@ import android.os.IBinder;
 
 public abstract class ProbeService extends Service {
 
-    private final IBinder binder = new Binder();
+    // Test-only crash request: refuse an in-process caller before scheduling exit.
+    static final int CRASH_TRANSACTION = 0x43525348;
+    private final IBinder binder = new Binder() {
+        @Override protected boolean onTransact(int code, android.os.Parcel data,
+                                               android.os.Parcel reply, int flags) {
+            if (code != CRASH_TRANSACTION) return super.onTransact(code, data, reply, flags);
+            int caller = data.readInt();
+            if (caller != Binder.getCallingPid() || caller == android.os.Process.myPid())
+                throw new SecurityException("crash probe requires a different caller process");
+            reply.writeNoException();
+            reply.writeInt(android.os.Process.myPid());
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                public void run() { System.exit(23); }
+            }, 100);
+            return true;
+        }
+    };
 
     /** Acceptance row this component's callbacks are logged under. */
     protected abstract String scenario();
