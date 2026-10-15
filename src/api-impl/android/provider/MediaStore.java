@@ -144,6 +144,10 @@ public class MediaStore {
 		}
 
 		public static class Genres {
+			// URI contract: AOSP frameworks/base af74e66, MediaStore.Audio.Genres.
+			public static Uri getContentUriForAudioId(String volumeName, int audioId) {
+				return Uri.parse("content://media/" + volumeName + "/audio/media/" + audioId + "/genres");
+			}
 			public static final Uri EXTERNAL_CONTENT_URI = Uri.parse("content://media/external/audio/genres");
 		}
 	}

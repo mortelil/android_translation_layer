@@ -26,6 +26,31 @@ public class TestMedia {
 		                                                           MediaStore.Images.Thumbnails.MINI_KIND, null);
 		if (preview == null || preview.getWidth() < 1 || preview.getHeight() < 1)
 			throw new AssertionError("No thumbnail");
+		Uri audio = Uri.parse("content://media/external/audio/media");
+		long audioId;
+		try (Cursor c = context.getContentResolver().query(audio,
+		    new String[]{"_id", "title", "artist", "album", "duration", "is_music", "artist_id", "album_id"}, null, null, null)) {
+			if (c.getCount() != 1 || !c.moveToFirst()) throw new AssertionError("Expected one valid visible audio file");
+			audioId = c.getLong(0);
+			if (!"Test Song".equals(c.getString(1)) || !"Test Artist".equals(c.getString(2)) || !"Test Album".equals(c.getString(3)))
+				throw new AssertionError("Audio tags were not extracted");
+			if (c.getLong(4) != 1000 || c.getInt(5) != 1 || c.getLong(6) <= 0 || c.getLong(7) <= 0)
+				throw new AssertionError("Audio duration/category/group IDs");
+		}
+		try (Cursor c = context.getContentResolver().query(Uri.withAppendedPath(collection, Long.toString(audioId)), new String[]{"_id"}, null, null, null)) {
+			if (c.getCount() != 0) throw new AssertionError("Audio ID leaked into image collection");
+		}
+		try (InputStream in = context.getContentResolver().openInputStream(Uri.withAppendedPath(audio, Long.toString(audioId)))) {
+			if (in.read() != 'R') throw new AssertionError("Audio URI did not resolve to the WAV file");
+		}
+		Uri genres = MediaStore.Audio.Genres.getContentUriForAudioId("external", (int)audioId);
+		if (!genres.toString().equals("content://media/external/audio/media/" + audioId + "/genres"))
+			throw new AssertionError("Genre URI contract");
+		try (Cursor c = context.getContentResolver().query(genres, new String[]{"_id", "name"}, null, null, null)) {
+			if (c.getCount() != 1 || !c.moveToFirst() || !"Test Genre".equals(c.getString(1)))
+				throw new AssertionError("Per-track genre metadata");
+		}
+		System.out.println("PASS: audio tags, duration, hidden/corrupt/symlink filtering and URI type isolation");
 		System.out.println("PASS: synthetic media index, .nomedia, nullable GPS, read and thumbnail");
 	}
 }

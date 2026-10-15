@@ -127,6 +127,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                   	'src/api-impl-jni/audio/audio.c',
                                                                   	'src/api-impl-jni/com_google_android_gles_jni_GLImpl.c',
                                                                   	'src/api-impl-jni/content/android_atl_ATLMediaContentProvider.c',
+	'src/api-impl-jni/content/android_atl_ATLMediaIndex.c',
                                                                   	'src/api-impl-jni/content/android_content_ClipboardManager.c',
                                                                   	'src/api-impl-jni/content/android_content_ContentResolver.c',
                                                                   	'src/api-impl-jni/content/android_content_Context.c',
@@ -209,7 +210,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                   dependencies: [
                                                                         extra_deps,
                                                                         cc.find_library('SkiaSharp'), dependency('fontconfig'), dependency('pangoft2'), dependency('pangocairo'), dependency('gtk4', version: '>=4.14'), dependency('gl'), dependency('egl'), dependency('wayland-client'), dependency('jni'),
-                                                                  	dependency('libportal'), dependency('sqlite3'), dependency('libavcodec', version: '>=59'), dependency('libdrm'),
+	dependency('libportal'), dependency('sqlite3'), dependency('libavcodec', version: '>=59'), dependency('libavformat'), dependency('libdrm'),
                                                                         dependency('gudev-1.0'), dependency('libswscale'), dependency('webkitgtk-6.0'), dependency('libsoup-3.0'), dependency('libsecret-1'),
                                                                         libart_dep, wayland_protos_dep
                                                                   ],

@@ -16,11 +16,14 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Locale;
 
-/** An opt-in, read-only MediaStore image index for one Linux directory tree. */
+/** An opt-in, read-only MediaStore image/audio index for one Linux directory tree. */
 final class ATLMediaIndex {
 	private final File root;
 	private final SQLiteDatabase db;
 	private long lastScan;
+	private static native String[] readAudioMetadata(String path);
+	private static final String[] AUDIO_COLUMNS = {"artist", "album", "album_artist", "genre",
+	    "track", "year", "is_music", "is_podcast", "is_ringtone", "is_alarm", "is_notification", "artist_id", "album_id", "genre_id"};
 
 	ATLMediaIndex(Context context, String directory) {
 		try {
@@ -38,6 +41,18 @@ final class ATLMediaIndex {
 		           + "orientation INTEGER, duration INTEGER, bucket_id INTEGER, bucket_display_name TEXT, "
 		           + "relative_path TEXT, volume_name TEXT, is_pending INTEGER DEFAULT 0, is_trashed INTEGER DEFAULT 0, scan INTEGER)");
 		ensureLocationColumns();
+		java.util.Set<String> existing = new java.util.HashSet<>();
+		try (Cursor c = db.rawQuery("PRAGMA table_info(media)", null)) {
+			while (c.moveToNext()) existing.add(c.getString(c.getColumnIndexOrThrow("name")));
+		}
+		boolean migrated = false;
+		for (String column : AUDIO_COLUMNS) if (!existing.contains(column)) {
+			migrated = true;
+			db.execSQL("ALTER TABLE media ADD COLUMN " + column +
+			    ((column.equals("artist") || column.equals("album") || column.equals("album_artist") || column.equals("genre")) ? " TEXT" : " INTEGER"));
+		}
+		if (migrated) db.execSQL("UPDATE media SET date_modified=-1");
+		db.execSQL("CREATE TABLE IF NOT EXISTS audio_groups (_id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, name TEXT, UNIQUE(kind,name))");
 	}
 
 	// Older Android clients still request these nullable, deprecated columns.
@@ -64,7 +79,27 @@ final class ATLMediaIndex {
 			return "image/webp";
 		if (n.endsWith(".gif"))
 			return "image/gif";
+		if (n.endsWith(".mp3")) return "audio/mpeg";
+		if (n.endsWith(".flac")) return "audio/flac";
+		if (n.endsWith(".wav")) return "audio/x-wav";
+		if (n.endsWith(".ogg") || n.endsWith(".opus")) return "audio/ogg";
+		if (n.endsWith(".m4a")) return "audio/mp4";
+		if (n.endsWith(".aac")) return "audio/aac";
 		return null;
+	}
+
+	private long groupId(String kind, String name) {
+		try (Cursor c = db.rawQuery("SELECT _id FROM audio_groups WHERE kind=? AND name=?", new String[]{kind, name})) {
+			if (c.moveToFirst()) return c.getLong(0);
+		}
+		ContentValues values = new ContentValues(); values.put("kind", kind); values.put("name", name);
+		return db.insertOrThrow("audio_groups", null, values);
+	}
+
+	private static Integer number(String text) {
+		if (text == null) return null;
+		try { return Integer.valueOf(text.split("[/\\-]", 2)[0]); }
+		catch (NumberFormatException e) { return null; }
 	}
 
 	private long bucket(File directory) {
@@ -108,14 +143,19 @@ final class ATLMediaIndex {
 			if (!unchanged) {
 				BitmapFactory.Options options = new BitmapFactory.Options();
 				options.inJustDecodeBounds = true;
-				BitmapFactory.decodeFile(path, options);
-				if (options.outWidth <= 0 || options.outHeight <= 0)
-					continue;
+				boolean audio = type.startsWith("audio/");
+				String[] tags = audio ? readAudioMetadata(path) : null;
+				if (audio) {
+					if (tags == null) continue;
+				} else {
+					BitmapFactory.decodeFile(path, options);
+					if (options.outWidth <= 0 || options.outHeight <= 0) continue;
+				}
 				values.put("_data", path);
 				values.put("_display_name", file.getName());
 				values.put("title", file.getName());
 				values.put("mime_type", type);
-				values.put("media_type", 1);
+				values.put("media_type", audio ? 2 : 1);
 				values.put("_size", size);
 				values.put("date_modified", modified);
 				// There is no portable filesystem creation time. Preserve first indexing time.
@@ -126,6 +166,20 @@ final class ATLMediaIndex {
 				values.put("height", options.outHeight);
 				values.put("orientation", 0);
 				values.put("duration", 0);
+				if (audio) {
+					if (tags[0] != null) values.put("title", tags[0]);
+					String artist = tags[1] == null ? "<unknown>" : tags[1];
+					String album = tags[2] == null ? "<unknown>" : tags[2];
+					values.put("artist", artist); values.put("album", album);
+					values.put("album_artist", tags[3]); values.put("genre", tags[6]);
+					values.put("genre_id", tags[6] == null ? null : Long.valueOf(groupId("genre", tags[6])));
+					values.put("track", number(tags[4])); values.put("year", number(tags[5]));
+					values.put("artist_id", groupId("artist", artist));
+					values.put("album_id", groupId("album", directory.getPath() + "/" + album));
+					values.put("duration", tags[7] == null ? null : Long.valueOf(tags[7]));
+					values.put("is_music", 1);
+					for (String flag : new String[]{"is_podcast", "is_ringtone", "is_alarm", "is_notification"}) values.put(flag, 0);
+				}
 				values.put("bucket_id", bucket(directory));
 				values.put("bucket_display_name", directory.getName());
 				values.put("relative_path", root.toPath().relativize(directory.toPath()).toString() + "/");
@@ -158,20 +212,35 @@ final class ATLMediaIndex {
 
 	private String filter(Uri uri) {
 		List<String> parts = uri.getPathSegments();
+		for (String unsupported : new String[]{"albums", "artists", "genres", "playlists"})
+			if (parts.contains(unsupported)) throw new UnsupportedOperationException("Media collection not yet indexed: " + unsupported);
 		if (parts.contains("internal"))
 			return "0";
-		if (parts.contains("video") || parts.contains("audio"))
+		if (parts.contains("video"))
 			return "0";
 		if (!parts.contains("external") && !parts.contains("external_primary"))
 			throw new IllegalArgumentException("Unsupported media volume");
 		String last = uri.getLastPathSegment();
-		if (last != null && last.matches("[0-9]+"))
-			return "_id=" + Long.parseLong(last);
-		return "media_type=1";
+		String mediaType = parts.contains("audio") ? "media_type=2" : parts.contains("images") ? "media_type=1" : "1";
+		if (last != null && last.matches("[0-9]+")) return mediaType + " AND _id=" + Long.parseLong(last);
+		return mediaType;
 	}
 
 	synchronized Cursor query(Uri uri, String[] projection, String selection, String[] args, String order, Bundle bundle) {
 		refresh();
+		List<String> segments = uri.getPathSegments();
+		if (segments.size() >= 3 && segments.get(1).equals("audio") && segments.get(segments.size() - 1).equals("genres")) {
+			if (!segments.get(0).equals("external") && !segments.get(0).equals("external_primary"))
+				throw new IllegalArgumentException("Unsupported media volume");
+			String tracks = "media_type=2";
+			if (segments.size() == 5 && segments.get(2).equals("media") && segments.get(3).matches("[0-9]+"))
+				tracks += " AND _id=" + Long.parseLong(segments.get(3));
+			else if (segments.size() != 3) throw new IllegalArgumentException("Unsupported genre URI");
+			String genres = "kind='genre' AND _id IN (SELECT genre_id FROM media WHERE " + tracks + ")";
+			if (selection != null && !selection.isEmpty()) genres += " AND (" + selection + ")";
+			return db.query(false, "audio_groups", projection == null ? new String[]{"_id", "name"} : projection,
+			    genres, args, null, null, order, null);
+		}
 		String where = filter(uri);
 		if (selection != null && !selection.isEmpty())
 			where += " AND (" + selection + ")";

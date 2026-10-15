@@ -2231,6 +2231,8 @@ public class View implements Drawable.Callback {
 	private float elevation;
 	public void setElevation(float elevation) {
 		this.elevation = elevation;
+		if (parent instanceof ViewGroup) ((ViewGroup)parent).atlUpdateZOrder();
+		invalidate();
 	}
 	public float getElevation() {
 		return elevation;
@@ -2378,7 +2380,7 @@ public class View implements Drawable.Callback {
 	public void setLayerType(int layerType, Paint paint) {}
 
 	public float getZ() {
-		return elevation;
+		return elevation + translationZ;
 	}
 
 	protected void onSizeChanged(int w, int h, int oldw, int oldh) {}
@@ -2513,9 +2515,16 @@ public class View implements Drawable.Callback {
 	public float getPivotX() { return 0.f; }
 	public float getPivotY() { return 0.f; }
 
-	public float getTranslationZ() { return 0.f; }
+	private float translationZ;
+	public float getTranslationZ() { return translationZ; }
 
-	public void setTranslationZ(float translationZ) {}
+	public void setZ(float z) { setTranslationZ(z - elevation); }
+
+	public void setTranslationZ(float translationZ) {
+		this.translationZ = translationZ;
+		if (parent instanceof ViewGroup) ((ViewGroup)parent).atlUpdateZOrder();
+		invalidate();
+	}
 
 	public int getWindowSystemUiVisibility() {
 		return 0;

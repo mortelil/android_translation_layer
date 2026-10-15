@@ -94,7 +94,8 @@ public class Environment {
 	}
 
 	public static boolean isExternalStorageRemovable(File file) {
-		return true;
+		requireExternalStoragePath(file);
+		return false;
 	}
 
 	/**
@@ -696,7 +697,27 @@ public class Environment {
 	 * android.content.ComponentName, boolean)} for additional details.
 	 */
 	public static boolean isExternalStorageEmulated() {
-		return false;
+		return true;
+	}
+
+	public static boolean isExternalStorageEmulated(File path) {
+		requireExternalStoragePath(path);
+		return true;
+	}
+
+	private static void requireExternalStoragePath(File path) {
+		if (path == null) throw new NullPointerException("path");
+		try {
+			// ATL exposes its per-app data directory as emulated external storage.
+			// Do not classify arbitrary host paths or prefix-sharing siblings as volumes.
+			File root = getExternalStorageDirectory().getCanonicalFile();
+			for (File file = path.getCanonicalFile(); file != null; file = file.getParentFile()) {
+				if (root.equals(file)) return;
+			}
+		} catch (IOException e) {
+			throw new IllegalArgumentException("Cannot resolve storage path: " + path, e);
+		}
+		throw new IllegalArgumentException("Unknown external storage path: " + path);
 	}
 
 	static File getDirectory(String variableName, String defaultPath) {
