@@ -27,11 +27,11 @@ JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeReleaseApp
 
 /*
  * Class:     android_atl_ATLProcessHost
- * Method:    nativeMarkServiceHost
- * Signature: ()V
+ * Method:    nativeSpawnServiceChild
+ * Signature: (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)[I
  */
-JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeMarkServiceHost
-  (JNIEnv *, jclass);
+JNIEXPORT jintArray JNICALL Java_android_atl_ATLProcessHost_nativeSpawnServiceChild
+  (JNIEnv *, jclass, jstring, jstring, jint, jstring, jstring);
 
 #ifdef __cplusplus
 }

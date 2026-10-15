@@ -1135,15 +1135,15 @@ int main(int argc, char **argv)
 	/* A child process of ATLProcessHost hosts services in a windowless process
 	 * that needs no X display, so it is handled before any GtkApplication
 	 * exists. The windowless boot is gated on the explicit service-host marker in
-	 * addition to ATL_SERVICE_FD (architecture.md §8): ATLBinderConnection.spawn() sets
-	 * ATL_SERVICE_FD for every child it starts, including the transport probe's own
-	 * launcher child, which must keep the ordinary windowed launcher path.
-	 * ATL_SERVICE_HOST is put in the loader's own environment, once, by the
-	 * loader-side service host (android.atl.ATLProcessHost ->
-	 * android_atl_ATLProcessHost.c:Java_android_atl_ATLProcessHost_nativeMarkServiceHost),
-	 * and spawn() hands that environment to the child unchanged, so only children
-	 * of the real service host take this branch. run_service_child() returns only
-	 * after the child's link is gone. */
+	 * addition to ATL_SERVICE_FD (architecture.md §8): every ATL spawn sets
+	 * ATL_SERVICE_FD, including the transport probe's own launcher child, which must
+	 * keep the ordinary windowed launcher path.
+	 * ATL_SERVICE_HOST is added per call to the CHILD's environment by the service
+	 * spawn alone (android.atl.ATLProcessHost.nativeSpawnServiceChild ->
+	 * android_atl_ATLProcessHost.c -> the shared body atl_binder_spawn() with
+	 * service_child = TRUE); the loader's own environment never carries it, so a
+	 * bare transport spawn from the same process cannot take this branch.
+	 * run_service_child() returns only after the child's link is gone. */
 	if (getenv("ATL_SERVICE_FD") && getenv("ATL_SERVICE_HOST"))
 		return run_service_child(argc, argv);
 

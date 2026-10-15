@@ -12,9 +12,15 @@
  *      and the record is rejected).
  * socketPair is the channel factory for this transport's SOCK_SEQPACKET pairs
  * (spawn and test/host channel setup share it). Original GPL-3.0-only ATL code.
+ *
+ * spawn: the two spawn entry points (the transport spawn declared here and the
+ * service-host spawn declared on android.atl.ATLProcessHost) share one non-static
+ * C body, atl_binder_spawn() in atl_binder_spawn.h, so their child environment
+ * cannot diverge; only the service-host spawn passes service_child = TRUE.
  */
 #define _GNU_SOURCE
 #include "generated_headers/android_os_ATLBinderConnection.h"
+#include "atl_binder_spawn.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
@@ -57,6 +63,19 @@ static jintArray credential_array(JNIEnv *env, jint fd)
 }
 JNIEXPORT jintArray JNICALL Java_android_os_ATLBinderConnection_spawn(JNIEnv *env, jclass cls, jstring apk, jstring process, jint sdk, jstring parentPackage, jstring parentProcess)
 {
+	(void)cls;
+	return atl_binder_spawn(env, apk, process, sdk, parentPackage, parentProcess, FALSE);
+}
+
+/* Shared body of the two spawn entry points (atl_binder_spawn.h): the ordinary
+ * transport spawn (service_child = FALSE) and the service spawn of the
+ * loader-side process host (service_child = TRUE). Only the service spawn adds
+ * ATL_SERVICE_HOST to the per-call child environment; this process' own
+ * environment is never mutated, so a plain transport spawn from the same
+ * process cannot pick up the marker. */
+jintArray atl_binder_spawn(JNIEnv *env, jstring apk, jstring process, jint sdk,
+                           jstring parentPackage, jstring parentProcess, gboolean service_child)
+{
 	int pair[2];
 	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair)) {
 		fail(env, strerror(errno));
@@ -77,6 +96,8 @@ JNIEXPORT jintArray JNICALL Java_android_os_ATLBinderConnection_spawn(JNIEnv *en
 	vars = g_environ_setenv(vars, "ATL_SERVICE_FD", "3", TRUE);
 	vars = g_environ_setenv(vars, "ATL_SERVICE_PARENT_PID", parenttext, TRUE);
 	vars = g_environ_setenv(vars, "ATL_SERVICE_PROCESS", p, TRUE);
+	if (service_child)
+		vars = g_environ_setenv(vars, "ATL_SERVICE_HOST", "1", TRUE);
 	const char *argv[] = {"/proc/self/exe", a, "--sdk-int", sdktext, NULL};
 	int target = 3;
 	GPid pid;

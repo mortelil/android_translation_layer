@@ -72,15 +72,19 @@ public class ATLProcessHost implements ATLProcessBackend {
 	private static native void nativeReleaseApp();
 
 	/**
-	 * Sets this loader process' explicit service-host marker
-	 * ({@code ATL_SERVICE_HOST}). Called once per process, from the constructor
-	 * below, before any spawn: the marker is part of the environment every child
-	 * of this host inherits, so it reaches the child without changing the frozen
-	 * {@link ATLBinderConnection#spawn} signature or environment. Only the
-	 * windowless service-child boot in main.c reads it; implemented in
+	 * This host's spawn: {@link ATLBinderConnection#spawn} plus the per-call
+	 * {@code ATL_SERVICE_HOST=1} marker in the CHILD's environment, which is what
+	 * main.c's child-boot predicate ({@code ATL_SERVICE_FD && ATL_SERVICE_HOST})
+	 * requires for the windowless service-child boot (architecture.md §8). The
+	 * marker is a property of that child's environment only - this process' own
+	 * environment is never written, so a bare transport spawn from this same
+	 * process keeps the windowed launcher child. Both entry points share one C
+	 * body (src/api-impl-jni/atl_binder_spawn.h); implemented in
 	 * src/api-impl-jni/android_atl_ATLProcessHost.c.
 	 */
-	private static native void nativeMarkServiceHost();
+	private static native int[] nativeSpawnServiceChild(String apk, String process, int sdk,
+	                                                    String parentPackage, String parentProcess)
+			throws IOException;
 
 	/** The child link broke (transport failure); the child is presumed dying. */
 	private static final class LinkFailure extends RuntimeException {
@@ -124,13 +128,11 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	private ATLProcessHost() {
 		/*
-		 * Explicit child-boot gate (architecture.md §8): a child started from this host
-		 * takes main.c's windowless service-child boot. A bare transport spawn from a
-		 * process that never ran this host keeps the windowed PR31 child, because
-		 * spawn() only adds ATL_SERVICE_FD to the environment it was handed and this
-		 * marker is not in it then.
+		 * Mechanism only. The explicit child-boot gate (architecture.md §8) is applied
+		 * per spawn by nativeSpawnServiceChild(), which adds ATL_SERVICE_HOST to the
+		 * service child's own environment; nothing writes the marker into this
+		 * process' environment, so no other spawn of this process can inherit it.
 		 */
-		nativeMarkServiceHost();
 	}
 
 	@Override
@@ -479,8 +481,8 @@ public class ATLProcessHost implements ATLProcessBackend {
 				String apk = app.pkg.applicationInfo.sourceDir;
 				if (apk == null)
 					throw new IOException("the primary application has no APK path");
-				spawned = ATLBinderConnection.spawn(apk, name, Build.VERSION.SDK_INT, app.pkg.packageName,
-				                                    Application.getProcessName());
+				spawned = nativeSpawnServiceChild(apk, name, Build.VERSION.SDK_INT, app.pkg.packageName,
+				                                  Application.getProcessName());
 			} catch (IOException | RuntimeException x) {
 				Slog.e(TAG, "spawning the process " + name + " failed", x);
 				return null;

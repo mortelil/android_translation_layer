@@ -4,16 +4,18 @@
  * JNI library member that ART can resolve for a hax class. The executable is
  * linked with -rdynamic, so these two references bind to main.c at load time.
  *
- * nativeMarkServiceHost() sets the explicit service-host marker of the
- * child-boot gate (architecture.md §8). It is called once by the loader-side
- * process host (ATLProcessHost's constructor) and only changes the loader's own
- * environment: ATLBinderConnection.spawn() hands the loader environment to the
- * child unchanged, so every child this host starts carries ATL_SERVICE_HOST,
- * while a bare transport spawn from a process that never ran this host does not.
- * src/main-executable/main.c:main() takes the windowless service-child boot only
- * when ATL_SERVICE_FD *and* ATL_SERVICE_HOST are present.
+ * nativeSpawnServiceChild() is this host's spawn: it is the ONLY caller that
+ * adds the explicit service-host marker ATL_SERVICE_HOST to the CHILD's
+ * environment (per-call, via the shared spawn body in android_os_ATLBinderConnection.c
+ * declared in atl_binder_spawn.h). The marker selects the windowless
+ * service-child boot in src/main-executable/main.c:main(), which takes that
+ * branch only when ATL_SERVICE_FD *and* ATL_SERVICE_HOST are present; a bare
+ * transport spawn (Java_android_os_ATLBinderConnection_spawn) never sets it, so
+ * this process' own environment is never mutated and no other spawn of this
+ * process - the transport probe's launcher child, for instance - inherits it.
  */
 #include "generated_headers/android_atl_ATLProcessHost.h"
+#include "atl_binder_spawn.h"
 #include <glib.h>
 
 extern void atl_launcher_app_hold(void);
@@ -33,12 +35,10 @@ JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeReleaseApp(JNIEnv *
 	atl_launcher_app_release();
 }
 
-/* g_setenv, not libc setenv: the marker must be visible to ATLBinderConnection.spawn's
- * g_get_environ(), which reads GLib's environment view (measured equal to libc's on
- * glib 2.90, this API keeps it that way by contract). */
-JNIEXPORT void JNICALL Java_android_atl_ATLProcessHost_nativeMarkServiceHost(JNIEnv *env, jclass cls)
+/* The service spawn: same body as the transport spawn, with the per-call
+ * ATL_SERVICE_HOST marker set for this child only. */
+JNIEXPORT jintArray JNICALL Java_android_atl_ATLProcessHost_nativeSpawnServiceChild(JNIEnv *env, jclass cls, jstring apk, jstring process, jint sdk, jstring parentPackage, jstring parentProcess)
 {
-	(void)env;
 	(void)cls;
-	g_setenv("ATL_SERVICE_HOST", "1", TRUE);
+	return atl_binder_spawn(env, apk, process, sdk, parentPackage, parentProcess, TRUE);
 }
