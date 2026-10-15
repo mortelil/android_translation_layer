@@ -1,0 +1,67 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!--
+  Gate-2 service probe (lane B) - LOCAL gate, acceptance rows S01-S08, S14a, S14b.
+
+  Declared components:
+    .ControlActivity        MAIN/LAUNCHER, exported; stays alive for the whole run,
+                            drives every sub-scenario on the main Handler and emits
+                            `SVC <id> PASS|FAIL ...` plus a final `SVC_GATE_DONE local`.
+    S01 .SvcIds             start ids 1..N, stopSelf(old id) vs stopSelf(current).
+    S02 .SvcLifetime        started + bound lifetime across stopService.
+    S02 .SvcSelfLifetime    started + bound lifetime across stopSelf().
+    S03 .SvcIdentity        binding identity by Intent.filterEquals (action, not extras).
+    S04 .SvcNullBind        onBind() returns null -> onNullBinding.
+    S04 .SvcRebindStarted   onUnbind() returns true -> onRebind() on the next bind.
+    S04 .SvcCycles          repeated bind/unbind cycles.
+    S05 .SvcMultiA/.SvcMultiB  two components behind one ServiceConnection.
+    S06 .SvcExec            executor-style connection (bindService(Intent,int,Executor,ServiceConnection)).
+    S06 .SvcLeaky/.SvcLeakTarget  a binding issued from a Service's own context.
+    S07 .SvcReenterFirst/Second/Third  re-entrancy from onServiceConnected().
+    S08 .SvcUnbindRace      bindService() + unbindService() in one main-looper tick.
+    S14a .SvcIsolated       android:isolatedProcess="true": placement must be refused.
+    S14b .SvcRemoteNoBackend android:process=":remote" with no process backend: refused.
+
+  All services are exported (the local gate resolves them by explicit component and
+  runs them in the loader's own process); S14a/S14b are declared but never run.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.atl.tests.service">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <application
+        android:label="ATL service probe (local gate)"
+        android:debuggable="true">
+        <activity
+            android:name=".ControlActivity"
+            android:exported="true"
+            android:launchMode="singleInstance">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name=".SvcIds" android:exported="true" />
+        <service android:name=".SvcLifetime" android:exported="true" />
+        <service android:name=".SvcSelfLifetime" android:exported="true" />
+        <service android:name=".SvcIdentity" android:exported="true" />
+        <service android:name=".SvcNullBind" android:exported="true" />
+        <service android:name=".SvcRebindStarted" android:exported="true" />
+        <service android:name=".SvcCycles" android:exported="true" />
+        <service android:name=".SvcMultiA" android:exported="true" />
+        <service android:name=".SvcMultiB" android:exported="true" />
+        <service android:name=".SvcExec" android:exported="true" />
+        <service android:name=".SvcLeaky" android:exported="true" />
+        <service android:name=".SvcLeakTarget" android:exported="true" />
+        <service android:name=".SvcReenterFirst" android:exported="true" />
+        <service android:name=".SvcReenterSecond" android:exported="true" />
+        <service android:name=".SvcReenterThird" android:exported="true" />
+        <service android:name=".SvcUnbindRace" android:exported="true" />
+        <service
+            android:name=".SvcIsolated"
+            android:exported="true"
+            android:isolatedProcess="true" />
+        <service
+            android:name=".SvcRemoteNoBackend"
+            android:exported="true"
+            android:process=":remote" />
+    </application>
+</manifest>
