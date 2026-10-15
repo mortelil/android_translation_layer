@@ -616,6 +616,33 @@ struct atl_face_style {
 };
 static GHashTable *atl_face_styles;
 
+/* The weight and slant FACE serves after its variations were applied. minikin's analyzeStyle reads
+ * the resolved coordinates: FreeType folds neither an applied wght nor an applied ital/slnt into
+ * usWeightClass or style_flags, so a variable face serving bold or italic by axis would otherwise
+ * be reported as regular and synthesised a second time. */
+static void atl_ft_face_style(FT_Library library, FT_Face face, int *weight, bool *italic)
+{
+	*weight = atl_ft_face_weight(face);
+	*italic = (face->style_flags & FT_STYLE_FLAG_ITALIC) != 0;
+	if (!(face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS))
+		return;
+	FT_MM_Var *mm = NULL;
+	if (!library || FT_Get_MM_Var(face, &mm) != 0 || !mm)
+		return;
+	FT_Fixed *coords = g_new0(FT_Fixed, mm->num_axis);
+	if (FT_Get_Var_Design_Coordinates(face, mm->num_axis, coords) == 0) {
+		for (FT_UInt i = 0; i < mm->num_axis; i++) {
+			FT_ULong tag = mm->axis[i].tag;
+			if (tag == FT_MAKE_TAG('w', 'g', 'h', 't') && coords[i] > 0)
+				*weight = (int)((coords[i] + 0x8000) >> 16);
+			if ((tag == FT_MAKE_TAG('i', 't', 'a', 'l') || tag == FT_MAKE_TAG('s', 'l', 'n', 't')) && coords[i] != 0)
+				*italic = true;
+		}
+	}
+	g_free(coords);
+	FT_Done_MM_Var(library, mm);
+}
+
 static bool atl_run_face_style(struct AndroidPaint *paint, PangoFont *font, int *weight, bool *italic)
 {
 	int index = -1;
@@ -634,9 +661,7 @@ static bool atl_run_face_style(struct AndroidPaint *paint, PangoFont *font, int 
 		FT_Face face = NULL;
 		if (library && !FT_New_Face(library, path, index, &face)) {
 			atl_ft_face_apply_variations(library, face, variations);
-			style->weight = atl_ft_face_weight(face);
-			/* Either flag means the family has a slanted face to serve an italic request. */
-			style->italic = (face->style_flags & (FT_STYLE_FLAG_ITALIC | FT_STYLE_FLAG_OBLIQUE)) != 0;
+			atl_ft_face_style(library, face, &style->weight, &style->italic);
 			FT_Done_Face(face);
 		}
 		if (library) FT_Done_FreeType(library);

@@ -113,10 +113,16 @@ static void log_text_style(PangoLayout *layout, struct AndroidPaint *paint, doub
 			PangoGlyphItem *item = run->data;
 			PangoFontDescription *description = pango_font_describe(item->item->analysis.font);
 			AtlTextSynthesis synthesis = atl_paint_run_synthesis(paint, item->item->analysis.font, size_dp);
-			fprintf(stderr, "[atl-text-style]   run=%s embolden=%.3f skewX=%.3f\n",
-			        pango_font_description_to_string(description), synthesis.embolden, (double)synthesis.skew_x);
+			fprintf(stderr, "[atl-text-style]   run=%s advance=%.3f embolden=%.3f skewX=%.3f\n",
+			        pango_font_description_to_string(description),
+			        (double)pango_glyph_string_get_width(item->glyphs) / PANGO_SCALE,
+			        synthesis.embolden, (double)synthesis.skew_x);
 			pango_font_description_free(description);
 		}
+		PangoRectangle ink, logical;
+		pango_layout_line_get_pixel_extents(line, &ink, &logical);
+		fprintf(stderr, "[atl-text-style]   line=%d advance=%d ink=%d..%d\n",
+		        i, logical.width, ink.x, ink.x + ink.width);
 	}
 }
 
@@ -136,6 +142,7 @@ void atl_layout_snapshot(GtkSnapshot *snapshot, PangoLayout *layout, const AtlTe
 	/* Include actual ink, including overhangs and overlapping negative spacing. */
 	graphene_rect_t bounds = GRAPHENE_RECT_INIT(0, 0, 1, MAX(1, g->height));
 	double grow = 0;
+	bool synthesised = false;
 	for (guint i = 0; i < g->lines->len; i++) {
 		const AtlTextLine *line = &g_array_index(g->lines, AtlTextLine, i);
 		PangoLayoutLine *pango_line = pango_layout_get_line_readonly(layout, i);
@@ -149,7 +156,14 @@ void atl_layout_snapshot(GtkSnapshot *snapshot, PangoLayout *layout, const AtlTe
 		double embolden;
 		float skew_x;
 		line_synthesis(paint, pango_line, size_dp, &embolden, &skew_x);
+		synthesised = synthesised || embolden > 0 || skew_x != 0;
 		grow = MAX(grow, embolden * 0.5 + fabs(skew_x) * MAX(-line->ascent, line->descent));
+	}
+	/* Nothing to synthesise: draw through GSK's own layout node, the way every other Pango path
+	 * in ATL does. A cairo node draws the same runs unhinted, which changes their weight. */
+	if (!synthesised && !spaced) {
+		gtk_snapshot_append_layout(snapshot, layout, &style->color);
+		return;
 	}
 	bounds.origin.x -= grow;
 	bounds.origin.y -= grow;
