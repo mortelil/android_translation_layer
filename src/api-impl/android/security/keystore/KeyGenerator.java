@@ -19,37 +19,13 @@ public abstract class KeyGenerator extends KeyGeneratorSpi {
 			throw new InvalidAlgorithmParameterException("ATL's software keystore does not provide key attestation");
 	}
 
-	/**
-	 * AOSP requires AES keys generated through the keystore to be bound to
-	 * GCM/NoPadding and to have an explicit key size
-	 * (android.security.keystore.AndroidKeyStoreKeyGeneratorSpi.AES).
-	 * We enforce the same contract on the requested spec instead of silently
-	 * ignoring it; we never substitute a different key size or mode.
-	 */
-	private static void validateAesSpec(KeyGenParameterSpec spec) throws InvalidAlgorithmParameterException {
-		String[] blockModes = spec.getBlockModes();
-		if (blockModes != null) {
-			boolean gcm = false;
-			for (String mode : blockModes)
-				if ("GCM".equals(mode))
-					gcm = true;
-			if (!gcm)
-				throw new InvalidAlgorithmParameterException(
-				    "AES keystore keys require block mode GCM");
-		}
-		String[] paddings = spec.getEncryptionPaddings();
-		if (paddings != null) {
-			boolean noPadding = false;
-			for (String padding : paddings)
-				if ("NoPadding".equals(padding))
-					noPadding = true;
-			if (!noPadding)
-				throw new InvalidAlgorithmParameterException(
-				    "AES/GCM keystore keys require encryption padding NoPadding");
-		}
-		if (spec.getKeySize() <= 0)
-			throw new InvalidAlgorithmParameterException(
-			    "KeyGenParameterSpec.setKeySize(int) must be called for AES keystore keys");
+	// AOSP AndroidKeyStoreKeyGeneratorSpi.AES defaults to 128 bits. These
+	// software keys do not enforce Android hardware authorization policies.
+	private static int aesKeySize(KeyGenParameterSpec spec) throws InvalidAlgorithmParameterException {
+		int bits = spec.getKeySize() == -1 ? 128 : spec.getKeySize();
+		if (bits != 128 && bits != 192 && bits != 256)
+			throw new InvalidAlgorithmParameterException("AES key size must be 128, 192 or 256");
+		return bits;
 	}
 
 	public static class AES extends KeyGenerator {
@@ -57,14 +33,14 @@ public abstract class KeyGenerator extends KeyGeneratorSpi {
 		protected void engineInit(AlgorithmParameterSpec params, SecureRandom random)
 		    throws InvalidAlgorithmParameterException {
 			validateAttestation(params);
-			validateAesSpec((KeyGenParameterSpec) params);
+			int bits = aesKeySize((KeyGenParameterSpec) params);
 			try {
 				keyGenerator = javax.crypto.KeyGenerator.getInstance("AES", "BC");
 				this.params = params;
 				// bind the requested key size; javax.crypto.KeyGenerator.init(random)
 				// would fall back to the provider default (128 bit) and silently
 				// produce a key of the wrong strength.
-				keyGenerator.init(((KeyGenParameterSpec) params).getKeySize(), random);
+				keyGenerator.init(bits, random);
 			} catch (NoSuchAlgorithmException | NoSuchProviderException e) {
 				e.printStackTrace();
 				throw new UnsupportedOperationException("Unimplemented method 'engineInit'");

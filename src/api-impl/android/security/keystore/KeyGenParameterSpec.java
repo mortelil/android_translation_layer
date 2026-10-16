@@ -8,7 +8,7 @@ public class KeyGenParameterSpec implements java.security.spec.AlgorithmParamete
 
 	private String keystoreAlias;
 	private int purposes;
-	private int keySize;
+	private int keySize = -1;
 	private String[] blockModes;
 	private String[] encryptionPaddings;
 	private boolean userAuthenticationRequired;

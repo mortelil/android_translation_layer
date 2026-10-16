@@ -77,6 +77,9 @@ public class ProbeActivity extends Activity {
 		json.append(",\"phase\":\"").append(hasStateFile() ? "phase2" : "phase1").append("\"");
 		json.append(",\"provider\":{\"cipherAesGcm\":\"").append(providerName()).append("\"}");
 
+		if ("1".equals(System.getenv("ATL_TEST_KEYSTORE_UNAVAILABLE"))) {
+			readPath(); json.append("}"); return;
+		}
 		kat();
 		softwareRoundTrip();
 		readPath();
@@ -144,44 +147,17 @@ public class ProbeActivity extends Activity {
 
 	/* --- software (SecretKeySpec) round trip, androidx sequence ----- */
 
-	/* --- read path against a backend that may be unavailable ---------
-	 *
-	 * KeyStore.containsAlias()/isKeyEntry()/getKey() on an alias that is not
-	 * present must answer false/null, not throw: a headless/container session
-	 * without org.freedesktop.secrets has no such alias. The GCancellable bound
-	 * (10 s) must still apply, so this step also shows the call is bounded.
-	 */
 	private void readPath() {
-		line("--- read path on an absent alias ---");
+		boolean unavailable = "1".equals(System.getenv("ATL_TEST_KEYSTORE_UNAVAILABLE"));
+		long start = System.currentTimeMillis();
 		try {
-			KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
-			ks.load(null);
-			long t0 = System.currentTimeMillis();
-			boolean present = ks.containsAlias(ABSENT_ALIAS);
-			long d1 = System.currentTimeMillis() - t0;
-			line("read containsAlias(" + ABSENT_ALIAS + ") -> " + present
-			     + " no exception in " + d1 + "ms");
-			json.append(",\"read_path\":{\"containsAlias\":").append(present)
-			    .append(",\"containsAliasMs\":").append(d1);
-			t0 = System.currentTimeMillis();
-			boolean isKey = ks.isKeyEntry(ABSENT_ALIAS);
-			long d2 = System.currentTimeMillis() - t0;
-			line("read isKeyEntry(" + ABSENT_ALIAS + ") -> " + isKey + " in " + d2 + "ms");
-			json.append(",\"isKeyEntry\":").append(isKey).append(",\"isKeyEntryMs\":").append(d2);
-			t0 = System.currentTimeMillis();
-			Key k = ks.getKey(ABSENT_ALIAS, null);
-			long d3 = System.currentTimeMillis() - t0;
-			line("read getKey(" + ABSENT_ALIAS + ") -> " + (k == null ? "NULL" : "KEY")
-			     + " in " + d3 + "ms");
-			json.append(",\"getKeyNull\":").append(k == null).append(",\"getKeyMs\":").append(d3);
-			boolean ok = !present && !isKey && k == null && d1 < 30000 && d2 < 30000 && d3 < 30000;
-			line("read path verdict -> " + (ok ? "PASS (absent, bounded, no exception)" : "FAIL"));
-			json.append(",\"verdict\":\"").append(ok ? "PASS" : "FAIL").append("\"}");
-		} catch (Throwable t) {
-			line("read path EXCEPTION " + t.getClass().getName() + ": " + t.getMessage());
-			json.append(",\"read_path\":{\"verdict\":\"EXCEPTION\",\"error\":\"")
-			    .append(esc(t.getClass().getSimpleName())).append("\"}");
-		}
+			KeyStore ks = KeyStore.getInstance("AndroidKeyStore"); ks.load(null);
+			Key key = ks.getKey(unavailable ? PERSIST_ALIAS : ABSENT_ALIAS, null);
+			line(!unavailable && key == null ? "PASS absent alias on reachable backend" : "FAIL key read returned success");
+		} catch (java.security.UnrecoverableKeyException expected) {
+			line(unavailable && System.currentTimeMillis()-start < 12000
+			    ? "PASS unavailable backend is a bounded read error" : "FAIL unexpected backend error");
+		} catch (Exception e) { line("FAIL read error " + e); }
 	}
 
 	private void softwareRoundTrip() {

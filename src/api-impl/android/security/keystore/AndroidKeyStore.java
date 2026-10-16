@@ -30,7 +30,7 @@ public class AndroidKeyStore extends KeyStoreSpi {
 
 	@Override
 	public Key engineGetKey(String alias, char[] password) throws NoSuchAlgorithmException, UnrecoverableKeyException {
-		Slog.i(TAG, "engineGetKey alias=" + alias + " password=" + Arrays.toString(password));
+		Slog.i(TAG, "engineGetKey alias=" + alias);
 
 		byte[] data = nativeGetKey(ATLLoadedApp.getPrimaryApplication().getApplication().getPackageName(), alias);
 		if (data == null)
@@ -240,6 +240,10 @@ public class AndroidKeyStore extends KeyStoreSpi {
 		@Override
 		protected void engineInit(int opmode, Key key, java.security.AlgorithmParameters params, SecureRandom random)
 		    throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+			if (params == null) {
+				engineInit(opmode, key, random);
+				return;
+			}
 			this.random = random != null ? random : fallbackRandom;
 			delegate.init(opmode, key, params, this.random);
 		}
