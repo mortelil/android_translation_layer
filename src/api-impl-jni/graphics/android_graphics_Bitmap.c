@@ -66,6 +66,23 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Bitmap_native_1create_1texture(JNI
 			gsk_renderer_realize(renderer, NULL, NULL);
 		}
 		texture = gsk_renderer_render_texture(renderer, node, &bounds);
+		/* Bitmap pixels outlive this temporary renderer and may be drawn on
+		 * another GdkDisplay or Java thread. Materialize GPU output while its
+		 * renderer is alive; retaining the offscreen GPU texture produced
+		 * intermittent corrupted icons when composed by the window renderer.
+		 * Preserve premultiplied alpha and avoid copying CPU textures. */
+		if (texture && !GDK_IS_MEMORY_TEXTURE(texture)) {
+			gsize row = (gsize)width * 4;
+			guchar *pixels = g_malloc(row * height);
+			GdkTextureDownloader *download = gdk_texture_downloader_new(texture);
+			gdk_texture_downloader_set_format(download, GDK_MEMORY_R8G8B8A8_PREMULTIPLIED);
+			gdk_texture_downloader_download_into(download, pixels, row);
+			gdk_texture_downloader_free(download);
+			GBytes *bytes = g_bytes_new_take(pixels, row * height);
+			g_object_unref(texture);
+			texture = gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8_PREMULTIPLIED, bytes, row);
+			g_bytes_unref(bytes);
+		}
 		gsk_render_node_unref(node);
 		gsk_renderer_unrealize(renderer);
 		g_object_unref(renderer);
