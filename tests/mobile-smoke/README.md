@@ -60,3 +60,12 @@ Signal messaging/calls, LocalSend peer transfers or Plexamp playback.
 `TestImageView` checks that bitmap replacement updates drawable identity and
 callback ownership, requests measurement, changes the actual native preferred
 size, and supports clearing with a null bitmap or resource ID zero.
+
+## XML include visibility
+
+`TestIncludeVisibility` uses compiled layout resources to check visible,
+invisible and gone overrides on `<include>`, inherited root visibility, ID
+overrides and the absence of a visibility override for `<merge>` roots.
+The build requires `aapt2` for these resources (`aapt` is still used to add dex).
+Contract reference: AOSP `LayoutInflater.parseInclude`, android-15.0.0_r1,
+frameworks/base commit `4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3`.

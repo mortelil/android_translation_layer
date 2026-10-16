@@ -340,11 +340,19 @@ public class LayoutInflater {
 			// Inflate all children.
 			rInflate(childParser, view, childAttrs, true);
 
-			TypedArray ta = context.obtainStyledAttributes(attrs, new int[] {com.android.internal.R.attr.id});
+			TypedArray ta = context.obtainStyledAttributes(attrs, new int[] {com.android.internal.R.attr.id, com.android.internal.R.attr.visibility});
 			int id = ta.getResourceId(0, 0);
+			int visibility = ta.getInt(1, -1);
 			if (id != 0)
 				view.setId(id);
 			ta.recycle();
+			// AOSP LayoutInflater.parseInclude (android-15.0.0_r1): the
+			// include tag overrides the root visibility only when specified.
+			switch (visibility) {
+				case 0: view.setVisibility(View.VISIBLE); break;
+				case 1: view.setVisibility(View.INVISIBLE); break;
+				case 2: view.setVisibility(View.GONE); break;
+			}
 
 			group.addView(view);
 		}
