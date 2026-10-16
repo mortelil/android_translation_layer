@@ -299,7 +299,15 @@ public class Drawable {
 				return drawable;
 			}
 			case "nine-patch": {
-				return new NinePatchDrawable(resources, null, null, null, null);
+				TypedArray a = obtainAttributes(resources, theme, attrs, com.android.internal.R.styleable.NinePatchDrawable);
+				try {
+					Drawable source = a.getDrawable(com.android.internal.R.styleable.NinePatchDrawable_src);
+					if (!(source instanceof NinePatchDrawable))
+						throw new XmlPullParserException("<nine-patch> requires a nine-patch src");
+					if (a.hasValue(com.android.internal.R.styleable.NinePatchDrawable_tint))
+						source.setTint(a.getColor(com.android.internal.R.styleable.NinePatchDrawable_tint, 0));
+					return source;
+				} finally { a.recycle(); }
 			}
 			case "animation-list": {
 				return new AnimationDrawable();
@@ -342,7 +350,9 @@ public class Drawable {
 				e.printStackTrace();
 			}
 		}
-		return new NinePatchDrawable(path.toString());
+		NinePatchDrawable drawable = new NinePatchDrawable(path.toString());
+		drawable.setDensity(value == null ? 0 : value.density, resources == null ? 160 : resources.getDisplayMetrics().densityDpi);
+		return drawable;
 	}
 
 	public static Drawable createFromPath(String path) {

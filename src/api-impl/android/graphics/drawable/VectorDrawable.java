@@ -1036,44 +1036,15 @@ public class VectorDrawable extends Drawable {
 	 * constant state's dpi info, i.e. updateConstantStateDensity == true.
 	 */
 	void updateDimensionInfo(@Nullable Resources res, boolean updateConstantStateDensity) {
-		// if (res != null) {
-		// 	final int densityDpi = res.getDisplayMetrics().densityDpi;
-		// 	final int targetDensity = densityDpi == 0 ? DisplayMetrics.DENSITY_DEFAULT : densityDpi;
-
-		// 	if (updateConstantStateDensity) {
-		// 		mVectorState.mVPathRenderer.mTargetDensity = targetDensity;
-		// 	} else {
-		// 		final int constantStateDensity = mVectorState.mVPathRenderer.mTargetDensity;
-		// 		if (targetDensity != constantStateDensity && constantStateDensity != 0) {
-		// 			mDpiScaledWidth = Bitmap.scaleFromDensity(
-		// 					(int) mVectorState.mVPathRenderer.mBaseWidth, constantStateDensity,
-		// 					targetDensity);
-		// 			mDpiScaledHeight = Bitmap.scaleFromDensity(
-		// 					(int) mVectorState.mVPathRenderer.mBaseHeight,constantStateDensity,
-		// 					targetDensity);
-		// 			final int left = Bitmap.scaleFromDensity(
-		// 					mVectorState.mVPathRenderer.mOpticalInsets.left, constantStateDensity,
-		// 					targetDensity);
-		// 			final int right = Bitmap.scaleFromDensity(
-		// 					mVectorState.mVPathRenderer.mOpticalInsets.right, constantStateDensity,
-		// 					targetDensity);
-		// 			final int top = Bitmap.scaleFromDensity(
-		// 					mVectorState.mVPathRenderer.mOpticalInsets.top, constantStateDensity,
-		// 					targetDensity);
-		// 			final int bottom = Bitmap.scaleFromDensity(
-		// 					mVectorState.mVPathRenderer.mOpticalInsets.bottom, constantStateDensity,
-		// 					targetDensity);
-		// 			mDpiScaleInsets = Insets.of(left, top, right, bottom);
-		// 			return;
-		// 		}
-		// 	}
-		// }
-		// For all the other cases, like either res is null, constant state is not initialized or
-		// target density is the same as the constant state, we will just use the constant state
-		// dimensions.
-		mDpiScaledWidth = (int)mVectorState.mVPathRenderer.mBaseWidth;
-		mDpiScaledHeight = (int)mVectorState.mVPathRenderer.mBaseHeight;
-		// mDpiScaleInsets = mVectorState.mVPathRenderer.mOpticalInsets;
+		int sourceDensity = mVectorState.mVPathRenderer.mTargetDensity;
+		int targetDensity = res == null ? sourceDensity : res.getDisplayMetrics().densityDpi;
+		if (targetDensity == 0) targetDensity = DisplayMetrics.DENSITY_DEFAULT;
+		if (updateConstantStateDensity) {
+			mVectorState.mVPathRenderer.mTargetDensity = targetDensity;
+			sourceDensity = targetDensity;
+		}
+		mDpiScaledWidth = Bitmap.scaleFromDensity((int)mVectorState.mVPathRenderer.mBaseWidth, sourceDensity, targetDensity);
+		mDpiScaledHeight = Bitmap.scaleFromDensity((int)mVectorState.mVPathRenderer.mBaseHeight, sourceDensity, targetDensity);
 	}
 
 	// @Override

@@ -152,8 +152,30 @@ The 2026-10-16 comparison found equal 240x80 logical popup bounds at (21,413)
 and successful body clicks at 1x and 2x after the PopupWindow repair. Dispensa's
 native dropdown arrow and Android popup rows also retain their logical sizes;
 selection changes the product category. The full smoke suite passes at 2x.
-Remaining visual defects exposed by this screen: the native CheckBox glyph and
-label, Switch width, and SeekBar thumb/trough still shrink at higher density.
-CompoundButton's no-op text setters and GTK theme dimensions require separate
-work; these observations are not claimed as passing density support. The dialog
-was not visibly opened in the scripted run, so its appearance is unverified.
+The extended screen now keeps native check/radio glyphs, Switch dimensions,
+SeekBar geometry and compound icons at the same logical size. Text setters in
+CompoundButton/CheckBox/RadioButton now reach TextView styling. PopupWindow uses
+a real Android container so a standalone TextView is measured and laid out,
+without replacing the content's own background. TestPopupContracts checks this.
+
+Additional pixel contracts in TestBitmapDensity cover Canvas position-based
+bitmap density (explicit rectangles and matrices must not apply density), vector
+constant-state copies at another target density, and XML nine-patch tint and
+fixed stroke thickness. The nine-patch pixel probe uses ATL's GSK background
+rendering path; it does not claim plain bitmap-Canvas support for all drawables.
+Run at 1, 1.5, 2 and 3. The generated nine-patch fixture has a two-dp solid stroke.
+
+EditText's default constructors select editTextStyle, not textViewStyle. Existing
+AOSP edit_text_material.xml supplies the underline through its selector and
+nine-patch resources. XML nine-patch src/tint are now loaded; fixed segments scale
+with resource density while stretchable segments consume the remaining space.
+The test also checks that callers can explicitly remove EditText's background.
+
+Known scope limits: native widgets still use GTK shapes/colors rather than
+complete Android theme parity. WindowManagerImpl auxiliary windows and native
+Spinner list surfaces need dedicated coverage. Arbitrary nine-patch options,
+stateful tint lists, all compound-drawable arrangements, dynamic monitor-density
+changes and plain bitmap-Canvas drawing of native paintables are not fully covered.
+The Rhythm welcome-screen title has equal text size but different vertical
+placement at 1x and 2x; this remains a layout issue to investigate, not a passed
+pixel-parity result. Signal and Nura were not tested in this batch.

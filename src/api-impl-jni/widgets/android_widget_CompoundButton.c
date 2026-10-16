@@ -14,7 +14,10 @@ JNIEXPORT jlong JNICALL Java_android_widget_CompoundButton_native_1constructor(J
 	gtk_widget_set_hexpand(label, TRUE);
 	gtk_widget_set_halign(label, GTK_ALIGN_START);
 	gtk_box_append(GTK_BOX(box), label);
-	gtk_box_append(GTK_BOX(box), gtk_switch_new());
+	GtkWidget *toggle = gtk_switch_new();
+	gtk_widget_add_css_class(toggle, "atl-native-switch");
+	gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER);
+	gtk_box_append(GTK_BOX(box), toggle);
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), box);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
 	return _INTPTR(box);

@@ -6,6 +6,9 @@ import android.graphics.*;
 import android.graphics.drawable.*;
 import android.os.Parcel;
 import android.widget.ImageView;
+import android.widget.CheckBox;
+import android.widget.Switch;
+import android.widget.TextView;
 import android.view.View;
 import java.io.InputStream;
 
@@ -80,6 +83,64 @@ public class TestBitmapDensity {
                 throw new AssertionError("bounds-only decode returned pixels");
             eq(24, bounds.outWidth, "bounds-only source width");
         }
+        for (TextView control : new TextView[] {new CheckBox(context), new Switch(context)}) {
+            control.setTextSize(16);
+            eq(Math.round(16 * res.getDisplayMetrics().scaledDensity), Math.round(control.getTextSize()), "compound text size");
+            control.setTextColor(0xff123456);
+            eq(0xff123456, control.getCurrentTextColor(), "compound text color");
+        }
+        TextView label = new TextView(context);
+        label.setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0);
+        Drawable left = label.getCompoundDrawables()[0];
+        eq(Bitmap.scaleFromDensity(24, 160, dpi), left.getBounds().width(), "compound intrinsic bounds");
+        label.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
+        if (label.getCompoundDrawables()[0] != null) throw new AssertionError("compound drawable not cleared");
+        Bitmap source = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888);
+        source.eraseColor(0xff112233); source.setDensity(160);
+        Bitmap destination = Bitmap.createBitmap(80, 40, Bitmap.Config.ARGB_8888);
+        destination.setDensity(320);
+        Canvas canvas = new Canvas(destination);
+        eq(320, canvas.getDensity(), "canvas bitmap density");
+        canvas.drawBitmap(source, 0f, 0f, null);
+        eq(0xff112233, destination.getPixel(19, 19), "position overload scales bitmap");
+        eq(0, destination.getPixel(21, 19), "position overload boundary");
+        canvas.drawBitmap(source, null, new Rect(30, 0, 40, 10), null);
+        eq(0xff112233, destination.getPixel(39, 9), "explicit destination ignores density");
+        eq(0, destination.getPixel(41, 9), "explicit destination boundary");
+        Matrix translate = new Matrix(); translate.setTranslate(50, 0);
+        canvas.drawBitmap(source, translate, null);
+        eq(0xff112233, destination.getPixel(59, 9), "matrix ignores density");
+        eq(0, destination.getPixel(61, 9), "matrix density boundary");
+        canvas.setDensity(240); eq(240, destination.getDensity(), "canvas updates bitmap density");
+        int vectorId = res.getIdentifier("density_vector", "drawable", context.getPackageName());
+        Drawable vector = res.getDrawable(vectorId);
+        eq(Bitmap.scaleFromDensity(24, 160, dpi), vector.getIntrinsicWidth(), "vector dp width");
+        Drawable.ConstantState state = vector.getConstantState();
+        try {
+            res.getDisplayMetrics().densityDpi = dpi * 2;
+            Drawable copy = state.newDrawable(res);
+            eq(vector.getIntrinsicWidth() * 2, copy.getIntrinsicWidth(), "vector constant state target density");
+            eq(Bitmap.scaleFromDensity(24, 160, dpi), vector.getIntrinsicWidth(), "vector source not changed");
+        } finally { res.getDisplayMetrics().densityDpi = dpi; }
+        int patchId = res.getIdentifier("density_patch_tinted", "drawable", context.getPackageName());
+        Drawable patch = res.getDrawable(patchId);
+        int patchWidth = Bitmap.scaleFromDensity(40, 160, dpi);
+        int patchHeight = Bitmap.scaleFromDensity(20, 160, dpi);
+        Bitmap patchPixels = Bitmap.createBitmap(patchWidth, patchHeight, Bitmap.Config.ARGB_8888);
+        patch.setBounds(0, 0, patchWidth, patchHeight);
+        // Exercise the same GSK rendering path used by native view backgrounds.
+        java.lang.reflect.Method snapshot = Bitmap.class.getDeclaredMethod("getSnapshot");
+        snapshot.setAccessible(true);
+        patch.draw(new android.atl.GskCanvas((Long)snapshot.invoke(patchPixels)));
+        int opaqueRows = 0;
+        for (int y = 0; y < patchHeight; y++)
+            if ((patchPixels.getPixel(patchWidth / 2, y) >>> 24) > 127) opaqueRows++;
+        eq(Bitmap.scaleFromDensity(2, 160, dpi), opaqueRows, "nine-patch fixed stroke thickness");
+        eq(0xffff00ff, patchPixels.getPixel(patchWidth / 2, patchHeight - 1), "nine-patch XML tint");
+        android.widget.EditText edit = new android.widget.EditText(context);
+        if (edit.getBackground() == null) throw new AssertionError("EditText default background missing");
+        edit.setBackground(null);
+        if (edit.getBackground() != null) throw new AssertionError("EditText explicit background removal ignored");
         System.out.println("PASS: bitmap resource density, native measurement and drawn pixels at " + dpi);
     }
 }

@@ -267,6 +267,11 @@ public final class Bitmap implements Parcelable {
 		return scaleFromDensity(height, this.density, density);
 	}
 
+	public int getScaledWidth(Canvas canvas) { return getScaledWidth(canvas.getDensity()); }
+	public int getScaledHeight(Canvas canvas) { return getScaledHeight(canvas.getDensity()); }
+	public int getScaledWidth(DisplayMetrics metrics) { return getScaledWidth(metrics.densityDpi); }
+	public int getScaledHeight(DisplayMetrics metrics) { return getScaledHeight(metrics.densityDpi); }
+
 	public boolean isRecycled() {
 		return recycled;
 	}

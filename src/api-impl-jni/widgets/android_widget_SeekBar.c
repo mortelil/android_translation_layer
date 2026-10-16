@@ -13,6 +13,7 @@ JNIEXPORT jlong JNICALL Java_android_widget_SeekBar_native_1constructor(JNIEnv *
 {
 	GtkWidget *wrapper = g_object_ref(wrapper_widget_new());
 	GtkWidget *scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, NULL);
+	gtk_widget_add_css_class(scale, "atl-native-seek");
 	gtk_range_set_range(GTK_RANGE(scale), 0, 100);
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), scale);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);

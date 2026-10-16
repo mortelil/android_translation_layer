@@ -31,8 +31,4 @@ public class RadioButton extends CompoundButton {
 	// following methods are overridden to prevent calling incompatible methods from superclasses
 	@Override
 	public void setOnClickListener(final OnClickListener l) {}
-	@Override
-	public void setTextColor(int color) {}
-	@Override
-	public void setTextSize(float size) {}
 }

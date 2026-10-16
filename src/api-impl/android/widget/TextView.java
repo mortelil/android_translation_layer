@@ -479,15 +479,23 @@ public class TextView extends View {
 
 	public boolean isTextSelectable() { return true; }
 
-	public void setCompoundDrawablesWithIntrinsicBounds(int left, int top, int right, int bottom) {}
+	public void setCompoundDrawablesWithIntrinsicBounds(int left, int top, int right, int bottom) {
+		setCompoundDrawablesWithIntrinsicBounds(left == 0 ? null : getResources().getDrawable(left),
+		    top == 0 ? null : getResources().getDrawable(top), right == 0 ? null : getResources().getDrawable(right),
+		    bottom == 0 ? null : getResources().getDrawable(bottom));
+	}
 
-	public void setCompoundDrawablesWithIntrinsicBounds(Drawable left, Drawable top, Drawable right, Drawable bottom) {}
+	public void setCompoundDrawablesWithIntrinsicBounds(Drawable left, Drawable top, Drawable right, Drawable bottom) {
+		for (Drawable drawable : new Drawable[] {left, top, right, bottom})
+			if (drawable != null) drawable.setBounds(0, 0, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
+		setCompoundDrawables(left, top, right, bottom);
+	}
 
 	public void setHint(CharSequence s) {}
 
 	public Drawable[] getCompoundDrawablesRelative() { return new Drawable[4]; }
 
-	public Drawable[] getCompoundDrawables() { return new Drawable[4]; }
+	public Drawable[] getCompoundDrawables() { return new Drawable[] {drawableLeft, drawableTop, drawableRight, drawableBottom}; }
 
 	public void setTextAppearance(int dummy) {}
 

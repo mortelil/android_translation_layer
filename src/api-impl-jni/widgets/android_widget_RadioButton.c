@@ -10,6 +10,7 @@ JNIEXPORT jlong JNICALL Java_android_widget_RadioButton_native_1constructor(JNIE
 {
 	GtkWidget *wrapper = g_object_ref(wrapper_widget_new());
 	GtkWidget *button = gtk_check_button_new();
+	gtk_widget_add_css_class(button, "atl-native-check");
 	// set group to make it a radio button
 	gtk_check_button_set_group(GTK_CHECK_BUTTON(button), GTK_CHECK_BUTTON(gtk_check_button_new()));
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), button);

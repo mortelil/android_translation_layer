@@ -42,6 +42,7 @@ public class PopupWindow {
 	}
 
 	private View contentView;
+	private FrameLayout decorView;
 	private Drawable background;
 	private long popover; // native pointer to GtkPopover
 
@@ -51,9 +52,8 @@ public class PopupWindow {
 
 	public void setBackgroundDrawable(Drawable background) {
 		this.background = background;
-		/* FIXME: use a decorview? */
-		if (contentView != null) {
-			contentView.setBackgroundDrawable(background);
+		if (decorView != null) {
+			decorView.setBackgroundDrawable(background);
 		}
 	}
 
@@ -76,13 +76,19 @@ public class PopupWindow {
 	}
 
 	public void setContentView(View view) {
+		if (contentView == view) return;
+		if (decorView != null) decorView.removeAllViews();
 		contentView = view;
 		if (view != null && !attachedInDecorSet)
 			attachedInDecor = view.getContext().getApplicationInfo().targetSdkVersion >= 22;
-		if (contentView != null) {
-			contentView.setBackground(getBackground());
+		// A popup is a separate view root. A container must measure and lay out
+		// even a lone TextView; native allocation alone leaves its Java bounds empty.
+		decorView = view == null ? null : new FrameLayout(view.getContext());
+		if (decorView != null) {
+			decorView.setBackground(background);
+			decorView.addView(view, new FrameLayout.LayoutParams(-1, -1));
 		}
-		native_setContentView(popover, view == null ? 0 : view.widget);
+		native_setContentView(popover, decorView == null ? 0 : decorView.widget);
 	}
 
 	public int getMaxAvailableHeight(View anchor, int yOffset) {

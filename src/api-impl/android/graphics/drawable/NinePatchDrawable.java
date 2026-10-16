@@ -15,9 +15,17 @@ public class NinePatchDrawable extends Drawable {
 		setPaintable(nativeCreate(path));
 	}
 
+	void setDensity(int source, int target) {
+		if (source == 0) source = 160;
+		if (source == android.util.TypedValue.DENSITY_NONE) source = target;
+		if (paintable != 0) nativeSetDensity(paintable, source > 0 ? (float)target / source : 1);
+	}
+
+	private native void nativeSetDensity(long paintable, float scale);
+
 	@Override
 	public void setTint(int tint) {
-		nativeSetTint(paintable, tint);
+		if (paintable != 0) nativeSetTint(paintable, tint);
 	}
 
 	private native long nativeCreate(byte[] data, long texture);

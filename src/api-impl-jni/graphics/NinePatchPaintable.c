@@ -19,9 +19,10 @@ static void ninepatch_paintable_snapshot(GdkPaintable *paintable, GdkSnapshot *s
 	if (chunk) {
 		int32_t *xDivs = (void *)chunk + chunk->xDivsOffset;
 		int32_t *yDivs = (void *)chunk + chunk->yDivsOffset;
+		float density = ninepatch->density_scale;
 		int32_t *color = (void *)chunk + chunk->colorsOffset;
-		float strech_factor_width = (width - (ninepatch->width - ninepatch->strechy_width)) / ninepatch->strechy_width;
-		float strech_factor_height = (height - (ninepatch->height - ninepatch->strechy_height)) / ninepatch->strechy_height;
+		float strech_factor_width = (width - (ninepatch->width - ninepatch->strechy_width) * density) / ninepatch->strechy_width;
+		float strech_factor_height = (height - (ninepatch->height - ninepatch->strechy_height) * density) / ninepatch->strechy_height;
 
 		graphene_rect_t rect;
 		GdkRGBA rgba;
@@ -42,20 +43,18 @@ static void ninepatch_paintable_snapshot(GdkPaintable *paintable, GdkSnapshot *s
 		for (j = 0, rect.origin.y = 0; j < chunk->numYDivs + 1; j++, rect.origin.y += rect.size.height) {
 			int ydiv_start = j ? yDivs[j - 1] : 0;
 			int ydiv_end = (j == chunk->numYDivs) ? ninepatch->height : yDivs[j];
-			float actual_stretch_factor_height = (j % 2) ? strech_factor_height : 1;
+			float actual_stretch_factor_height = (j % 2) ? strech_factor_height : density;
 			float patch_height = ydiv_end - ydiv_start;
-			if (j % 2) // odd sections are stretchable
-				patch_height *= strech_factor_height;
+			patch_height *= actual_stretch_factor_height;
 			rect.size.height = patch_height;
 			if (!patch_height) // skip empty sections
 				continue;
 			for (i = 0, rect.origin.x = 0; i < chunk->numXDivs + 1; i++, rect.origin.x += rect.size.width) {
 				int xdiv_start = i ? xDivs[i - 1] : 0;
 				int xdiv_end = (i == chunk->numXDivs) ? ninepatch->width : xDivs[i];
-				float actual_stretch_factor_width = (i % 2) ? strech_factor_width : 1;
+				float actual_stretch_factor_width = (i % 2) ? strech_factor_width : density;
 				float patch_width = xdiv_end - xdiv_start;
-				if (i % 2) // odd sections are stretchable
-					patch_width *= strech_factor_width;
+				patch_width *= actual_stretch_factor_width;
 				rect.size.width = patch_width;
 				if (!patch_width) // skip empty sections
 					continue;
@@ -84,11 +83,12 @@ static void ninepatch_paintable_snapshot(GdkPaintable *paintable, GdkSnapshot *s
 
 static GdkPaintableFlags ninepatch_paintable_get_flags(GdkPaintable *paintable)
 {
-	return GDK_PAINTABLE_STATIC_CONTENTS | GDK_PAINTABLE_STATIC_SIZE;
+	return GDK_PAINTABLE_STATIC_SIZE;
 }
 
 static void ninepatch_paintable_init(NinePatchPaintable *ninepatch_paintable)
 {
+	ninepatch_paintable->density_scale = 1;
 }
 
 static void ninepatch_paintable_paintable_init(GdkPaintableInterface *iface)

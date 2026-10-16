@@ -19,6 +19,7 @@ public class GskCanvas extends DisplayListCanvas {
 
 	public GskCanvas(long snapshot) {
 		this.snapshot = snapshot;
+		setDensity(android.util.DisplayMetrics.DENSITY_DEVICE);
 		state_stack.push(new Matrix());
 	}
 

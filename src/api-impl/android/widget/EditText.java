@@ -15,11 +15,11 @@ import android.util.AttributeSet;
 public class EditText extends TextView {
 	{ setRawInputType(1); } // TYPE_CLASS_TEXT: a plain editable starts as text input.
 	public EditText(Context context) {
-		super(context);
+		this(context, null);
 	}
 
 	public EditText(Context context, AttributeSet attrs) {
-		super(context, attrs);
+		this(context, attrs, com.android.internal.R.attr.editTextStyle);
 	}
 
 	public EditText(Context context, AttributeSet attrs, int defStyle) {

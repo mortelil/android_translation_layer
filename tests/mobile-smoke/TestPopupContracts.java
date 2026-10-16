@@ -9,7 +9,16 @@ public final class TestPopupContracts {
     public static void run(Context context) {
         PopupWindow popup = new PopupWindow(context);
         popup.setAttachedInDecor(false);
-        popup.setContentView(new TextView(context));
+        TextView content = new TextView(context);
+        ColorDrawable contentBackground = new ColorDrawable(0xffeeeeee);
+        content.setBackground(contentBackground);
+        popup.setContentView(content);
+        popup.setBackgroundDrawable(new ColorDrawable(0xff123456));
+        if (content.getBackground() != contentBackground)
+            throw new AssertionError("Popup overwrote application content background");
+        popup.setContentView(content);
+        if (popup.getContentView() != content)
+            throw new AssertionError("Repeated setContentView changed content");
         if (popup.isAttachedInDecor()) throw new AssertionError("Explicit decor policy lost");
         popup.setAttachedInDecor(true);
         popup.setOverlapAnchor(true);

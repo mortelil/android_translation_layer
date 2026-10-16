@@ -9,6 +9,14 @@ extern "C" {
 #endif
 /*
  * Class:     android_graphics_drawable_NinePatchDrawable
+ * Method:    nativeSetDensity
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_android_graphics_drawable_NinePatchDrawable_nativeSetDensity
+  (JNIEnv *, jobject, jlong, jfloat);
+
+/*
+ * Class:     android_graphics_drawable_NinePatchDrawable
  * Method:    nativeCreate
  * Signature: ([BJ)J
  */

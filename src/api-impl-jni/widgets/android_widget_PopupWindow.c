@@ -30,7 +30,7 @@ JNIEXPORT jlong JNICALL Java_android_widget_PopupWindow_native_1constructor(JNIE
 	if (!g_object_get_data(G_OBJECT(display), "atl-popup-css")) {
 		GtkCssProvider *css = gtk_css_provider_new();
 		gtk_css_provider_load_from_string(css,
-			"popover.ATL-popup > contents { padding: 0; border: none; box-shadow: none; background: transparent; }");
+			"popover.ATL-popup > contents { padding: 0; border: none; border-radius: 0; box-shadow: none; background: transparent; }");
 		gtk_style_context_add_provider_for_display(display,
 			GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 		g_object_set_data_full(G_OBJECT(display), "atl-popup-css", css, g_object_unref);

@@ -6,6 +6,7 @@
 #include "../generated_headers/android_view_View.h"
 
 #include "WrapperWidget.h"
+#include "NativeDensity.h"
 #include "src/api-impl-jni/views/AndroidLayout.h"
 
 G_DEFINE_TYPE(WrapperWidget, wrapper_widget, GTK_TYPE_WIDGET)
@@ -528,6 +529,7 @@ GtkEventControllerKey *wrapper_widget_ensure_key_controller(GtkWidget *wrapper)
 
 void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject jobj)
 {
+	atl_install_native_density_style(env, gtk_widget_get_display(GTK_WIDGET(wrapper)));
 	JavaVM *jvm;
 	(*env)->GetJavaVM(env, &jvm);
 	wrapper->jvm = jvm;

@@ -70,7 +70,7 @@ static void set_text_css(JNIEnv *env, jlong ptr, const char *key, const char *cs
 	GtkWidget *widget = _PTR(ptr);
 	if (GTK_IS_BUTTON(widget)) widget = gtk_button_get_child(GTK_BUTTON(widget));
 	if (GTK_IS_BOX(widget)) widget = GTK_WIDGET(box_get_label(env, widget));
-	if (!GTK_IS_TEXT(widget) && !GTK_IS_LABEL(widget)) return;
+	if (!GTK_IS_TEXT(widget) && !GTK_IS_LABEL(widget) && !GTK_IS_CHECK_BUTTON(widget)) return;
 	// Selection/placeholder are child CSS nodes: a provider on the parent style
 	// context alone does not reach them. Scope a display provider to this widget.
 	char *name = g_strdup_printf("atl-text-%p", (void *)widget);
@@ -256,6 +256,8 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setCompoundDrawables
 		gtk_picture_set_paintable(GTK_PICTURE(picture), paintable);
 	} else if (paintable) {
 		picture = gtk_picture_new_for_paintable(paintable);
+		gtk_widget_set_halign(picture, GTK_ALIGN_CENTER);
+		gtk_widget_set_valign(picture, GTK_ALIGN_CENTER);
 		gtk_widget_insert_after(picture, box, NULL);
 	}
 
@@ -265,6 +267,8 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setCompoundDrawables
 		gtk_picture_set_paintable(GTK_PICTURE(picture), paintable);
 	} else if (paintable) {
 		picture = gtk_picture_new_for_paintable(paintable);
+		gtk_widget_set_halign(picture, GTK_ALIGN_CENTER);
+		gtk_widget_set_valign(picture, GTK_ALIGN_CENTER);
 		gtk_widget_insert_before(picture, box, NULL);
 	}
 }

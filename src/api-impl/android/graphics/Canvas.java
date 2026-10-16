@@ -19,6 +19,7 @@ public class Canvas {
 	public static final int ALL_SAVE_FLAG = 0x1F;
 
 	private Bitmap bitmap;
+	private int density;
 	private GskCanvas gsk_canvas;
 
 	public Canvas() {
@@ -29,6 +30,7 @@ public class Canvas {
 
 	public Canvas(Bitmap bmp) {
 		this.bitmap = bmp;
+		this.density = bmp.getDensity();
 		gsk_canvas = new GskCanvas(bmp.getSnapshot());
 	}
 
@@ -277,7 +279,7 @@ public class Canvas {
 	 * @param paint  The paint used to draw the bitmap (may be null)
 	 */
 	public void drawBitmap(Bitmap bitmap, float left, float top, Paint paint) {
-		Rect dst = new Rect((int)left, (int)top, (int)left + bitmap.getWidth(), (int)top + bitmap.getHeight());
+		Rect dst = new Rect((int)left, (int)top, (int)left + bitmap.getScaledWidth(density), (int)top + bitmap.getScaledHeight(density));
 		drawBitmap(bitmap, null, dst, paint);
 	}
 
@@ -403,7 +405,7 @@ public class Canvas {
 	public void drawBitmap(Bitmap bitmap, Matrix matrix, Paint paint) {
 		save();
 		concat(matrix);
-		drawBitmap(bitmap, 0, 0, paint);
+		drawBitmap(bitmap, null, new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight()), paint);
 		restore();
 	}
 	// ---
@@ -437,11 +439,19 @@ public class Canvas {
 		}
 	}
 
+	public int getDensity() { return density; }
+
+	public void setDensity(int density) {
+		this.density = density;
+		if (bitmap != null) bitmap.setDensity(density);
+	}
+
 	public void setBitmap(Bitmap bitmap) {
 		if (bitmap != null && !bitmap.isMutable()) {
 			throw new IllegalStateException("Bitmap must be mutable");
 		}
 		this.bitmap = bitmap;
+		this.density = bitmap == null ? 0 : bitmap.getDensity();
 		gsk_canvas.snapshot = bitmap == null ? 0 : bitmap.getSnapshot();
 	}
 
@@ -463,7 +473,7 @@ public class Canvas {
 		synchronized (bitmap) {
 			if (paint.getShader() instanceof BitmapShader) {
 				BitmapShader shader = (BitmapShader)paint.getShader();
-				drawBitmap(shader.bitmap, 0, 0, paint);
+				drawBitmap(shader.bitmap, null, new Rect(0, 0, shader.bitmap.getWidth(), shader.bitmap.getHeight()), paint);
 			} else if (paint.getXfermode() instanceof PorterDuffXfermode && ((PorterDuffXfermode)paint.getXfermode()).porterDuffMode == PorterDuff.Mode.CLEAR.nativeInt) {
 				int oldSaveCount = gsk_canvas.getSaveCount();
 				gsk_canvas.restoreToCount(1);

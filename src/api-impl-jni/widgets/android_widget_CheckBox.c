@@ -10,6 +10,7 @@ JNIEXPORT jlong JNICALL Java_android_widget_CheckBox_native_1constructor(JNIEnv 
 {
 	GtkWidget *wrapper = g_object_ref(wrapper_widget_new());
 	GtkWidget *button = gtk_check_button_new();
+	gtk_widget_add_css_class(button, "atl-native-check");
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), button);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
 	return _INTPTR(button);

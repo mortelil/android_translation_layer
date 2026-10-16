@@ -79,4 +79,12 @@ JNIEXPORT void JNICALL Java_android_graphics_drawable_NinePatchDrawable_nativeSe
 {
 	NinePatchPaintable *paintable = NINEPATCH_PAINTABLE(_PTR(paintable_ptr));
 	paintable->tint = color;
+	gdk_paintable_invalidate_contents(GDK_PAINTABLE(paintable));
+}
+
+JNIEXPORT void JNICALL Java_android_graphics_drawable_NinePatchDrawable_nativeSetDensity(JNIEnv *env, jobject this, jlong ptr, jfloat scale)
+{
+	NinePatchPaintable *paintable = NINEPATCH_PAINTABLE(_PTR(ptr));
+	paintable->density_scale = scale > 0 ? scale : 1;
+	gdk_paintable_invalidate_contents(GDK_PAINTABLE(paintable));
 }
