@@ -11,9 +11,14 @@ import android.view.View;
 public class PopupWindow {
 
 	int input_method_mode = 0;
+	private boolean attachedInDecor = true;
+	private boolean attachedInDecorSet;
+	private boolean overlapAnchor;
+	private int dropDownGravity = Gravity.START;
 
 	public PopupWindow(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
 		popover = native_constructor();
+		attachedInDecor = context.getApplicationInfo().targetSdkVersion >= 22;
 	}
 
 	public PopupWindow(Context context) {
@@ -72,15 +77,29 @@ public class PopupWindow {
 
 	public void setContentView(View view) {
 		contentView = view;
+		if (view != null && !attachedInDecorSet)
+			attachedInDecor = view.getContext().getApplicationInfo().targetSdkVersion >= 22;
 		if (contentView != null) {
 			contentView.setBackground(getBackground());
 		}
 		native_setContentView(popover, view == null ? 0 : view.widget);
 	}
 
-	public int getMaxAvailableHeight(View anchor, int yOffset) { return 500; }
+	public int getMaxAvailableHeight(View anchor, int yOffset) {
+		return getMaxAvailableHeight(anchor, yOffset, false);
+	}
 
-	public int getMaxAvailableHeight(View anchor, int yOffset, boolean ignoreKeyboard) { return 500; }
+	public int getMaxAvailableHeight(View anchor, int yOffset, boolean ignoreKeyboard) {
+		Rect frame = new Rect();
+		anchor.getWindowVisibleDisplayFrame(frame);
+		int[] location = new int[2];
+		anchor.getLocationOnScreen(location);
+		int below = frame.bottom - location[1] - (overlapAnchor ? 0 : anchor.getHeight()) - yOffset;
+		int above = location[1] - frame.top + yOffset;
+		Rect padding = new Rect();
+		if (background != null) background.getPadding(padding);
+		return Math.max(0, Math.max(above, below) - padding.top - padding.bottom);
+	}
 
 	public void setOutsideTouchable(boolean touchable) {
 		/* FIXME: the semantics are different, this seems to specifically exist for cases
@@ -92,7 +111,14 @@ public class PopupWindow {
 	public void setTouchInterceptor(View.OnTouchListener listener) {}
 
 	public void showAsDropDown(View anchor, int xoff, int yoff, int gravity) {
-		native_showAsDropDown(popover, anchor.widget, xoff, yoff, gravity);
+		if (!anchor.isAttachedToWindow()) {
+			Log.e("PopupWindow", "anchor is not attached to window");
+			return;
+		}
+		dropDownGravity = gravity;
+		native_show(popover, anchor.widget, anchor.getRootView().widget, anchor.getWidth(), anchor.getHeight(), xoff, yoff,
+			Gravity.getAbsoluteGravity(gravity, anchor.getLayoutDirection()), false,
+			attachedInDecor, overlapAnchor);
 	}
 
 	public View getContentView() {
@@ -103,17 +129,27 @@ public class PopupWindow {
 		native_setTouchable(popover, touchable);
 	}
 
+	public void showAsDropDown(View anchor) {
+		showAsDropDown(anchor, 0, 0);
+	}
+
 	public void showAsDropDown(View anchor, int xoff, int yoff) {
-		if (!anchor.isAttachedToWindow()) {
-			Log.e("PopupWindow", "anchor is not attached to window");
-			return;
-		}
-		native_showAsDropDown(popover, anchor.widget, xoff, yoff, Gravity.NO_GRAVITY);
+		showAsDropDown(anchor, xoff, yoff, Gravity.START);
 	}
 
 	public void showAtLocation(View parent, int gravity, int x, int y) {
-		native_showAsDropDown(popover, parent.widget, x, y, gravity);
+		View root = parent.getRootView();
+		native_show(popover, root.widget, root.widget, root.getWidth(), root.getHeight(), x, y,
+			Gravity.getAbsoluteGravity(gravity, parent.getLayoutDirection()), true,
+			attachedInDecor, false);
 	}
+
+	public void setAttachedInDecor(boolean enabled) {
+		attachedInDecor = enabled;
+		attachedInDecorSet = true;
+	}
+
+	public boolean isAttachedInDecor() { return attachedInDecor; }
 
 	public void dismiss() {
 		native_dismiss(popover);
@@ -128,7 +164,9 @@ public class PopupWindow {
 	public void setElevation(float elevation) {}
 
 	public void update(View anchor, int xoff, int yoff, int width, int height) {
-		native_update(popover, anchor.widget, xoff, yoff, width, height);
+		if (width >= 0) setWidth(width);
+		if (height >= 0) setHeight(height);
+		showAsDropDown(anchor, xoff, yoff, dropDownGravity);
 	}
 
 	public void setWindowLayoutType(int type) {}
@@ -171,18 +209,20 @@ public class PopupWindow {
 	}
 
 	public void setOverlapAnchor(boolean overlap) {
+		overlapAnchor = overlap;
 	}
+
+	public boolean getOverlapAnchor() { return overlapAnchor; }
 
 	public void setSoftInputMode(int mode) {}
 
 	protected native long native_constructor();
 	protected native void native_setContentView(long widget, long contentView);
-	protected native void native_showAsDropDown(long widget, long anchor, int xoff, int yoff, int gravity);
+	protected native void native_show(long widget, long anchor, long frame, int anchorWidth, int anchorHeight, int xoff, int yoff, int gravity, boolean absolute, boolean attached, boolean overlap);
 	protected native boolean native_isShowing(long widget);
 	protected native void native_setTouchable(long widget, boolean touchable);
 	protected native void native_setTouchModal(long widget, boolean touchable);
 	protected native void native_dismiss(long widget);
-	protected native void native_update(long widget, long anchor, int xoff, int yoff, int width, int height);
 	public native void setOnDismissListener(OnDismissListener listener);
 	public native void native_setWidth(long widget, int width);
 	public native void native_setHeight(long widget, int height);

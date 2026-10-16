@@ -21,10 +21,10 @@ export PATH="$JAVA_HOME/bin:$PATH"
 # ART's historical output directory is named linux-x86 on aarch64 too.
 libs=$out/host/linux-x86/lib64
 make -C "$art" -j "${JOBS:-4}" \
-	"$libs/libart.so" "$libs/libart-compiler.so" "$libs/libutils.so" "$libs/libandroidfw.so" \
+	"$libs/libart.so" "$libs/libart-compiler.so" "$libs/libutils.so" "$libs/libandroidfw.so" "$libs/libnativehelper.so" \
 	OUT_DIR="$out" HOST_CC="$cc" HOST_CXX="$cxx" ____LIBDIR=lib
 # All required libraries must exist before publishing the private overlay.
-for name in libart libart-compiler libutils libandroidfw; do
+for name in libart libart-compiler libutils libandroidfw libnativehelper; do
     test -s "$libs/$name.so" || { echo "Missing built library: $libs/$name.so" >&2; exit 1; }
 done
 mkdir -p "$atl_prefix/lib" "$atl_prefix/java/dex"

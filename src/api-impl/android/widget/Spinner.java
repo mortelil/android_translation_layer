@@ -33,6 +33,13 @@ public class Spinner extends AbsSpinner {
 	@Override
 	protected native long native_constructor(Context context, AttributeSet attrs);
 	protected native void native_setAdapter(long widget, SpinnerAdapter adapter);
+	private native boolean native_performClick(long widget);
+
+	@Override
+	public boolean performClick() {
+		if (super.performClick()) return true;
+		return native_performClick(widget);
+	}
 	@Override
 	protected native void native_setBackgroundDrawable(long widget, long paintable);
 	@Override
@@ -54,8 +61,23 @@ public class Spinner extends AbsSpinner {
 		return (SpinnerAdapter)super.getAdapter();
 	}
 
+	private native void native_setSelection(long widget, int position);
+
 	@Override
-	public native void setOnItemSelectedListener(AdapterView.OnItemSelectedListener listener);
+	public void setSelection(int position) {
+		native_setSelection(widget, position);
+	}
+
+	@Override
+	public void setSelection(int position, boolean animate) {
+		setSelection(position);
+	}
+
+	private void onNativeSelectionChanged(int position) {
+		setSelectedPositionInt(position);
+		setNextSelectedPositionInt(position);
+		checkSelectionChanged();
+	}
 
 	private class Observer extends DataSetObserver {
 

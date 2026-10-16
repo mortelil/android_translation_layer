@@ -294,8 +294,8 @@ public class TextView extends View {
 		return gravity;
 	}
 
-	public int getCompoundPaddingTop() { return 0; }
-	public int getCompoundPaddingBottom() { return 0; }
+	public int getCompoundPaddingTop() { return getPaddingTop() + (drawableTop == null ? 0 : drawableTop.getBounds().height() + getCompoundDrawablePadding()); }
+	public int getCompoundPaddingBottom() { return getPaddingBottom() + (drawableBottom == null ? 0 : drawableBottom.getBounds().height() + getCompoundDrawablePadding()); }
 
 	public CharSequence getText() {
 		return text;
@@ -423,9 +423,17 @@ public class TextView extends View {
 
 	public void setSingleLine(boolean singleLine) {}
 
-	public int getCompoundPaddingLeft() { return 0; }
+	public int getCompoundPaddingLeft() { return getPaddingLeft() + (drawableLeft == null ? 0 : drawableLeft.getBounds().width() + getCompoundDrawablePadding()); }
 
-	public int getCompoundPaddingRight() { return 0; }
+	public int getCompoundPaddingRight() { return getPaddingRight() + (drawableRight == null ? 0 : drawableRight.getBounds().width() + getCompoundDrawablePadding()); }
+
+	public int getCompoundPaddingStart() {
+		return getLayoutDirection() == LAYOUT_DIRECTION_RTL ? getCompoundPaddingRight() : getCompoundPaddingLeft();
+	}
+
+	public int getCompoundPaddingEnd() {
+		return getLayoutDirection() == LAYOUT_DIRECTION_RTL ? getCompoundPaddingLeft() : getCompoundPaddingRight();
+	}
 
 	public void setHint(int resId) {
 		setHint(getContext().getResources().getText(resId));
