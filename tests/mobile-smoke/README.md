@@ -69,3 +69,29 @@ overrides and the absence of a visibility override for `<merge>` roots.
 The build requires `aapt2` for these resources (`aapt` is still used to add dex).
 Contract reference: AOSP `LayoutInflater.parseInclude`, android-15.0.0_r1,
 frameworks/base commit `4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3`.
+
+## AppOps queries
+
+`TestAppOps` covers `checkOpNoThrow(String,int,String)`: known unsupported
+operations are ignored, available storage operations are allowed, location and
+microphone follow ATL's permission policy, mismatched UID/package identities are
+rejected, and invalid operation names (including null) throw
+`IllegalArgumentException`. A controlled permission backend exercises both grant
+and denial independently of host configuration and verifies that unsupported or
+foreign-app queries do not consult permissions. Repeated queries have no usage
+recording side effects.
+
+This is a conservative read-only policy for the context's own app, not Android's
+AppOpsService. No persisted user overrides, cross-package queries, foreground
+modes, watchers, usage accounting, or start/finish operations are implemented.
+Known operations without an ATL backend (including usage statistics, overlays,
+and picture-in-picture) return `MODE_IGNORED`; no permissive `MODE_DEFAULT`
+fallback is used. Existing `permissionToOp` and proxy-note stubs are unchanged
+and are not covered by this implementation. In particular, this is not an
+AppOps security boundary or a claim of full Android permission compatibility.
+
+Operation vocabulary and mode values are derived from AOSP
+`frameworks/base/core/java/android/app/AppOpsManager.java`, commit
+`94b4c163b7dfe5ce3607f7bb8456f9573f7de57d` (Android 17), under Apache-2.0.
+The local policy is ATL-specific. AOSP's `strOpToOp` validates names even for
+NoThrow queries; NoThrow does not mean invalid arguments are silently accepted.
