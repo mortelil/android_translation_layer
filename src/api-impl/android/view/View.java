@@ -2924,7 +2924,26 @@ public class View implements Drawable.Callback {
 		return insets;
 	}
 
-	public void setAccessibilityTraversalBefore(int id) {}
+	/* AOSP View.java (mAccessibilityTraversalBeforeId / mAccessibilityTraversalAfterId) stores the
+	 * requested traversal id and returns it from the getters; onInitializeAccessibilityNodeInfo()
+	 * maps it to AccessibilityNodeInfo.setTraversalBefore/After (ATL has no node-info plumbing, so
+	 * only the state is kept). AOSP fields default to View.NO_ID. */
+	private int accessibilityTraversalBeforeId = NO_ID;
+	private int accessibilityTraversalAfterId = NO_ID;
+
+	public void setAccessibilityTraversalBefore(int beforeId) {
+		if (accessibilityTraversalBeforeId == beforeId) return;
+		accessibilityTraversalBeforeId = beforeId;
+	}
+
+	public int getAccessibilityTraversalBefore() { return accessibilityTraversalBeforeId; }
+
+	public void setAccessibilityTraversalAfter(int afterId) {
+		if (accessibilityTraversalAfterId == afterId) return;
+		accessibilityTraversalAfterId = afterId;
+	}
+
+	public int getAccessibilityTraversalAfter() { return accessibilityTraversalAfterId; }
 
 	public int getLayerType() { return 0; /* LAYER_TYPE_NONE */ }
 
