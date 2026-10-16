@@ -12,10 +12,11 @@ extern GtkWindow *window;
  * dbus-run-session) the synchronous D-Bus call blocks until the bus's own
  * activation timeout (~25 s) before failing. We bound the wait with a
  * GCancellable that is cancelled from a timer thread and, unlike the previous
- * code, we no longer drop the gboolean result and the GError: a failed store
- * or lookup is reported to Java as a KeyStoreException instead of silently
- * looking like "stored"/"alias absent" (the latter would make AndroidX/Tink
- * silently regenerate a master key whose data can no longer be read).
+ * code, we no longer drop the gboolean result and the GError: a failed store is
+ * reported to Java as a KeyStoreException instead of silently looking like
+ * "stored" (that would make AndroidX/Tink silently regenerate a master key
+ * whose data can no longer be read). A failed READ against an unavailable
+ * backend is reported as "alias absent" - see atl_secret_backend_unavailable().
  */
 #define ATL_SECRET_TIMEOUT_MS 10000
 
@@ -63,6 +64,43 @@ static void atl_secret_timeout_stop(AtlSecretTimeout *t, GThread *thread)
 	g_mutex_clear(&t->mutex);
 	g_object_unref(t->cancellable);
 	g_free(t);
+}
+
+/*
+ * "There is no Secret Service on this bus" (headless session, private
+ * dbus-run-session bus, container without gnome-keyring/kwallet) reaches us as
+ * an I/O or D-Bus error: our own GCancellable fires (G_IO_ERROR_CANCELLED,
+ * bounded by ATL_SECRET_TIMEOUT_MS) or the D-Bus name lookup/activation fails.
+ *
+ * That is NOT an item-level error. Android's KeyStore.containsAlias() answers
+ * "is this alias present?" and an app that merely probes for an optional entry
+ * (e.g. Home Assistant's optional TLS client certificate) must keep working
+ * when the backend is simply absent: it has to see "not present", not an
+ * UnrecoverableKeyException before its UI is drawn. So READ paths treat these
+ * errors as "alias absent" (false / null / empty) and log one WARN line.
+ *
+ * Genuine per-item errors (locked collection, corrupt/unauthorised item, ...)
+ * are not in this set and still throw. WRITE paths stay loud in all cases.
+ */
+static gboolean atl_secret_backend_unavailable(const GError *error)
+{
+	if (error == NULL)
+		return FALSE;
+	if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
+	    g_error_matches(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT))
+		return TRUE;
+	if (g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_SERVICE_UNKNOWN) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_NAME_HAS_NO_OWNER) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_NO_SERVER) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_NO_REPLY) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_TIMED_OUT) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_TIMEOUT) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_DISCONNECTED) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_SPAWN_FAILED) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_SPAWN_SERVICE_NOT_FOUND) ||
+	    g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_SPAWN_SERVICE_INVALID))
+		return TRUE;
+	return FALSE;
 }
 
 static void throw_key_store_exception(JNIEnv *env, const char *class_name, const char *alias, GError *error)
@@ -146,12 +184,19 @@ JNIEXPORT jbyteArray JNICALL Java_android_security_keystore_AndroidKeyStore_nati
 	atl_secret_timeout_stop(timer, timer_thread);
 
 	if (error != NULL) {
-		if (package_name)
-			(*env)->ReleaseStringUTFChars(env, package_name_jstr, package_name);
-		throw_key_store_exception(env, "java/security/UnrecoverableKeyException", alias, error);
-		g_clear_error(&error);
-		(*env)->ReleaseStringUTFChars(env, alias_jstr, alias);
-		return NULL;
+		if (atl_secret_backend_unavailable(error)) {
+			/* Reads: no Secret Service means "alias not present". */
+			g_warning("AndroidKeyStore: read for alias \"%s\" treated as absent: %s",
+			    alias, error->message != NULL ? error->message : "unknown error");
+			g_clear_error(&error);
+		} else {
+			if (package_name)
+				(*env)->ReleaseStringUTFChars(env, package_name_jstr, package_name);
+			throw_key_store_exception(env, "java/security/UnrecoverableKeyException", alias, error);
+			g_clear_error(&error);
+			(*env)->ReleaseStringUTFChars(env, alias_jstr, alias);
+			return NULL;
+		}
 	}
 
 	if (package_name)

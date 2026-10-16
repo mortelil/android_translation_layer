@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
 import java.security.KeyStore;
+import java.security.Key;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -37,6 +38,8 @@ public class ProbeActivity extends Activity {
 	private static final String ATL_ALIAS = "ksprobe_atl_alias";
 	private static final String STORE_ALIAS = "ksprobe_store_alias";
 	private static final String PERSIST_ALIAS = "ksprobe_persist_alias";
+	/** Alias that this probe never creates: must read as absent. */
+	private static final String ABSENT_ALIAS = "ksprobe_absent_alias";
 	private static final String STATE_FILE = "ksprobe-state.txt";
 	/** Elapsed-time origin: every KSPROBE line carries `[<ms>ms]` so the
 	 *  wall time of each keystore/libsecret call is visible in the log
@@ -76,6 +79,7 @@ public class ProbeActivity extends Activity {
 
 		kat();
 		softwareRoundTrip();
+		readPath();
 		atlKeystoreRoundTrip();
 		androidxExactPath();
 		tinkLayout();
@@ -139,6 +143,46 @@ public class ProbeActivity extends Activity {
 	}
 
 	/* --- software (SecretKeySpec) round trip, androidx sequence ----- */
+
+	/* --- read path against a backend that may be unavailable ---------
+	 *
+	 * KeyStore.containsAlias()/isKeyEntry()/getKey() on an alias that is not
+	 * present must answer false/null, not throw: a headless/container session
+	 * without org.freedesktop.secrets has no such alias. The GCancellable bound
+	 * (10 s) must still apply, so this step also shows the call is bounded.
+	 */
+	private void readPath() {
+		line("--- read path on an absent alias ---");
+		try {
+			KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+			ks.load(null);
+			long t0 = System.currentTimeMillis();
+			boolean present = ks.containsAlias(ABSENT_ALIAS);
+			long d1 = System.currentTimeMillis() - t0;
+			line("read containsAlias(" + ABSENT_ALIAS + ") -> " + present
+			     + " no exception in " + d1 + "ms");
+			json.append(",\"read_path\":{\"containsAlias\":").append(present)
+			    .append(",\"containsAliasMs\":").append(d1);
+			t0 = System.currentTimeMillis();
+			boolean isKey = ks.isKeyEntry(ABSENT_ALIAS);
+			long d2 = System.currentTimeMillis() - t0;
+			line("read isKeyEntry(" + ABSENT_ALIAS + ") -> " + isKey + " in " + d2 + "ms");
+			json.append(",\"isKeyEntry\":").append(isKey).append(",\"isKeyEntryMs\":").append(d2);
+			t0 = System.currentTimeMillis();
+			Key k = ks.getKey(ABSENT_ALIAS, null);
+			long d3 = System.currentTimeMillis() - t0;
+			line("read getKey(" + ABSENT_ALIAS + ") -> " + (k == null ? "NULL" : "KEY")
+			     + " in " + d3 + "ms");
+			json.append(",\"getKeyNull\":").append(k == null).append(",\"getKeyMs\":").append(d3);
+			boolean ok = !present && !isKey && k == null && d1 < 30000 && d2 < 30000 && d3 < 30000;
+			line("read path verdict -> " + (ok ? "PASS (absent, bounded, no exception)" : "FAIL"));
+			json.append(",\"verdict\":\"").append(ok ? "PASS" : "FAIL").append("\"}");
+		} catch (Throwable t) {
+			line("read path EXCEPTION " + t.getClass().getName() + ": " + t.getMessage());
+			json.append(",\"read_path\":{\"verdict\":\"EXCEPTION\",\"error\":\"")
+			    .append(esc(t.getClass().getSimpleName())).append("\"}");
+		}
+	}
 
 	private void softwareRoundTrip() {
 		line("--- software key round trip ---");
