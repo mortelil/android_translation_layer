@@ -38,6 +38,10 @@ public class MediaExtractor {
 		if (handle == 0)
 			throw new IOException("MediaExtractor: cannot open " + path);
 		native_handle = handle;
+		// Call trace in the style of the other ATL media classes (MediaPlayer,
+		// MediaCodec, AudioTrack): makes the app's use of this demuxer visible
+		// in the captured app stdout.
+		System.out.println("MediaExtractor.setDataSource(" + path + ")");
 	}
 
 	public void setDataSource(FileDescriptor fd) throws IOException {
@@ -63,6 +67,7 @@ public class MediaExtractor {
 		if (handle == 0)
 			throw new IOException("MediaExtractor: cannot open descriptor");
 		native_handle = handle;
+		System.out.println("MediaExtractor.setDataSource(fd, " + offset + ", " + length + ")");
 	}
 
 	public void setDataSource(Context context, Uri uri, Map<String, String> headers) throws IOException {
@@ -95,7 +100,9 @@ public class MediaExtractor {
 
 	public int getTrackCount() {
 		ensureOpen();
-		return native_getTrackCount(native_handle);
+		int count = native_getTrackCount(native_handle);
+		System.out.println("MediaExtractor.getTrackCount() = " + count);
+		return count;
 	}
 
 	/**
@@ -124,6 +131,7 @@ public class MediaExtractor {
 		long duration_us = native_getTrackDurationUs(native_handle, index);
 		if (duration_us > 0)
 			format.setLong("durationUs", duration_us);
+		System.out.println("MediaExtractor.getTrackFormat(" + index + ") = " + format);
 		return format;
 	}
 
@@ -135,6 +143,7 @@ public class MediaExtractor {
 		if (native_handle != 0) {
 			native_release(native_handle);
 			native_handle = 0;
+			System.out.println("MediaExtractor.release()");
 		}
 	}
 
