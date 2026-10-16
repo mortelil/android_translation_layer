@@ -38,6 +38,11 @@ public class ProbeActivity extends Activity {
 	private static final String STORE_ALIAS = "ksprobe_store_alias";
 	private static final String PERSIST_ALIAS = "ksprobe_persist_alias";
 	private static final String STATE_FILE = "ksprobe-state.txt";
+	/** Elapsed-time origin: every KSPROBE line carries `[<ms>ms]` so the
+	 *  wall time of each keystore/libsecret call is visible in the log
+	 *  (used to show that a failing libsecret backend is BOUNDED, not an
+	 *  unbounded D-Bus activation wait). */
+	private static final long T0 = System.currentTimeMillis();
 
 	private final StringBuilder log = new StringBuilder();
 	private final StringBuilder json = new StringBuilder();
@@ -462,8 +467,8 @@ public class ProbeActivity extends Activity {
 	}
 
 	private void line(String s) {
-		log.append("KSPROBE: ").append(s).append('\n');
-		Log.i(TAG, s);
+		log.append("KSPROBE: [").append(System.currentTimeMillis() - T0).append("ms] ").append(s).append('\n');
+		Log.i(TAG, "[" + (System.currentTimeMillis() - T0) + "ms] " + s);
 	}
 
 	private void writeResults() {
