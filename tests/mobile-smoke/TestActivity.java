@@ -106,6 +106,7 @@ public class TestActivity extends android.app.Activity {
 			TestViews.run(this);
 			TestCanvasScope.run(this);
 			TestRetainedDisplayList.run();
+			TestLayerTint.run();
 			TestMedia.run(this);
 			TestDocuments.run(this);
 			android.text.SpannableStringBuilder editable = new android.text.SpannableStringBuilder("first");

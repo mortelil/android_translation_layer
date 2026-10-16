@@ -680,6 +680,19 @@ public class GradientDrawable extends Drawable {
 	}
 
 	@Override
+	public boolean isStateful() {
+		return super.isStateful() || (mGradientState.mTint != null && mGradientState.mTint.isStateful());
+	}
+
+	@Override
+	protected boolean onStateChange(int[] state) {
+		if (mGradientState.mTint == null || mGradientState.mTintMode == null) return false;
+		mTintFilter = updateTintFilter(mTintFilter, mGradientState.mTint, mGradientState.mTintMode);
+		invalidateSelf();
+		return true;
+	}
+
+	@Override
 	public void setTintList(ColorStateList tint) {
 		mGradientState.mTint = tint;
 		mTintFilter = updateTintFilter(mTintFilter, tint, mGradientState.mTintMode);
@@ -1319,6 +1332,7 @@ public class GradientDrawable extends Drawable {
 	}
 
 	private void initializeWithState(GradientState state) {
+		mTintFilter = updateTintFilter(mTintFilter, state.mTint, state.mTintMode);
 		if (state.mHasSolidColor) {
 			mFillPaint.setColor(state.mSolidColor);
 		} else if (state.mColors == null) {
