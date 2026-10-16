@@ -66,6 +66,13 @@ public abstract class ContentProvider {
 		return atlProvider == null ? null : atlProvider.getContentProvider();
 	}
 
+	/** App-defined provider operation; the default has no operation to perform.
+	 * Matches AOSP ContentProvider.call(String, String, Bundle).
+	 */
+	public android.os.Bundle call(String method, String arg, android.os.Bundle extras) {
+		return null;
+	}
+
 	public boolean onCreate() { return false; }
 
 	public Context getContext() {

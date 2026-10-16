@@ -53,3 +53,39 @@ previously verified official ReVanced GmsCore APK (SHA256
 62119f040d629a9cd3225f280649a464936730c6466cafb5b9dd5ded14269a65).
 No account state copied, no login/playback success claimed, and no app checks,
 signatures or TLS validation bypassed.
+
+## Follow-up: shutdown and accounts (2026-10-16)
+
+The shutdown tracing exception was caused by dispatching platform Fragment
+pause/stop/destroy inside the application's override. AOSP dispatches those
+fragment transitions before entering the override (Activity.java 9554–9675,
+android-17.0.0_r1, frameworks/base 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).
+The extended fragment-order probe checks the full real finish sequence.
+CaptioningManager now releases registered listeners; its preferences remain
+fixed and it does not manufacture change notifications.
+
+ContentProviderClient.call now forwards local app-defined operations, including
+nullable arguments/results and provider exceptions. This is the local contract
+from AOSP ContentProviderClient.java 580–592 and ContentProvider.java 2754–2762
+at the same revision. It is NOT a cross-process provider implementation.
+The mobile-smoke provider verifies dispatch, state, null default and errors.
+
+ReVanced 20.40.45 with official ReVanced GmsCore 0.3.13.2.250932 still exits on
+"Failed to fetch kids onboarding status". The account-free Android 17 emulator
+with the same APKs reaches YouTube's cookie consent page instead. No login was
+performed. Inspection of the APK traces the account request to
+`acquireContentProviderClient("app.revanced.android.gms.auth.accounts")`, then
+`call("get_accounts", "app.revanced", extras)`. ATL only resolves providers in
+the current process. The installed GmsCore manifest exports this provider in
+its default process. An exception fetching accounts activates the onboarding
+check; another fetch failure becomes an empty list and the app finishes.
+The unsupported service 161 warning is not established as the cause.
+
+Next implementation needs installed-authority resolution, provider hosting in
+the owner's process, and a Binder-backed call/Bundle transport. Preserve owner
+context, caller identity, exported/permission checks, and failure propagation.
+Test two synthetic APKs (allowed call, denied access, unknown authority,
+provider exception, host death, release/reacquire) before repeating ReVanced.
+Do not special-case an empty account response or load GmsCore providers under
+YouTube's context. Current process hosting targets the primary package's
+services; extending that safely is a separate substantial change.

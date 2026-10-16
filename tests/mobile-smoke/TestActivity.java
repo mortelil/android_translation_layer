@@ -10,6 +10,7 @@ public class TestActivity extends android.app.Activity {
 			TestThermalStatus.run(this);
 			TestCompatRepairs.run(this);
 			TestCompatibilityValues.run(this);
+			org.atl.mobile.smoke.TestProviderCall.run(this);
 			TestUsabilityRepairs.run(this);
 			TestViewState.run(this);
 			TestDrawableStates.run(this);

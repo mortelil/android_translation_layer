@@ -16,6 +16,11 @@ public class ContentProviderClient implements AutoCloseable {
 		this.contentProvider = contentProvider;
 	}
 
+	public android.os.Bundle call(String method, String arg, android.os.Bundle extras) throws RemoteException {
+		if (method == null) throw new NullPointerException("method");
+		return contentProvider.call(method, arg, extras);
+	}
+
 	public ContentProvider getLocalContentProvider() {
 		return contentProvider;
 	}

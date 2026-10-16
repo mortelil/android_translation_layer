@@ -7,5 +7,6 @@
         <activity android:name="ExecutorProbeActivity" />
         <service android:name="ExecutorProbeActivity$ProbeService" />
     <activity android:name="DialogFragmentActivity" android:exported="true" />
+    <provider android:name="TestProviderCall$Provider" android:authorities="org.atl.smoke.calls" android:exported="false" />
     </application>
 </manifest>
