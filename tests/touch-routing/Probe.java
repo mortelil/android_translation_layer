@@ -49,6 +49,16 @@ public class Probe extends android.app.Activity {
             check(top.actions.equals(Arrays.asList(0,2,3)), "disallow intercept and cancel");
             root.intercept=false;top.actions.clear();root.scrollTo(3,4);
             send(root,0,25,37);check(top.x==8&&top.y==11,"scroll-adjusted coordinates");send(root,1,25,37);
+            root.scrollTo(0,0);top.actions.clear();bottom.actions.clear();
+            bottom.setElevation(10);
+            send(root,0,25,37);
+            check(bottom.actions.equals(Arrays.asList(0)) && top.actions.isEmpty(), "higher elevation wins despite child order");
+            top.setTranslationZ(20);
+            send(root,1,25,37);
+            check(bottom.actions.equals(Arrays.asList(0,1)) && top.actions.isEmpty(), "Z change retains active target");
+            bottom.actions.clear();
+            send(root,0,25,37);send(root,1,25,37);
+            check(top.actions.equals(Arrays.asList(0,1)) && bottom.actions.isEmpty(), "translationZ changes next hit test");
             final int[] clicks={0}; View plain=new View(this) { public boolean post(Runnable action) { action.run(); return true; } };plain.layout(0,0,100,100);
             plain.setOnClickListener(new View.OnClickListener(){public void onClick(View v){clicks[0]++;}});
             send(plain,0,10,10);send(plain,1,10,10);check(clicks[0]==1,"click once");

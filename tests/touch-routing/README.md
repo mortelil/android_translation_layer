@@ -3,7 +3,8 @@
 Build in Alpine with `sh tests/touch-routing/build.sh BUILD_DIR OUTPUT_DIR` and
 sign the APK. Launch org.atl.touchrouting.Probe; require TOUCH_ROUTING PASS and
 files/results.json. Same probe passes on ATL and Android API 37. It checks
-reverse child order, child-local/scroll-adjusted coordinates, retaining a target
+reverse equal-Z child order, elevation/translationZ priority, changing Z without
+stealing an active gesture, child-local/scroll-adjusted coordinates, retaining a target
 outside its bounds, rejecting a DOWN, interception/CANCEL, disallow-intercept,
 click cancellation and offsetting every pointer. Its isolated click view runs
 posted actions immediately so that the comparison tests event logic without
@@ -35,7 +36,7 @@ mapped from opaque GDK sequences rather than using pointers as array indexes.
 Existing GTK wrapper-controller routing remains in place.
 
 Limitations: splitting different fingers across different children, arbitrary
-view matrices/Z-order overrides, long-press/pressed-state delays and full Android
+view matrices/custom child-drawing-order overrides, long-press/pressed-state delays and full Android
 MotionEvent metadata are not implemented by this patch. Native multi-touch
 sequence generation still needs a real touchscreen replay; the focused probe
 checks multi-pointer coordinate offsets, not touchscreen hardware. The existing
