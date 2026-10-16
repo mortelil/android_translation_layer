@@ -188,9 +188,17 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		}
 		boolean handled = false;
 		if (!canceled && !intercepted && action == MotionEvent.ACTION_DOWN) {
-			for (int i = getChildCount() - 1; i >= 0; i--) {
-				View child = getChildAt(i);
-				if (child.getVisibility() != VISIBLE) continue;
+			// AOSP dispatches higher-Z children first; equal-Z children retain
+			// reverse drawing order. Capture the order once for this DOWN.
+			ArrayList<View> touchChildren = new ArrayList<View>(children);
+			touchChildren.sort(new Comparator<View>() {
+				@Override public int compare(View a, View b) {
+					return Float.compare(a.getZ(), b.getZ());
+				}
+			});
+			for (int i = touchChildren.size() - 1; i >= 0; i--) {
+				View child = touchChildren.get(i);
+				if (child.getParent() != this || child.getVisibility() != VISIBLE) continue;
 				float x = event.getX() + getScrollX() - child.getX();
 				float y = event.getY() + getScrollY() - child.getY();
 				if (x < 0 || y < 0 || x >= child.getWidth() || y >= child.getHeight()) continue;
