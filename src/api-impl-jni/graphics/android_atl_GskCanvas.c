@@ -5,6 +5,7 @@
 
 #include "../defines.h"
 #include "AndroidPaint.h"
+#include "../text/AndroidLineGeometry.h"
 
 #include "../generated_headers/android_atl_GskCanvas.h"
 
@@ -226,7 +227,10 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawText(JNIEnv *env, 
 	if (paint->use_color_filter)
 		gtk_snapshot_push_color_matrix(snapshot, &paint->color_matrix, &paint->color_offset);
 	gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(x, y));
-	gtk_snapshot_append_layout(snapshot, layout, &paint->color);
+	/* The paint carries the synthetic bold/oblique that Android gives a run its font family
+	 * cannot serve, so a canvas text draw goes through the same funnel as Layout.draw. */
+	const AtlTextStyle style = { .color = paint->color, .paint = paint };
+	atl_layout_snapshot(snapshot, layout, &style);
 	gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(-x, -y));
 	if (paint->use_color_filter)
 		gtk_snapshot_pop(snapshot);

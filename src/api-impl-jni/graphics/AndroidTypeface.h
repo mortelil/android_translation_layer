@@ -1,13 +1,79 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #ifndef ATL_ANDROID_TYPEFACE_H
 #define ATL_ANDROID_TYPEFACE_H
+#include <fontconfig/fontconfig.h>
 #include <pango/pango.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 struct AndroidTypeface {
 	PangoFontDescription *description;
 	PangoFontMap *map;
 };
+
+/* Whether FAMILY is an installed family of CONFIG. fontconfig answers FcFontMatch with its best
+ * substitute even for a family that is not installed, so only a match that names the requested family
+ * counts. The answer is remembered per (config, family): a config's font set does not change once
+ * ATL has built it (a file font gets its own private config), and a typeface is created per view. */
+static inline bool atl_font_family_installed(FcConfig *config, const char *family)
+{
+	struct atl_family_installed_cache {
+		const FcConfig *config;
+		char family[64];
+		bool installed;
+	};
+	static struct atl_family_installed_cache cache[4];
+	static unsigned int atl_family_installed_next;
+	for (size_t i = 0; i < G_N_ELEMENTS(cache); i++)
+		if (cache[i].config == config && strcmp(cache[i].family, family) == 0)
+			return cache[i].installed;
+	FcPattern *pattern = FcPatternCreate();
+	bool installed = false;
+	if (pattern) {
+		FcPatternAddString(pattern, FC_FAMILY, (const FcChar8 *)family);
+		FcConfigSubstitute(config, pattern, FcMatchPattern);
+		FcDefaultSubstitute(pattern);
+		FcResult result;
+		FcPattern *match = FcFontMatch(config, pattern, &result);
+		if (match) {
+			FcChar8 *matched = NULL;
+			if (FcPatternGetString(match, FC_FAMILY, 0, &matched) == FcResultMatch)
+				installed = strcasecmp((const char *)matched, family) == 0;
+			FcPatternDestroy(match);
+		}
+		FcPatternDestroy(pattern);
+	}
+	struct atl_family_installed_cache *entry = &cache[atl_family_installed_next++ % G_N_ELEMENTS(cache)];
+	entry->config = config;
+	strncpy(entry->family, family, sizeof(entry->family) - 1);
+	entry->family[sizeof(entry->family) - 1] = 0;
+	entry->installed = installed;
+	return installed;
+}
+
+/* Android's font config names the concrete face of every generic family - /system/etc/fonts.xml (the
+ * file ATL ships as res/fonts.xml) declares "<family name=\"sans-serif\">" with Roboto-Regular.ttf at
+ * every weight, so Android's "sans-serif" is Roboto. ATL hands the family name to fontconfig, whose
+ * own "sans-serif" generic resolves to its default sans (DejaVu Sans here) - a different face, so
+ * every measured advance and every position derived from it differ from Android's. Resolve the
+ * Android name to the Android face when that face is installed, and keep the name itself when it is
+ * not, so an absent face still resolves exactly as before (through fontconfig's substitution chain,
+ * as Android falls back when a family's fonts are missing). Families Android's font config does not
+ * name are returned unchanged, and no size or weight is touched. */
+static inline const char *atl_resolve_android_family(FcConfig *config, const char *family)
+{
+	static const struct { const char *android_family, *android_face; } android_faces[] = {
+		/* res/fonts.xml:20 <family name="sans-serif"> -> Roboto-Thin/Light/Regular/Medium/Black*/
+		{ "sans-serif", "Roboto" },
+	};
+	if (!family)
+		return family;
+	for (size_t i = 0; i < G_N_ELEMENTS(android_faces); i++)
+		if (strcmp(family, android_faces[i].android_family) == 0)
+			return atl_font_family_installed(config, android_faces[i].android_face)
+			           ? android_faces[i].android_face : family;
+	return family;
+}
 
 /* The value of an OpenType axis in a Pango variations string ("tag=value", ", "-separated, tag
  * optionally quoted: "'wght' 700"), or -1 when the axis is absent. Mirrors the tag lookup AOSP's

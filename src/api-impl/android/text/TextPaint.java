@@ -80,7 +80,10 @@ public class TextPaint extends Paint {
 		underlineThickness = thickness;
 	}
 
+	/** AOSP TextPaint adds no state to Paint (frameworks/base/graphics/java/android/text/TextPaint
+	 * .java), so it inherits Paint's accessors; returning a constant here hides the letter spacing
+	 * every MetricAffectingSpan asks Paint for through updateMeasureState. */
 	public float getLetterSpacing() {
-		return 1.0f;
+		return super.getLetterSpacing();
 	}
 }

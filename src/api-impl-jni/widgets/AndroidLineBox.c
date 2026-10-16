@@ -61,7 +61,9 @@ static void snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	PangoLayout *layout = layout_for_width(box, gtk_widget_get_width(widget));
 	GdkRGBA color;
 	gtk_widget_get_color(box->label, &color);
-	atl_layout_snapshot(snapshot, layout, &color);
+	/* The label owns its own Pango attributes and has no Android Paint to synthesise from. */
+	const AtlTextStyle style = { .color = color, .paint = NULL };
+	atl_layout_snapshot(snapshot, layout, &style);
 	g_object_unref(layout);
 }
 
@@ -93,6 +95,40 @@ GtkWidget *atl_line_box_new(GtkWidget *label)
 }
 
 GtkWidget *atl_line_box_get_label(AtlLineBox *box) { return box->label; }
+
+/* Android folds the paragraph alignment against the paragraph direction
+ * (Layout#getLineLeft/getLineRight, AOSP android-17.0.0_r1
+ * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d, core/java/android/text/Layout.java:1967-2055:
+ * ALIGN_NORMAL -> (dir == RTL ? RIGHT : LEFT), ALIGN_OPPOSITE -> the inverse). Every paragraph
+ * this build lays out is left-to-right (Layout#getParagraphDirection), so ALIGN_NORMAL is the
+ * left edge and ALIGN_OPPOSITE the right one. GtkLabel has no `text-align` (GTK rejects it as an
+ * unknown property); it aligns the lines it wraps with `justify` and places a text block narrower
+ * than its allocation with `xalign`, so both are derived here from the resolved alignment. */
+void atl_line_box_set_alignment(AtlLineBox *box, int alignment)
+{
+	GtkJustification justify = GTK_JUSTIFY_LEFT;
+	float xalign = 0.f;
+	switch (alignment) {
+	case ATL_ALIGN_OPPOSITE:
+	case ATL_ALIGN_RIGHT:
+		justify = GTK_JUSTIFY_RIGHT;
+		xalign = 1.f;
+		break;
+	case ATL_ALIGN_CENTER:
+		justify = GTK_JUSTIFY_CENTER;
+		xalign = 0.5f;
+		break;
+	default: /* ATL_ALIGN_NORMAL, ATL_ALIGN_LEFT */
+		break;
+	}
+	if (gtk_label_get_justify(GTK_LABEL(box->label)) == justify &&
+	    gtk_label_get_xalign(GTK_LABEL(box->label)) == xalign)
+		return;
+	gtk_label_set_justify(GTK_LABEL(box->label), justify);
+	gtk_label_set_xalign(GTK_LABEL(box->label), xalign);
+	gtk_widget_queue_resize(GTK_WIDGET(box));
+	gtk_widget_queue_draw(GTK_WIDGET(box));
+}
 void atl_line_box_set_spacing(AtlLineBox *box, float add, float mult)
 {
 	if (box->add == add && box->mult == mult) return;

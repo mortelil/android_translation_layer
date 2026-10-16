@@ -19,6 +19,28 @@ static GtkLabel *box_get_label(JNIEnv *env, GtkWidget *box)
 	return GTK_LABEL(label);
 }
 
+/* The GtkLabel that paints a non-editable TextView lives in an AtlLineBox; the widget pointer a
+ * TextView holds is the wrapper at the top of that chain, so find the box instead of assuming a
+ * shape. */
+static GtkWidget *find_line_box(GtkWidget *widget)
+{
+	if (widget == NULL) return NULL;
+	if (ATL_IS_LINE_BOX(widget)) return widget;
+	for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) {
+		GtkWidget *found = find_line_box(child);
+		if (found) return found;
+	}
+	return NULL;
+}
+
+/* TextView#getLayoutAlignment resolves android:textAlignment to a Layout.Alignment; the label has
+ * to place its lines the same way AOSP's Layout#getLineLeft/getLineRight do. */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextAlignment(JNIEnv *env, jobject this, jlong ptr, jint alignment)
+{
+	GtkWidget *line_box = find_line_box(_PTR(ptr));
+	if (line_box) atl_line_box_set_alignment(ATL_LINE_BOX(line_box), alignment);
+}
+
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShowSoftInputOnFocus(JNIEnv *env, jobject this, jlong ptr, jboolean show)
 {
 	GtkWidget *widget = _PTR(ptr);

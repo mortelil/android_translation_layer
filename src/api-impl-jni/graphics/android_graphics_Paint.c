@@ -5,6 +5,7 @@
 #include "../defines.h"
 #include "../util.h"
 #include "AndroidPaint.h"
+#include "android_graphics_Paint.h"
 #include "AndroidTypeface.h"
 #include "AndroidTextAttributes.h"
 #include "pango/pango-font.h"
@@ -33,6 +34,8 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Paint_native_1create(JNIEnv *env, 
 {
 	struct AndroidPaint *paint = g_new0(struct AndroidPaint, 1);
 	paint->color.alpha = 1.f;
+	/* hwui's Paint defaults to a stroke width of 0 (hairline); GskStroke needs > 0. */
+	paint->stroke_width = 0;
 	paint->gsk_stroke = gsk_stroke_new(1);
 	paint->font = pango_font_description_new();
 	paint->is_fill = true;
@@ -110,19 +113,19 @@ JNIEXPORT jint JNICALL Java_android_graphics_Paint_native_1get_1style(JNIEnv *en
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1stroke_1width(JNIEnv *env, jclass clazz, jlong paint_ptr, jfloat width)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	/* TODO: width of 0 means "single pixel width, no matter what",
-	 * meanwile width of 1 should care about scaling;
-	 * The problem is, 0 is not a valid value for gsk_stroke_set_line_width,
-	 * so at least change it to 1 for now */
-	if (width == 0)
-		width = 1;
-	gsk_stroke_set_line_width(paint->gsk_stroke, width);
+	/* hwui stores the value verbatim and a width of 0 means "hairline" (a single
+	 * pixel independent of the matrix, see Paint#setStrokeWidth). GskStroke cannot
+	 * represent 0, so the render stroke keeps the 1 px hairline approximation while
+	 * the getter reports exactly what was set. Callers such as MaterialShapeDrawable
+	 * and GradientDrawable decide whether to stroke at all from getStrokeWidth() > 0. */
+	paint->stroke_width = width;
+	gsk_stroke_set_line_width(paint->gsk_stroke, width > 0 ? width : 1);
 }
 
 JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1stroke_1width(JNIEnv *env, jclass clazz, jlong paint_ptr)
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	return gsk_stroke_get_line_width(paint->gsk_stroke);
+	return paint->stroke_width;
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1stroke_1cap(JNIEnv *env, jclass clazz, jlong paint_ptr, jint cap)
@@ -159,6 +162,22 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1size(JNI
 {
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	return (jfloat)pango_font_description_get_size(paint->font) / PANGO_SCALE;
+}
+
+/* SkFont::setEmbolden(boolean), which hwui's Paint.setFakeBoldText reaches (hwui/jni/Paint.cpp:782)
+ * and which a drawn run must carry: this is the flag half of atl_paint_run_synthesis. */
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1fake_1bold_1text(JNIEnv *env, jclass clazz, jlong paint_ptr, jboolean fake_bold)
+{
+	struct AndroidPaint *paint = _PTR(paint_ptr);
+	paint->fake_bold = fake_bold;
+}
+
+/* SkFont::setSkewX(float), hwui Paint.setTextSkewX (hwui/jni/Paint.cpp:1018); the shear half of
+ * atl_paint_run_synthesis, sign included. */
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1text_1skew_1x(JNIEnv *env, jclass clazz, jlong paint_ptr, jfloat skew_x)
+{
+	struct AndroidPaint *paint = _PTR(paint_ptr);
+	paint->text_skew_x = skew_x;
 }
 
 JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1color_1filter(JNIEnv *env, jclass clazz, jlong paint_ptr, jint mode, jint color)
@@ -579,6 +598,111 @@ static int atl_ft_face_weight(FT_Face face)
 	return (face->style_flags & FT_STYLE_FLAG_BOLD) ? 700 : 400;
 }
 
+/* minikin FontFamily::computeFakery, as both the measurement and the drawing path see it:
+ * Paint.isFakeBoldText() (SkFont::setEmbolden, hwui/jni/Paint.cpp:782) always emboldens, and so
+ * does a requested typeface weight of at least 600 when the face that serves the run is at least
+ * 200 lighter. ACTUAL_WEIGHT is -1 when it is not needed (and when it could not be resolved). */
+static bool atl_run_needs_embolden(bool fake_bold, int requested_weight, int actual_weight)
+{
+	if (fake_bold) return true;
+	return requested_weight >= 600 && actual_weight >= 0 && (requested_weight - actual_weight) >= 200;
+}
+
+/* The weight and slant of the font file that serves one layout run, read from the file's own
+ * tables the way minikin's analyzeStyle reads them. The (file, face index, variations) triple
+ * determines the face, so the open - which is as expensive as the whole measurement - is cached
+ * for the process: a draw repeats every frame while the tables cannot change underneath it. */
+struct atl_face_style {
+	int weight;
+	bool italic;
+};
+static GHashTable *atl_face_styles;
+
+/* The weight and slant FACE serves after its variations were applied. minikin's analyzeStyle reads
+ * the resolved coordinates: FreeType folds neither an applied wght nor an applied ital/slnt into
+ * usWeightClass or style_flags, so a variable face serving bold or italic by axis would otherwise
+ * be reported as regular and synthesised a second time. */
+static void atl_ft_face_style(FT_Library library, FT_Face face, int *weight, bool *italic)
+{
+	*weight = atl_ft_face_weight(face);
+	*italic = (face->style_flags & FT_STYLE_FLAG_ITALIC) != 0;
+	if (!(face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS))
+		return;
+	FT_MM_Var *mm = NULL;
+	if (!library || FT_Get_MM_Var(face, &mm) != 0 || !mm)
+		return;
+	FT_Fixed *coords = g_new0(FT_Fixed, mm->num_axis);
+	if (FT_Get_Var_Design_Coordinates(face, mm->num_axis, coords) == 0) {
+		for (FT_UInt i = 0; i < mm->num_axis; i++) {
+			FT_ULong tag = mm->axis[i].tag;
+			if (tag == FT_MAKE_TAG('w', 'g', 'h', 't') && coords[i] > 0)
+				*weight = (int)((coords[i] + 0x8000) >> 16);
+			if ((tag == FT_MAKE_TAG('i', 't', 'a', 'l') || tag == FT_MAKE_TAG('s', 'l', 'n', 't')) && coords[i] != 0)
+				*italic = true;
+		}
+	}
+	g_free(coords);
+	FT_Done_MM_Var(library, mm);
+}
+
+static bool atl_run_face_style(struct AndroidPaint *paint, PangoFont *font, int *weight, bool *italic)
+{
+	int index = -1;
+	char *path = atl_run_font_file(font, &index);
+	if (!path)
+		path = atl_paint_font_file(paint, &index);
+	if (!path)
+		return false;
+	const char *variations = pango_font_description_get_variations(paint->font);
+	char *key = g_strdup_printf("%s|%d|%s", path, index, variations ? variations : "");
+	struct atl_face_style *style = atl_face_styles ? g_hash_table_lookup(atl_face_styles, key) : NULL;
+	if (!style) {
+		style = g_new0(struct atl_face_style, 1);
+		style->weight = 400;
+		FT_Library library = atl_ft_library_new();
+		FT_Face face = NULL;
+		if (library && !FT_New_Face(library, path, index, &face)) {
+			atl_ft_face_apply_variations(library, face, variations);
+			atl_ft_face_style(library, face, &style->weight, &style->italic);
+			FT_Done_Face(face);
+		}
+		if (library) FT_Done_FreeType(library);
+		if (!atl_face_styles) atl_face_styles = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+		g_hash_table_replace(atl_face_styles, key, style);
+		key = NULL;
+	}
+	if (weight) *weight = style->weight;
+	if (italic) *italic = style->italic;
+	g_free(key);
+	g_free(path);
+	return true;
+}
+
+AtlTextSynthesis atl_paint_run_synthesis(struct AndroidPaint *paint, PangoFont *font, double size_dp)
+{
+	AtlTextSynthesis synthesis = { 0, 0 };
+	if (!paint || size_dp <= 0)
+		return synthesis;
+	int requested_weight = pango_font_description_get_weight(paint->font);
+	bool requested_italic = pango_font_description_get_style(paint->font) != PANGO_STYLE_NORMAL;
+	/* The common case: nothing to synthesise and no font file to look at. */
+	if (paint->fake_bold || requested_weight >= 600 || requested_italic) {
+		int actual_weight = -1;
+		bool actual_italic = false;
+		if (atl_run_face_style(paint, font, &actual_weight, &actual_italic)) {
+			if (atl_run_needs_embolden(paint->fake_bold, requested_weight,
+			                           requested_weight >= 600 ? actual_weight : -1))
+				synthesis.embolden = size_dp / 34.0;
+			/* An italic request the run's own face cannot serve is sheared on top of the
+			 * paint's own skew (MinikinSkia.cpp:175). */
+			if (requested_italic && !actual_italic)
+				synthesis.skew_x -= 0.25f;
+		}
+	}
+	synthesis.skew_x += paint->text_skew_x;
+	return synthesis;
+}
+
 /* Android's getTextBounds returns the integer ink box of the laid out text: Skia unions, for
  * every laid out glyph, the glyph's outlined control box placed at the pen position, and
  * MinikinUtils/getTextBounds rounds that union out to integers once at the end. Concretely
@@ -662,14 +786,17 @@ JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1get_1text_1bounds(JNI
 			/* Minikin shapes with HarfBuzz and positions are 1/256 px, so the pair kerning is
 			 * scaled by 256 * x_ppem (the font's integer pixel size), not by the fractional size. */
 			double kern_scale = 256.0 * face->size->metrics.x_ppem;
-			bool embolden = fake_bold;
-			if (!embolden && typeface_weight >= 600) {
+			bool embolden = false;
+			if (fake_bold || typeface_weight >= 600) {
 				/* The weight the resolved font instance really has: the requested 'wght' axis when the
 				 * description carries variations (minikin's analyzeStyle uses it for the typeface
 				 * style, so computeFakery sees it as the actual weight), else the OS/2 table. */
-				int actual_weight = atl_variation_axis_value(pango_font_description_get_variations(paint->font), "wght");
-				if (actual_weight < 0) actual_weight = atl_ft_face_weight(face);
-				embolden = (typeface_weight - actual_weight) >= 200;
+				int actual_weight = -1;
+				if (!fake_bold && typeface_weight >= 600) {
+					actual_weight = atl_variation_axis_value(pango_font_description_get_variations(paint->font), "wght");
+					if (actual_weight < 0) actual_weight = atl_ft_face_weight(face);
+				}
+				embolden = atl_run_needs_embolden(fake_bold, typeface_weight, actual_weight);
 			}
 			FT_Pos embolden_strength = embolden ? FT_MulFix(face->units_per_EM, face->size->metrics.y_scale) / 34 : 0;
 			PangoGlyphString *glyphs = ((PangoGlyphItem *)run->data)->glyphs;
