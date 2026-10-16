@@ -11,22 +11,11 @@ struct AndroidTypeface {
 	PangoFontMap *map;
 };
 
-/* Whether FAMILY is an installed family of CONFIG. fontconfig answers FcFontMatch with its best
- * substitute even for a family that is not installed, so only a match that names the requested family
- * counts. The answer is remembered per (config, family): a config's font set does not change once
- * ATL has built it (a file font gets its own private config), and a typeface is created per view. */
+/* Query the supplied configuration directly. Config pointers can be recycled and
+ * application fonts can be added later; a process-global pointer-keyed cache is
+ * neither a stable identity nor safe for concurrent Typeface creation. */
 static inline bool atl_font_family_installed(FcConfig *config, const char *family)
 {
-	struct atl_family_installed_cache {
-		const FcConfig *config;
-		char family[64];
-		bool installed;
-	};
-	static struct atl_family_installed_cache cache[4];
-	static unsigned int atl_family_installed_next;
-	for (size_t i = 0; i < G_N_ELEMENTS(cache); i++)
-		if (cache[i].config == config && strcmp(cache[i].family, family) == 0)
-			return cache[i].installed;
 	FcPattern *pattern = FcPatternCreate();
 	bool installed = false;
 	if (pattern) {
@@ -43,11 +32,6 @@ static inline bool atl_font_family_installed(FcConfig *config, const char *famil
 		}
 		FcPatternDestroy(pattern);
 	}
-	struct atl_family_installed_cache *entry = &cache[atl_family_installed_next++ % G_N_ELEMENTS(cache)];
-	entry->config = config;
-	strncpy(entry->family, family, sizeof(entry->family) - 1);
-	entry->family[sizeof(entry->family) - 1] = 0;
-	entry->installed = installed;
 	return installed;
 }
 

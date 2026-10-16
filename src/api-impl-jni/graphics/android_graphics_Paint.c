@@ -611,12 +611,13 @@ static bool atl_run_needs_embolden(bool fake_bold, int requested_weight, int act
 /* The weight and slant of the font file that serves one layout run, read from the file's own
  * tables the way minikin's analyzeStyle reads them. The (file, face index, variations) triple
  * determines the face, so the open - which is as expensive as the whole measurement - is cached
- * for the process: a draw repeats every frame while the tables cannot change underneath it. */
+ * for the lifetime of the resolved PangoFont (file-descriptor paths can be reused).
+ * A live font keeps its source alive across repeated draws. */
 struct atl_face_style {
 	int weight;
 	bool italic;
 };
-static GHashTable *atl_face_styles;
+G_LOCK_DEFINE_STATIC(atl_face_styles);
 
 /* The weight and slant FACE serves after its variations were applied. minikin's analyzeStyle reads
  * the resolved coordinates: FreeType folds neither an applied wght nor an applied ital/slnt into
@@ -655,6 +656,8 @@ static bool atl_run_face_style(struct AndroidPaint *paint, PangoFont *font, int 
 		return false;
 	const char *variations = pango_font_description_get_variations(paint->font);
 	char *key = g_strdup_printf("%s|%d|%s", path, index, variations ? variations : "");
+	G_LOCK(atl_face_styles);
+	GHashTable *atl_face_styles = g_object_get_data(G_OBJECT(font), "atl-face-styles");
 	struct atl_face_style *style = atl_face_styles ? g_hash_table_lookup(atl_face_styles, key) : NULL;
 	if (!style) {
 		style = g_new0(struct atl_face_style, 1);
@@ -667,12 +670,16 @@ static bool atl_run_face_style(struct AndroidPaint *paint, PangoFont *font, int 
 			FT_Done_Face(face);
 		}
 		if (library) FT_Done_FreeType(library);
-		if (!atl_face_styles) atl_face_styles = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+		if (!atl_face_styles) {
+			atl_face_styles = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+			g_object_set_data_full(G_OBJECT(font), "atl-face-styles", atl_face_styles, (GDestroyNotify)g_hash_table_unref);
+		}
 		g_hash_table_replace(atl_face_styles, key, style);
 		key = NULL;
 	}
 	if (weight) *weight = style->weight;
 	if (italic) *italic = style->italic;
+	G_UNLOCK(atl_face_styles);
 	g_free(key);
 	g_free(path);
 	return true;
