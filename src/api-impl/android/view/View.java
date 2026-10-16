@@ -1182,8 +1182,10 @@ public class View implements Drawable.Callback {
 			native_drawChildren(widget, ((GskCanvas)canvas).snapshot);
 	}
 	public void draw(Canvas canvas) {
-		if (canvas instanceof GskCanvas)
-			native_drawBackground(widget, ((GskCanvas)canvas).snapshot);
+		if (background != null) {
+			background.setBounds(0, 0, getWidth(), getHeight());
+			background.draw(canvas);
+		}
 		onDraw(canvas);
 		// HACK: catch non critical exceptions happening in some composeUI apps
 		try {
@@ -1460,8 +1462,7 @@ public class View implements Drawable.Callback {
 
 	protected native void native_setBackgroundColor(long widget, int color);
 	public void setBackgroundColor(int color) {
-		background = new ColorDrawable(color);
-		native_setBackgroundColor(widget, color);
+		setBackgroundDrawable(new ColorDrawable(color));
 	}
 
 	native void native_setVisibility(long widget, int visibility, float alpha, boolean sensitive);
@@ -1814,10 +1815,6 @@ public class View implements Drawable.Callback {
 
 	public void setBackgroundDrawable(Drawable backgroundDrawable) {
 		this.background = backgroundDrawable;
-		if (backgroundDrawable instanceof ColorDrawable) {
-			native_setBackgroundColor(widget, ((ColorDrawable)backgroundDrawable).getColor());
-			return;
-		}
 		if (backgroundDrawable != null) {
 			backgroundDrawable.setCallback(this);
 			if (backgroundDrawable.isStateful()) backgroundDrawable.setState(getDrawableState());

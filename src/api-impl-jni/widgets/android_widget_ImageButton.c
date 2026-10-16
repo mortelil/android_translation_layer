@@ -6,6 +6,7 @@
 #include "WrapperWidget.h"
 
 #include "../generated_headers/android_widget_ImageButton.h"
+#include "../generated_headers/android_widget_ImageView.h"
 
 JNIEXPORT jlong JNICALL Java_android_widget_ImageButton_native_1constructor(JNIEnv *env, jobject this, jobject context, jobject attrs)
 {
@@ -49,4 +50,10 @@ JNIEXPORT void JNICALL Java_android_widget_ImageButton_native_1setDrawable(JNIEn
 	gtk_picture_set_paintable(picture, paintable);
 
 	gtk_widget_add_css_class(GTK_WIDGET(button), "ATL-no-border");
+}
+
+JNIEXPORT void JNICALL Java_android_widget_ImageButton_native_1setScaleType(JNIEnv *env, jobject this, jlong widget_ptr, jint scale_type)
+{
+    GtkWidget *picture = gtk_button_get_child(GTK_BUTTON(_PTR(widget_ptr)));
+    Java_android_widget_ImageView_native_1setScaleType(env, this, _INTPTR(picture), scale_type);
 }

@@ -11,9 +11,14 @@ requiring an attached window; the real UI test below covers queued clicks.
 
 Launch org.atl.touchrouting.Visual for actual input. Click the native button at
 left and the blue region at right once each. Require the visible counter and
-log to read `Native=1 Covered=1`. The right-hand region has a SurfaceView over
-an accepting sibling, and TOUCH_WINDOW action=0/1 proves the native window
-fallback reached Activity dispatch. The left button retains the GTK path.
+log to read `Native=1 Covered=1`. The right-hand region has a SurfaceView and a transparent FrameLayout with
+a rejecting onTouchEvent override over an accepting sibling, and TOUCH_WINDOW action=0/1 proves the native window
+fallback reached Activity dispatch. The left button retains the GTK path. Type into the field below the counters
+and require the entered text to remain visible. A wrapper touch listener must
+not prevent the window dispatcher from trying a sibling after a rejected DOWN.
+Click the empty region at x=700, y=100 (plus title offset): require exactly one
+`TOUCH_REJECT action=0` and no subsequent MOVE/UP callback. This guards against
+double delivery through GTK wrapper listeners after the window rejects DOWN.
 Verified with render scale unset and 2.625. Do not count screenshots alone as
 input success. The window's title-bar offset must be included in click positions.
 

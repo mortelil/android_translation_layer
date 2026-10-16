@@ -7,6 +7,7 @@
 #include "../util.h"
 
 #include "../views/AndroidLayout.h"
+#include "JavaTouch.h"
 #include "../widgets/WrapperWidget.h"
 
 #include "../generated_headers/android_view_MotionEvent.h"
@@ -189,6 +190,8 @@ static bool action_up_already_handled = false;
 // TODO: find a way to reconcile this with libandroid/input.c?
 static gboolean on_pointer_event(GtkEventControllerLegacy *event_controller, GdkEvent *event, gpointer user_data)
 {
+    if (atl_java_touch_dispatched(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(event_controller)), event))
+        return FALSE;
 	double x;
 	double y;
 
@@ -806,7 +809,7 @@ JNIEXPORT void JNICALL Java_android_view_View_native_1setBackgroundDrawable(JNIE
 
 	GtkCssProvider *css_provider = gtk_css_provider_new();
 
-	char *css_string = g_markup_printf_escaped("* { background-image: none; background-color: #00000000; }");
+	char *css_string = g_markup_printf_escaped("* { background-image: none; background-color: #00000000; border: none; box-shadow: none; }");
 	gtk_css_provider_load_from_string(css_provider, css_string);
 	g_free(css_string);
 

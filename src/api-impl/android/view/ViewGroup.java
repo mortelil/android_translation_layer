@@ -599,7 +599,8 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 	}
 
 	public void offsetChildrenTopAndBottom(int offset) {
-		// FIXME
+		for (View child : children)
+			child.offsetTopAndBottom(offset);
 	}
 
 	private native void native_offsetRect(long from_widget, long to_widget, Rect rect);

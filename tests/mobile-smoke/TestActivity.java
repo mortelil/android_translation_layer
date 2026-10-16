@@ -107,6 +107,8 @@ public class TestActivity extends android.app.Activity {
 			TestCanvasScope.run(this);
 			TestRetainedDisplayList.run();
 			TestLayerTint.run();
+			TestViewBackground.run(this);
+			TestChildOffsets.run(this);
 			TestIncludeVisibility.run(this);
 			TestMedia.run(this);
 			TestDocuments.run(this);
