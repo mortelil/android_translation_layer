@@ -16,6 +16,10 @@ public class MediaFormat {
 		map.put(key, value);
 	}
 
+	public void setLong(String key, long value) {
+		map.put(key, value);
+	}
+
 	public void setByteBuffer(String key, ByteBuffer value) {
 		map.put(key, value);
 	}

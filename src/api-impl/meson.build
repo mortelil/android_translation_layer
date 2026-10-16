@@ -374,6 +374,7 @@ srcs = [
 	'android/media/MediaCodecList.java',
 	'android/media/MediaCrypto.java',
 	'android/media/MediaDescription.java',
+	'android/media/MediaExtractor.java',
 	'android/media/browse/MediaBrowser.java',
 	'android/media/browse/MediaBrowserUtils.java',
 	'android/service/media/IMediaBrowserService.java',
