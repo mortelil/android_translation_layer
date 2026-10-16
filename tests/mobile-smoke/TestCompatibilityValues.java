@@ -41,6 +41,17 @@ public class TestCompatibilityValues {
         check(copied.width == 123 && copied.height == 456, "layout params copy");
         check(new android.view.accessibility.CaptioningManager().getUserStyle().foregroundColor == android.graphics.Color.WHITE,
               "default caption style");
+        android.view.accessibility.CaptioningManager captions = new android.view.accessibility.CaptioningManager();
+        android.view.accessibility.CaptioningManager.CaptioningChangeListener captionListener =
+            new android.view.accessibility.CaptioningManager.CaptioningChangeListener() {
+                @Override public void onEnabledChanged(boolean enabled) {
+                    throw new AssertionError("registration must not fabricate a caption change");
+                }
+            };
+        captions.addCaptioningChangeListener(captionListener);
+        captions.removeCaptioningChangeListener(captionListener);
+        captions.removeCaptioningChangeListener(captionListener); // absent removal is harmless
+        check(!captions.isEnabled() && captions.getFontScale() == 1f, "caption preferences unchanged");
         System.out.println("PASS: compatibility value APIs and account service");
     }
 }

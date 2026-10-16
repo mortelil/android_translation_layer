@@ -265,5 +265,13 @@ public class CaptioningManager {
 		public void onSystemAudioCaptioningUiChanged(boolean enabled) {}
 	}
 
-	public void addCaptioningChangeListener(CaptioningChangeListener listener) {}
+	// ATL currently exposes fixed caption preferences. Retain registrations without
+	// synthesizing change events; removing a listener must release that reference.
+	private final java.util.ArrayList<CaptioningChangeListener> listeners = new java.util.ArrayList<>();
+	public void addCaptioningChangeListener(CaptioningChangeListener listener) {
+		synchronized (listeners) { listeners.add(listener); }
+	}
+	public void removeCaptioningChangeListener(CaptioningChangeListener listener) {
+		synchronized (listeners) { listeners.remove(listener); }
+	}
 }
