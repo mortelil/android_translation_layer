@@ -1,20 +1,21 @@
-# Child display-list updates through effects
+# Retained RenderNode updates
 
-Run inside atl_dev:
+The former native tree-patching test has been replaced by
+`tests/mobile-smoke/TestRetainedDisplayList.java`. It exercises the actual Java/JNI
+record/replay path and checks rendered pixels, including initially empty children,
+rounded path clipping, paint capture, child re-recording/discard, transitive updates,
+cached unchanged nodes, group opacity, transforms and cycle rejection.
 
-```
-sh tests/render-node-updates/run.sh /tmp/atl-node-updates
-```
+Run the mobile-smoke suite in the configured ATL build environment. The test uses
+synthetic bitmaps, not app profiles.
 
-The test compiles the production RenderNode implementation. It replaces a child
-beneath opacity, rounded clipping, a colour matrix, a fill path, a stroked path,
-and both branches of an alpha mask. Pixel output must match a freshly built
-expected tree, including the replacement's different alpha. Unrelated child
-updates preserve parent identity. The original implementation fails the first
-replacement assertion.
+The old implementation inserted zero-area placeholders into a GTK snapshot and
+replaced them after snapshot optimization. GTK could remove those placeholders,
+making reconstruction impossible. RecordingCanvas now retains child references
+and drawing state until replay, before GTK optimizes the complete content.
 
-Rhythm's setup filter cards exposed the mask case: their backgrounds appeared,
-but child text and controls stayed blank. After this change the controls render.
-This is a GSK display-list integration fix, not an app-specific workaround.
-Other GSK wrapper types (e.g. blur, blend, repeat and custom shader nodes) are
-not covered here; add preserved-parameter and pixel tests when supporting them.
+Design reference: AOSP android-17.0.0_r1, frameworks/base/libs/hwui/pipeline/skia/
+SkiaDisplayList.h and RenderNodeDrawable.cpp (commit
+94b4c163b7dfe5ce3607f7bb8456f9573f7de57d). This is an original GTK implementation;
+no AOSP implementation was copied. Existing Canvas limitations (such as layer
+color filters and unsupported 3D transforms) are outside this change.

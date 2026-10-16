@@ -9,30 +9,6 @@ extern "C" {
 #endif
 /*
  * Class:     android_view_RenderNode
- * Method:    nativeCreateSnapshot
- * Signature: ()J
- */
-JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeCreateSnapshot
-  (JNIEnv *, jobject);
-
-/*
- * Class:     android_view_RenderNode
- * Method:    nativeCreateNode
- * Signature: (J)J
- */
-JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeCreateNode
-  (JNIEnv *, jobject, jlong);
-
-/*
- * Class:     android_view_RenderNode
- * Method:    nativePatchNode
- * Signature: (JJJ)J
- */
-JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativePatchNode
-  (JNIEnv *, jobject, jlong, jlong, jlong);
-
-/*
- * Class:     android_view_RenderNode
  * Method:    nativeTransform
  * Signature: (JFFFFFFF)J
  */
@@ -61,14 +37,6 @@ JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeOpacity
  * Signature: (J)V
  */
 JNIEXPORT void JNICALL Java_android_view_RenderNode_nativeUnref
-  (JNIEnv *, jobject, jlong);
-
-/*
- * Class:     android_view_RenderNode
- * Method:    nativeAddStubNode
- * Signature: (J)J
- */
-JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeAddStubNode
   (JNIEnv *, jobject, jlong);
 
 /*
