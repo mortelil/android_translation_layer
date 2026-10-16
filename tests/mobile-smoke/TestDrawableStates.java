@@ -91,6 +91,24 @@ public final class TestDrawableStates {
         check(pixels.getPixel(80, 20) == 0, "Checkmark escaped its bounds");
         row.setCheckMarkDrawable((android.graphics.drawable.Drawable)null);
         check(row.getCheckMarkDrawable() == null, "Checkmark removal");
+        android.widget.TextView label = new android.widget.TextView(context);
+        android.content.res.ColorStateList textColors = new android.content.res.ColorStateList(
+                new int[][]{{-android.R.attr.state_enabled}, {android.R.attr.state_selected}, {}},
+                new int[]{0xff777777, 0xff2468ac, 0xffabcdef});
+        label.setTextColor(textColors);
+        label.setHintTextColor(textColors);
+        check(label.getCurrentTextColor() == 0xffabcdef, "Default text color");
+        label.setSelected(true);
+        check(label.getCurrentTextColor() == 0xff2468ac && label.getPaint().getColor() == 0xff2468ac
+                && label.getCurrentHintTextColor() == 0xff2468ac, "Selected text, paint and hint disagree");
+        label.setEnabled(false);
+        check(label.getCurrentTextColor() == 0xff777777 && label.getCurrentHintTextColor() == 0xff777777,
+                "Disabled text selector");
+        label.setTextColor(0xff112233);
+        label.setEnabled(true); label.setSelected(false);
+        check(label.getTextColors().getDefaultColor() == 0xff112233
+                && label.getCurrentTextColor() == 0xff112233 && label.getPaint().getColor() == 0xff112233,
+                "Integer setter did not replace the selector");
         System.out.println("PASS: drawable state extension, selectors and state-change dispatch");
     }
 }

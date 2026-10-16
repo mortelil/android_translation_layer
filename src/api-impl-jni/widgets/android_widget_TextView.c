@@ -217,23 +217,13 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setText(JNIEnv *env,
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextColor(JNIEnv *env, jobject this, jint color)
 {
-	GtkWidget *widget = GTK_WIDGET(_PTR(_GET_LONG_FIELD(this, "widget")));
-
-	GtkStyleContext *style_context = gtk_widget_get_style_context(widget);
-
-	GtkCssProvider *old_provider = g_object_get_data(G_OBJECT(widget), "color_style_provider");
-	if (old_provider)
-		gtk_style_context_remove_provider(style_context, GTK_STYLE_PROVIDER(old_provider));
-
-	GtkCssProvider *css_provider = gtk_css_provider_new();
-
-	char *css_string = g_markup_printf_escaped("* { color: #%06x%02x; }", color & 0xFFFFFF, (color >> 24) & 0xFF);
-	gtk_css_provider_load_from_string(css_provider, css_string);
-	g_free(css_string);
-
-	gtk_style_context_add_provider(style_context, GTK_STYLE_PROVIDER(css_provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-	g_object_set_data(G_OBJECT(widget), "color_style_provider", css_provider);
+	char *value = text_color_string(color);
+	char *css = g_strdup_printf("* { color: %s; }", value);
+	set_text_css(env, _GET_LONG_FIELD(this, "widget"), "color_style_provider", css);
+	g_free(css);
+	g_free(value);
 }
+
 #pragma GCC diagnostic pop
 
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextSize(JNIEnv *env, jobject this, jfloat size)

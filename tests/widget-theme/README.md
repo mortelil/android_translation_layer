@@ -33,7 +33,21 @@ the text while reserving native content padding. This is deliberately not a
 complete CheckedTextView port: XML/theme mark inflation, tint, checkMarkGravity,
 RTL changes after attachment and minimum-height sizing still need work.
 
-Initial validation: mobile-smoke passes, Dispensa product text entry and Fridge
-selection complete without the new missing-getCheckMarkDrawable crash, and
-AntennaPod search returns a result. App screenshots still contain graphical
-artifacts; visual regression clearance has NOT been granted for this branch.
+Validation: mobile-smoke passes, including selected/default/disabled text and
+hint colours, Paint/getter agreement, replacement of a selector by an integer
+colour, and actual checkmark pixels/bounds. TextView now resolves ColorStateList
+against its drawable state rather than always using the default; the integer
+setter replaces the selector and getCurrentTextColor no longer returns cyan.
+GTK text CSS uses the existing scoped provider lifetime helper.
+
+Build `sh tests/widget-theme/build.sh BUILD_DIR OUTPUT_DIR` inside Toolbox to
+create widget-colors.apk. Its rows must render red (#d02030), blue (#2468ac),
+and gray (#777777); it also asserts the Java getter/Paint contracts. Use
+`python3 tests/widget-theme/check-pixels.py SCREENSHOT.png` on the captured
+GTK image (Pillow required). This tests native CSS rendering, not only getters.
+
+The intermittent corrupted AntennaPod text/icon image was reproduced on
+unmodified main fe5f64ad; the same experimental widget branch also produced a
+clean serial run before further changes. Thus this defect is not declared
+fixed or attributed to this milestone. Existing search-result layout and
+occasional artwork TLS failures remain. No Nura or Signal validation.
