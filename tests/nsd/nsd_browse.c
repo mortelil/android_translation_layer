@@ -24,7 +24,7 @@
 #include <avahi-common/simple-watch.h>
 #include <avahi-common/address.h>
 
-static AvahiSimplePoll *poll;
+static AvahiSimplePoll *g_spoll;
 static AvahiClient *client;
 static AvahiServiceBrowser *browser;
 static int found = 0;
@@ -87,13 +87,13 @@ int main(int argc, char **argv)
 	const char *type = (argc > 1) ? argv[1] : "_home-assistant._tcp";
 	int timeout_s = (argc > 2) ? atoi(argv[2]) : 6;
 
-	poll = avahi_simple_poll_new();
-	if (!poll) {
+	g_spoll = avahi_simple_poll_new();
+	if (!g_spoll) {
 		fprintf(stderr, "BROWSE_ERROR poll_new\n");
 		return 2;
 	}
 	int error = 0;
-	client = avahi_client_new(avahi_simple_poll_get(poll), 0, client_cb,
+	client = avahi_client_new(avahi_simple_poll_get(g_spoll), 0, client_cb,
 			(void *)type, &error);
 	if (!client) {
 		fprintf(stderr, "BROWSE_ERROR client_new: %s\n", avahi_strerror(error));
@@ -102,10 +102,10 @@ int main(int argc, char **argv)
 
 	time_t start = time(NULL);
 	while (!found && time(NULL) - start < timeout_s)
-		avahi_simple_poll_iterate(poll, 200);
+		avahi_simple_poll_iterate(g_spoll, 200);
 
 	avahi_client_free(client);
-	avahi_simple_poll_free(poll);
+	avahi_simple_poll_free(g_spoll);
 	printf("BROWSE_RESULT %s\n", found ? "FOUND" : "TIMEOUT");
 	return found ? 0 : 1;
 }

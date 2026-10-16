@@ -26,7 +26,7 @@
 #include <avahi-common/strlst.h>
 #include <avahi-common/simple-watch.h>
 
-static AvahiSimplePoll *poll;
+static AvahiSimplePoll *g_spoll;
 static volatile sig_atomic_t quit = 0;
 
 static const char *g_type;
@@ -110,14 +110,14 @@ int main(int argc, char **argv)
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 
-	poll = avahi_simple_poll_new();
-	if (!poll) {
+	g_spoll = avahi_simple_poll_new();
+	if (!g_spoll) {
 		fprintf(stderr, "FIXTURE_ERROR poll_new\n");
 		return 2;
 	}
 	int error = 0;
 	/* flags=0: fail loudly when the daemon is unreachable. */
-	AvahiClient *client = avahi_client_new(avahi_simple_poll_get(poll), 0,
+	AvahiClient *client = avahi_client_new(avahi_simple_poll_get(g_spoll), 0,
 			client_cb, NULL, &error);
 	if (!client) {
 		fprintf(stderr, "FIXTURE_ERROR client_new: %s\n", avahi_strerror(error));
@@ -125,12 +125,12 @@ int main(int argc, char **argv)
 	}
 
 	while (!quit)
-		avahi_simple_poll_iterate(poll, 200);
+		avahi_simple_poll_iterate(g_spoll, 200);
 
 	if (g_group)
 		avahi_entry_group_free(g_group);
 	avahi_client_free(client);
-	avahi_simple_poll_free(poll);
+	avahi_simple_poll_free(g_spoll);
 	avahi_string_list_free(g_txt);
 	printf("FIXTURE_STOPPED %s %s\n", g_type, g_name);
 	return 0;
