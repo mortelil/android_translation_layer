@@ -63,7 +63,10 @@ public class TextView extends View {
 		}
 	}
 
-	private ColorStateList colors = new ColorStateList(new int[][] {new int[0]}, new int[1]);
+	private ColorStateList colors = ColorStateList.valueOf(Color.BLACK);
+	private int currentTextColor = Color.BLACK;
+	private int currentHintColor = 0xff808080;
+	private boolean textColorApplied, hintColorApplied;
 	private CharSequence text = "";
 	private int inputType;
 	private int highlightColor = 0x6633b5e5;
@@ -201,14 +204,41 @@ public class TextView extends View {
 
 	public native final void native_setTextColor(int color);
 	public void setTextColor(int color) {
-		native_setTextColor(color);
+		setTextColor(ColorStateList.valueOf(color));
 	}
 	public void setTextColor(ColorStateList colors) {
-		if (colors != null) {
-			this.colors = colors;
-			native_setTextColor(colors.getDefaultColor()); // TODO: do this properly
+		this.colors = java.util.Objects.requireNonNull(colors);
+		updateTextColors();
+	}
+
+	private void updateTextColors() {
+		int[] state = getDrawableState();
+		// View construction can dispatch to this override before TextView fields exist.
+		if (colors != null && paint != null) {
+			int color = colors.getColorForState(state, colors.getDefaultColor());
+			paint.setColor(color);
+			if (!textColorApplied || currentTextColor != color) {
+				currentTextColor = color;
+				native_setTextColor(color);
+				textColorApplied = true;
+			}
+		}
+		if (hintColors != null) {
+			int color = hintColors.getColorForState(state, hintColors.getDefaultColor());
+			if (!hintColorApplied || currentHintColor != color) {
+				currentHintColor = color;
+				native_setHintTextColor(widget, color);
+				hintColorApplied = true;
+			}
 		}
 	}
+
+	@Override
+	protected void drawableStateChanged() {
+		super.drawableStateChanged();
+		updateTextColors();
+	}
+
 	public void setTypeface(Typeface tf, int style) { setTypeface(Typeface.create(tf, style)); }
 	public void setTypeface(Typeface tf) {
 		paint.setTypeface(tf);
@@ -257,11 +287,11 @@ public class TextView extends View {
 
 	public void setHintTextColor(ColorStateList colors) {
 		hintColors = java.util.Objects.requireNonNull(colors);
-		native_setHintTextColor(widget, colors.getDefaultColor());
+		updateTextColors();
 	}
 	public void setHintTextColor(int color) { setHintTextColor(ColorStateList.valueOf(color)); }
 	public ColorStateList getHintTextColors() { return hintColors; }
-	public int getCurrentHintTextColor() { return hintColors.getDefaultColor(); }
+	public int getCurrentHintTextColor() { return currentHintColor; }
 	private native void native_setHintTextColor(long widget, int color);
 	public void setLinkTextColor(ColorStateList colorStateList) {}
 
@@ -418,7 +448,7 @@ public class TextView extends View {
 	}
 
 	public int getCurrentTextColor() {
-		return Color.CYAN;
+		return currentTextColor;
 	}
 
 	public void setSingleLine(boolean singleLine) {}
