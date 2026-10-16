@@ -8,9 +8,9 @@
 #include "../widgets/WrapperWidget.h"
 #include "JavaTouch.h"
 
-/* This fallback owns only gestures not already handled by a GTK input widget
- * or an existing wrapper controller. Ownership and pointer IDs are per window,
- * never process-global. Java performs the unsplit child-target dispatch. */
+/* This fallback owns only gestures not already handled by a GTK input widget.
+ * Java wrapper listeners participate in Android dispatch, not GTK hit testing.
+ * Ownership and pointer IDs are per window, never process-global. Java performs the unsplit child-target dispatch. */
 #define POINTER_LIMIT 32
 struct touch_point { GdkEventSequence *sequence; int id; double x, y; };
 struct java_touch {
@@ -23,6 +23,8 @@ struct java_touch {
     guint generation;
     gboolean clearing;
     gboolean ending;
+    gboolean rejected;
+    GdkEvent *last_event;
 };
 
 static gboolean deliver(struct java_touch *state, int action)
@@ -71,7 +73,7 @@ static void clear_touch(struct java_touch *state, gboolean cancel)
     state->clearing = TRUE;
     state->generation++;
     if (state->callback) {
-        if (cancel && state->count && !state->ending) deliver(state, 3 /* CANCEL */);
+        if (cancel && state->count && !state->ending && !state->rejected) deliver(state, 3 /* CANCEL */);
         JNIEnv *env = get_jni_env();
         (*env)->DeleteGlobalRef(env, state->callback);
         state->callback = NULL;
@@ -79,6 +81,7 @@ static void clear_touch(struct java_touch *state, gboolean cancel)
     g_clear_object(&state->root);
     state->count = 0;
     state->ending = FALSE;
+    state->rejected = FALSE;
     state->clearing = FALSE;
 }
 
@@ -97,7 +100,16 @@ static void dispose_state(gpointer data)
 {
     struct java_touch *state = data;
     clear_touch(state, FALSE);
+    g_clear_pointer(&state->last_event, gdk_event_unref);
     g_free(state);
+}
+
+gboolean atl_java_touch_dispatched(GtkWidget *widget, GdkEvent *event)
+{
+    GtkRoot *root = gtk_widget_get_root(widget);
+    if (!GTK_IS_WINDOW(root)) return FALSE;
+    struct java_touch *state = g_object_get_data(G_OBJECT(root), "atl-java-touch");
+    return state && state->last_event == event;
 }
 
 static gboolean native_input_chain(GtkWidget *picked, GtkWidget *content)
@@ -106,9 +118,9 @@ static gboolean native_input_chain(GtkWidget *picked, GtkWidget *content)
         if (GTK_IS_BUTTON(w) || GTK_IS_EDITABLE(w) || GTK_IS_TEXT_VIEW(w)
             || GTK_IS_RANGE(w) || GTK_IS_LIST_VIEW(w)
             || g_str_has_prefix(G_OBJECT_TYPE_NAME(w), "WebKit")) return TRUE;
-        if (g_object_get_data(G_OBJECT(w), "on_touch_listener")
-            || g_object_get_data(G_OBJECT(w), "on_intercept_touch_listener")
-            || g_object_get_data(G_OBJECT(w), "on_click_listener")) return TRUE;
+        /* Wrapper listeners implement Java dispatch/interception. Their presence
+         * does not mean the picked view accepts DOWN: an empty overlay may
+         * reject it, allowing Android to try the sibling underneath. */
         if (w == content) break;
     }
     return FALSE;
@@ -165,20 +177,23 @@ static gboolean capture(GtkEventControllerLegacy *controller, GdkEvent *event, s
                                 : up ? (state->count == 1 ? 1 : 6 | index << 8) : 2;
     state->ending = action == 1 || action == 3;
     guint generation = state->generation;
-    gboolean handled = deliver(state, action);
+    g_clear_pointer(&state->last_event, gdk_event_unref);
+    state->last_event = gdk_event_ref(event);
+    gboolean handled = !state->rejected && deliver(state, action);
     atl_jni_handle_uncaught_exception(get_jni_env(), "Window.dispatchTouchEvent");
     if (generation != state->generation) return TRUE; // callback replaced or unmapped its window content
     state->ending = FALSE;
-    if (down && state->count == 1 && !handled) {
-        clear_touch(state, FALSE);
-        return FALSE; // Do not steal an unconsumed DOWN from GTK.
-    }
+    if (down && state->count == 1 && !handled) state->rejected = TRUE;
+    /* Leave rejected gestures available to native GTK controllers, but do not
+     * deliver their later events to Java or dispatch the same DOWN a second
+     * time through the wrapper controllers. */
+    gboolean owned = !state->rejected;
     if (cancel) clear_touch(state, FALSE);
     else if (up) {
         for (int i = index; i + 1 < state->count; i++) state->points[i] = state->points[i+1];
         if (--state->count == 0) clear_touch(state, FALSE);
     }
-    return TRUE;
+    return owned;
 }
 
 void atl_install_java_touch_fallback(GtkWindow *window)

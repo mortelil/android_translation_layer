@@ -2,3 +2,5 @@
 #include <gtk/gtk.h>
 void atl_install_java_touch_fallback(GtkWindow *window);
 void atl_cancel_java_touch_fallback(GtkWindow *window);
+
+gboolean atl_java_touch_dispatched(GtkWidget *widget, GdkEvent *event);

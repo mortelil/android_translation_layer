@@ -28,6 +28,28 @@ public class Visual extends android.app.Activity {
         SurfaceView surface=new SurfaceView(this);
         FrameLayout.LayoutParams over=new FrameLayout.LayoutParams(300,180);over.leftMargin=350;
         root.addView(surface,over);
+        // Like a collapsed bottom sheet: GTK sees a touch controller on this
+        // transparent top sibling, but Android must try the sibling below.
+        FrameLayout overlay=new FrameLayout(this) {
+            @Override public boolean onTouchEvent(MotionEvent event) { return false; }
+        };
+        FrameLayout.LayoutParams overlayParams=new FrameLayout.LayoutParams(300,180);
+        overlayParams.leftMargin=350;
+        root.addView(overlay,overlayParams);
+        EditText input=new EditText(this);
+        input.setHint("Native text entry");
+        FrameLayout.LayoutParams inputParams=new FrameLayout.LayoutParams(500,80);
+        inputParams.topMargin=350;
+        root.addView(input,inputParams);
+        View reject=new View(this) {
+            @Override public boolean onTouchEvent(MotionEvent event) {
+                System.out.println("TOUCH_REJECT action="+event.getActionMasked());
+                return false;
+            }
+        };
+        FrameLayout.LayoutParams rejectParams=new FrameLayout.LayoutParams(80,180);
+        rejectParams.leftMargin=660;
+        root.addView(reject,rejectParams);
         status=new TextView(this);status.setText("Native=0 Covered=0");
         FrameLayout.LayoutParams below=new FrameLayout.LayoutParams(700,100);below.topMargin=220;
         root.addView(status,below);
