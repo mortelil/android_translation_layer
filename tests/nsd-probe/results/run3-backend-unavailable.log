@@ -1,0 +1,2 @@
+W/NsdManager(571709): avahi_client_new failed: Daemon not running
+E/NSDPROBE(571709): java.lang.IllegalArgumentException: listener not registered
