@@ -20,6 +20,24 @@ public class RippleDrawable extends LayerDrawable {
 		return 0;
 	}
 
+	private RippleDrawable(LayerState state, android.content.res.Resources resources) {
+		super(state, resources);
+	}
+
+	@Override LayerState createConstantState(LayerState state, android.content.res.Resources resources) {
+		return new RippleDrawableState(state, this, resources);
+	}
+
+	private static final class RippleDrawableState extends LayerState {
+		RippleDrawableState(LayerState state, RippleDrawable owner, android.content.res.Resources resources) {
+			super(state, owner, resources);
+		}
+		@Override public Drawable newDrawable() { return new RippleDrawable(this, null); }
+		@Override public Drawable newDrawable(android.content.res.Resources resources) {
+			return new RippleDrawable(this, resources);
+		}
+	}
+
 	@Override
 	public void draw(Canvas canvas) {
 		final ChildDrawable[] array = mLayerState.mChildren;

@@ -17,10 +17,12 @@
 package android.graphics.drawable;
 
 import android.content.res.Resources;
+import android.content.res.ColorStateList;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.PorterDuff;
 import android.graphics.PixelFormat;
 //import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -428,14 +430,31 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		}
 	}*/
 
-	/*@Override
-	public void setColorFilter(ColorFilter cf) {
-		final ChildDrawable[] array = mLayerState.mChildren;
-		final int N = mLayerState.mNum;
-		for (int i = 0; i < N; i++) {
-			array[i].mDrawable.setColorFilter(cf);
+	// Follow AOSP LayerDrawable's per-child tint/filter contract (android-17.0.0_r1,
+	// frameworks/base 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).
+	@Override
+	public void setColorFilter(ColorFilter filter) {
+		for (int i = 0; i < mLayerState.mNum; i++) {
+			Drawable child = mLayerState.mChildren[i].mDrawable;
+			if (child != null) child.setColorFilter(filter);
 		}
-	}*/
+	}
+
+	@Override
+	public void setTintList(ColorStateList tint) {
+		for (int i = 0; i < mLayerState.mNum; i++) {
+			Drawable child = mLayerState.mChildren[i].mDrawable;
+			if (child != null) child.setTintList(tint);
+		}
+	}
+
+	@Override
+	public void setTintMode(PorterDuff.Mode mode) {
+		for (int i = 0; i < mLayerState.mNum; i++) {
+			Drawable child = mLayerState.mChildren[i].mDrawable;
+			if (child != null) child.setTintMode(mode);
+		}
+	}
 
 	/**
 	 * Sets the opacity of this drawable directly, instead of collecting the states from
@@ -476,31 +495,30 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		return mLayerState.mAutoMirrored;
 	}*/
 
-	/*@Override
+	@Override
 	public boolean isStateful() {
-		return mLayerState.isStateful();
-	}*/
+		// Tint can change after construction, so do not cache this property.
+		for (int i = 0; i < mLayerState.mNum; i++) {
+			Drawable child = mLayerState.mChildren[i].mDrawable;
+			if (child != null && child.isStateful()) return true;
+		}
+		return false;
+	}
 
-	/*@Override
+	@Override
 	protected boolean onStateChange(int[] state) {
-		final ChildDrawable[] array = mLayerState.mChildren;
-		final int N = mLayerState.mNum;
-		boolean paddingChanged = false;
-		boolean changed = false;
-		for (int i = 0; i < N; i++) {
-			final ChildDrawable r = array[i];
-			if (r.mDrawable.setState(state)) {
-				changed = true;
-			}
-			if (reapplyPadding(i, r)) {
-				paddingChanged = true;
+		ensurePadding();
+		boolean changed = false, paddingChanged = false;
+		for (int i = 0; i < mLayerState.mNum; i++) {
+			ChildDrawable child = mLayerState.mChildren[i];
+			if (child.mDrawable != null) {
+				changed |= child.mDrawable.setState(state);
+				paddingChanged |= reapplyPadding(i, child);
 			}
 		}
-		if (paddingChanged) {
-			onBoundsChange(getBounds());
-		}
+		if (paddingChanged) onBoundsChange(getBounds());
 		return changed;
-	}*/
+	}
 
 	/*@Override
 	protected boolean onLevelChange(int level) {
@@ -602,14 +620,15 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		mPaddingB = new int[N];
 	}
 
-	/*@Override
+	@Override
 	public ConstantState getConstantState() {
-		if (mLayerState.canConstantState()) {
-			mLayerState.mChangingConfigurations = getChangingConfigurations();
-			return mLayerState;
+		for (int i = 0; i < mLayerState.mNum; i++) {
+			Drawable child = mLayerState.mChildren[i].mDrawable;
+			if (child != null && child.getConstantState() == null) return null;
 		}
-		return null;
-	}*/
+		mLayerState.mChangingConfigurations = getChangingConfigurations();
+		return mLayerState;
+	}
 
 	@Override
 	public Drawable mutate() {
@@ -620,6 +639,8 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 			for (int i = 0; i < N; i++) {
 				array[i].mDrawable.mutate();
 			}
+			onStateChange(getState());
+			onBoundsChange(getBounds());
 			mMutated = true;
 		}
 		return this;
