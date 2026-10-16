@@ -199,7 +199,7 @@ public final class ContextImpl extends Context {
 			case "shortcut":
 				return shortcut_manager;
 			case "appops":
-				return new AppOpsManager();
+				return new AppOpsManager(this);
 			case "user":
 				return new UserManager();
 			case "captioning":
