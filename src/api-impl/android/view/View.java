@@ -2467,23 +2467,12 @@ public class View implements Drawable.Callback {
 
 	public boolean hasOnClickListeners() { return false; }
 
-	public void setTextAlignment(int textAlignment) {
-		String[] classesToRemove = {"ATL-text-align-left", "ATL-text-align-center", "ATL-text-align-right"};
-		native_removeClasses(widget, classesToRemove);
+	/* android.view.View#setTextAlignment stores the alignment; TextView resolves it against its
+	 * gravity and layout direction (TextView#getLayoutAlignment). */
+	private int textAlignment = TEXT_ALIGNMENT_INHERIT;
 
-		switch (textAlignment) {
-			case TEXT_ALIGNMENT_CENTER:
-				native_addClass(widget, "ATL-text-align-center");
-				break;
-			case TEXT_ALIGNMENT_TEXT_START:
-			case TEXT_ALIGNMENT_VIEW_START:
-				native_addClass(widget, "ATL-text-align-left");
-				break;
-			case TEXT_ALIGNMENT_TEXT_END:
-			case TEXT_ALIGNMENT_VIEW_END:
-				native_addClass(widget, "ATL-text-align-right");
-				break;
-		}
+	public void setTextAlignment(int textAlignment) {
+		this.textAlignment = textAlignment;
 	}
 
 	public void setHapticFeedbackEnabled(boolean hapticFeedbackEnabled) {}
@@ -2583,7 +2572,7 @@ public class View implements Drawable.Callback {
 
 	public void cancelLongPress() {}
 
-	public int getTextAlignment() { return 0; }
+	public int getTextAlignment() { return textAlignment; }
 
 	public View findViewWithTag(Object tag) {
 		if (Objects.equals(tag, this.tag))
