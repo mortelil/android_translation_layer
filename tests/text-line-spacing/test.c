@@ -176,6 +176,50 @@ static void spacing_case(PangoContext *context, const char *text, int width, gbo
 	g_object_unref(layout);
 }
 
+/* Count real coloured pixels; a glyph-only path loses the decoration/background
+ * colours even though its monochrome geometry tests continue to pass. */
+static void styled_attributes_case(PangoContext *context)
+{
+    PangoLayout *layout = pango_layout_new(context);
+    PangoFontDescription *font = pango_font_description_from_string("DejaVu Sans 32");
+    pango_font_description_set_absolute_size(font, 32 * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_layout_set_markup(layout,
+        "<span foreground='#ff0000' underline='single' underline_color='#0000ff'>LINK</span> "
+        "<span foreground='#00ff00' background='#ffff00' strikethrough='true' strikethrough_color='#ff00ff'>TEXT</span>", -1);
+    struct AndroidPaint paint = { .font = font };
+    test_embolden = 32.0 / 34; test_skew_x = -.25f;
+    GdkRGBA black = {0, 0, 0, 1};
+    AtlTextStyle style = { .paint = &paint, .color = black };
+    GtkSnapshot *snapshot = gtk_snapshot_new();
+    atl_layout_snapshot(snapshot, layout, &style);
+    GskRenderNode *node = gtk_snapshot_free_to_node(snapshot);
+    CHECK(node != NULL);
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 128);
+    cairo_t *cr = cairo_create(surface);
+    gsk_render_node_draw(node, cr);
+    cairo_destroy(cr); cairo_surface_flush(surface);
+    int counts[5] = {0};
+    unsigned char *data = cairo_image_surface_get_data(surface);
+    int stride = cairo_image_surface_get_stride(surface);
+    for (int y = 0; y < 128; y++) for (int x = 0; x < 512; x++) {
+        unsigned int pixel = ((unsigned int *)(data + y * stride))[x];
+        int r = (pixel >> 16) & 255, g = (pixel >> 8) & 255, b = pixel & 255;
+        if (r > 100 && g < 20 && b < 20) counts[0]++;
+        if (r < 20 && g > 100 && b < 20) counts[1]++;
+        if (r < 20 && g < 20 && b > 100) counts[2]++;
+        if (r > 100 && g > 100 && b < 20) counts[3]++;
+        if (r > 100 && g < 20 && b > 100) counts[4]++;
+    }
+    for (int i = 0; i < 5; i++) {
+        printf("styled colour %d pixels=%d\n", i, counts[i]);
+        CHECK(counts[i] > 10);
+    }
+    gsk_render_node_unref(node); cairo_surface_destroy(surface);
+    pango_font_description_free(font); g_object_unref(layout);
+    test_embolden = 0; test_skew_x = 0;
+}
+
 int main(void)
 {
 	gtk_init();
@@ -191,6 +235,7 @@ int main(void)
 	spacing_case(context,"Ag\nAg\n",-1,FALSE,9,1);
 	spacing_case(context,"Ag",-1,FALSE,40,2);
 	synthesis_case(context);
+	styled_attributes_case(context);
 	int before,natural,after,baseline;
 	gtk_widget_measure(box,GTK_ORIENTATION_VERTICAL,160,&before,&natural,NULL,NULL);
 	atl_line_box_set_spacing(ATL_LINE_BOX(box),10,1);

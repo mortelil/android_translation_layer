@@ -53,8 +53,7 @@ public final class TextSpanAttributes {
 				} else {
 					if (DEBUG) log("dropped " + (span instanceof MetricAffectingSpan
 						? describe((MetricAffectingSpan)span) : span.getClass().getName())
-						+ " range=" + spanned.getSpanStart(span) + ".." + spanned.getSpanEnd(span)
-						+ " text=\"" + string + "\"");
+						+ " range=" + spanned.getSpanStart(span) + ".." + spanned.getSpanEnd(span));
 					continue;
 				}
 				int start = spanned.getSpanStart(span), end = spanned.getSpanEnd(span);
