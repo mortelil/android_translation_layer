@@ -123,6 +123,21 @@ static gboolean atl_snapshot_append_shader(JNIEnv *env, GtkSnapshot *snapshot, j
 	return TRUE;
 }
 
+/* Apply paint once through the union of the fill and centred stroke. */
+static void atl_snapshot_push_shape_mask(GtkSnapshot *snapshot, GskPath *path,
+                                        struct AndroidPaint *paint, graphene_rect_t *bounds)
+{
+	gtk_snapshot_push_mask(snapshot, GSK_MASK_MODE_ALPHA);
+	const GdkRGBA opaque = {1, 1, 1, 1};
+	gtk_snapshot_append_stroke(snapshot, path, paint->gsk_stroke, &opaque);
+	if (paint->is_fill)
+		gtk_snapshot_append_fill(snapshot, path, GSK_FILL_RULE_WINDING, &opaque);
+	gtk_snapshot_pop(snapshot);
+	graphene_rect_t stroke_bounds;
+	gsk_path_get_stroke_bounds(path, paint->gsk_stroke, &stroke_bounds);
+	graphene_rect_union(bounds, &stroke_bounds, bounds);
+}
+
 JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jlong paint_ptr, jobject shader, jboolean repeating)
 {
 	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
@@ -130,8 +145,20 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, 
 	graphene_rect_t bounds = GRAPHENE_RECT_INIT(left, top, right - left, bottom - top);
 	if (paint->use_color_filter)
 		gtk_snapshot_push_color_matrix(snapshot, &paint->color_matrix, &paint->color_offset);
+	if (paint->is_stroke) {
+		GskPathBuilder *builder = gsk_path_builder_new();
+		gsk_path_builder_add_rect(builder, &bounds);
+		GskPath *path = gsk_path_builder_free_to_path(builder);
+		/* Paint the union once: overlapping translucent fill and stroke must
+		 * not increase opacity along the inside of the border. The mask also
+		 * preserves shader coordinates and the stroke's join/miter settings. */
+		atl_snapshot_push_shape_mask(snapshot, path, paint, &bounds);
+		gsk_path_unref(path);
+	}
 	if (!atl_snapshot_append_shader(env, snapshot, shader, repeating, &paint->color, &bounds))
 		gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
+	if (paint->is_stroke)
+		gtk_snapshot_pop(snapshot);
 	if (paint->use_color_filter)
 		gtk_snapshot_pop(snapshot);
 }
@@ -241,29 +268,23 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRoundRect(JNIEnv *
 {
 	GdkSnapshot *snapshot = (GdkSnapshot *)_PTR(snapshot_ptr);
 	struct AndroidPaint *paint = _PTR(paint_ptr);
-	GdkRGBA gdk_color[4];
-	for (int i = 0; i < 4; i++) {
-		gdk_color[i].red = paint->color.red;
-		gdk_color[i].green = paint->color.green;
-		gdk_color[i].blue = paint->color.blue;
-		gdk_color[i].alpha = paint->color.alpha;
-	}
-	GskRoundedRect round_rect = {
-		.bounds = GRAPHENE_RECT_INIT(left, top, right - left, bottom - top),
-		.corner = {{rx, ry}, {rx, ry}, {rx, ry}, {rx, ry}},
-	};
-	float width = gsk_stroke_get_line_width(paint->gsk_stroke);
-	const float widths[4] = {width, width, width, width};
+	graphene_rect_t bounds = GRAPHENE_RECT_INIT(left, top, right - left, bottom - top);
+	GskRoundedRect round_rect;
+	graphene_size_t radius = GRAPHENE_SIZE_INIT(MAX(rx, 0), MAX(ry, 0));
+	gsk_rounded_rect_init(&round_rect, &bounds, &radius, &radius, &radius, &radius);
 	if (paint->use_color_filter)
 		gtk_snapshot_push_color_matrix(snapshot, &paint->color_matrix, &paint->color_offset);
-	if (paint->is_fill) {
-		gtk_snapshot_push_rounded_clip(snapshot, &round_rect);
-		gtk_snapshot_append_color(snapshot, gdk_color, &round_rect.bounds);
-		gtk_snapshot_pop(snapshot);
-	}
 	if (paint->is_stroke) {
-		gtk_snapshot_append_border(snapshot, &round_rect, widths, gdk_color);
+		GskPathBuilder *builder = gsk_path_builder_new();
+		gsk_path_builder_add_rounded_rect(builder, &round_rect);
+		GskPath *path = gsk_path_builder_free_to_path(builder);
+		atl_snapshot_push_shape_mask(snapshot, path, paint, &bounds);
+		gsk_path_unref(path);
+	} else {
+		gtk_snapshot_push_rounded_clip(snapshot, &round_rect);
 	}
+	gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
+	gtk_snapshot_pop(snapshot);
 	if (paint->use_color_filter)
 		gtk_snapshot_pop(snapshot);
 }
