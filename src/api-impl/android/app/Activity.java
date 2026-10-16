@@ -248,18 +248,28 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		onRestart();
 	}
 
-	/** Pause step; Application/fragment dispatch stays inside onPause (AOSP Activity.onPause). */
+	/** AOSP Activity.performPause: fragment observers precede the application override. */
 	public final void performPause() {
+		fragmentsResumed = false;
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			if (fragment.activity == this) fragment.performPause();
+		}
 		onPause();
 	}
 
-	/** Stop step; Application/fragment dispatch stays inside onStop (AOSP Activity.onStop). */
+	/** AOSP Activity.performStop: fragment observers precede the application override. */
 	public final void performStop() {
+		fragmentsStarted = false;
+		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
+			if (fragment.activity == this) fragment.performStop();
+		}
 		onStop();
 	}
 
-	/** Destroy step; fragment teardown + Application dispatch stay inside onDestroy. */
+	/** AOSP Activity.performDestroy: tear down fragments before the application override. */
 	public final void performDestroy() {
+		fragmentsCreated = fragmentsActivityCreated = fragmentsStarted = fragmentsResumed = false;
+		fragmentManager.destroy();
 		onDestroy();
 	}
 
@@ -317,25 +327,15 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	protected void onPause() {
 		Slog.i(TAG, "- onPause - yay!");
-		fragmentsResumed = false;
 
 		// AOSP Activity.onPause (android-17.0.0_r1 Activity.java:2721) dispatches first.
 		getApplication().dispatchActivityPaused(this);
-
-		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
-			if (fragment.activity == this) fragment.performPause();
-		}
 
 		return;
 	}
 
 	protected void onStop() {
 		Slog.i(TAG, "- onStop - yay!");
-		fragmentsStarted = false;
-
-		for (Fragment fragment : new java.util.ArrayList<Fragment>(fragments)) {
-			if (fragment.activity == this) fragment.performStop();
-		}
 
 		// AOSP Activity.onStop (android-17.0.0_r1 Activity.java:2952).
 		getApplication().dispatchActivityStopped(this);
@@ -345,9 +345,6 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 
 	protected void onDestroy() {
 		Slog.i(TAG, "- onDestroy - yay!");
-
-		fragmentsCreated = fragmentsActivityCreated = fragmentsStarted = fragmentsResumed = false;
-		fragmentManager.destroy();
 
 		// AOSP Activity.onDestroy (android-17.0.0_r1 Activity.java:3030).
 		getApplication().dispatchActivityDestroyed(this);
@@ -777,7 +774,6 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		// ATL cannot enter picture-in-picture mode.
 		return false;
 	}
-
 
 	public void registerActivityLifecycleCallbacks(Application.ActivityLifecycleCallbacks callback) {}
 
