@@ -64,15 +64,21 @@ public class TextureView extends View {
 
 	@Override
 	protected void onDetachedFromWindow() {
-		if (available && surfaceTextureListener != null) {
-			// The listener owns the decision whether the framework may release it.
-			if (surfaceTextureListener.onSurfaceTextureDestroyed(surfaceTexture)) {
-				surfaceTexture.release();
-				surfaceTexture = null;
+		SurfaceTexture old = surfaceTexture;
+		try {
+			boolean release = true;
+			try {
+				if (available && old != null && surfaceTextureListener != null)
+					release = surfaceTextureListener.onSurfaceTextureDestroyed(old);
+			} finally {
+				// false transfers ownership to the listener; never reuse that surface.
+				if (release && old != null) old.release();
 			}
+		} finally {
+			surfaceTexture = null;
+			available = false;
+			super.onDetachedFromWindow();
 		}
-		available = false;
-		super.onDetachedFromWindow();
 	}
 
 	@Override
@@ -130,8 +136,10 @@ public class TextureView extends View {
 	}
 
 	public void setSurfaceTexture(SurfaceTexture surfaceTexture) {
-		if (this.surfaceTexture != null && !this.surfaceTexture.isReleased())
-			throw new IllegalStateException("Cannot set a new SurfaceTexture while one is attached");
+		if (surfaceTexture == null) throw new NullPointerException("surfaceTexture");
+		if (surfaceTexture == this.surfaceTexture || surfaceTexture.isReleased())
+			throw new IllegalArgumentException("SurfaceTexture must be live and different");
+		if (this.surfaceTexture != null) this.surfaceTexture.release();
 		this.surfaceTexture = surfaceTexture;
 	}
 }
