@@ -65,7 +65,7 @@ static int nsd_bridge_init(JNIEnv *env, jclass clazz)
 	g_m_service_lost = (*env)->GetStaticMethodID(env, clazz, "onNativeServiceLost",
 			"(JLjava/lang/String;Ljava/lang/String;)V");
 	g_m_resolve_result = (*env)->GetStaticMethodID(env, clazz, "onNativeResolveResult",
-			"(J[B[BLjava/lang/String;I)V");
+			"(J[BI[BLjava/lang/String;I)V");
 	g_m_backend_failed = (*env)->GetStaticMethodID(env, clazz, "onNativeBackendFailed",
 			"()V");
 	if (!g_m_service_found || !g_m_service_lost || !g_m_resolve_result || !g_m_backend_failed) {
