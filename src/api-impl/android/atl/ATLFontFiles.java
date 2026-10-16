@@ -16,16 +16,16 @@ import java.nio.ByteBuffer;
  * ATL's native typeface loader (api-impl-jni/graphics/android_graphics_Typeface.c) opens a font by
  * path, but an APK resource entry is at a nonzero offset inside the archive and may be compressed,
  * so neither the entry path ("res/foo.ttf", relative to the APK) nor its FileDescriptor is a
- * loadable path. Reading the entry's bytes and writing them to a temporary file is the same
- * conversion AOSP does in TypefaceCompatUtil.getTempFile/copyToFile
- * (frameworks-base 94b4c163 core/java/androidx-less graphics support) for exactly this reason.
+ * loadable path. Temporary files bridge APK streams to ATL's native loader.
  */
 public final class ATLFontFiles {
 	private ATLFontFiles() {}
 
 	/** Copies the remaining bytes of IN into a temporary font file and returns its path. Takes ownership of IN. */
 	public static String materialize(InputStream in) throws IOException {
-		File file = File.createTempFile("atl-font", ".ttf");
+		File file;
+		try { file = File.createTempFile("atl-font", ".ttf"); }
+		catch (IOException e) { try { in.close(); } catch (IOException ignored) {} throw e; }
 		try (InputStream source = in; OutputStream out = new FileOutputStream(file)) {
 			byte[] buffer = new byte[64 * 1024];
 			int count;

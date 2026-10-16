@@ -190,6 +190,79 @@ done:
 	return font ? _INTPTR(font) : 0;
 }
 
+/* Legacy FontFamily entries are faces of the SAME family, not independent
+ * fallback families. Preserve caller-supplied style metadata so fontconfig can
+ * choose between them. The modern CustomFallbackBuilder entry point is unchanged. */
+JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCreateFromLegacyFamilies(
+    JNIEnv *env, jclass cls, jobjectArray paths, jintArray indices, jobjectArray variations,
+    jstring fallback, jint weight, jint italic, jintArray weights, jintArray slants, jintArray groups)
+{
+    jlong handle = Java_android_graphics_Typeface_nativeCreateFromFamilies(
+        env, cls, paths, indices, variations, fallback, weight, italic > 0);
+    if (!handle) return 0;
+    struct AndroidTypeface *font = _PTR(handle);
+    FcConfig *config = pango_fc_font_map_get_config(PANGO_FC_FONT_MAP(font->map));
+    FcFontSet *set = FcConfigGetFonts(config, FcSetApplication);
+    jsize count = (*env)->GetArrayLength(env, paths);
+    GString *chain = g_string_new(NULL);
+    int previous_group = -1, default_weight = 400, default_slant = FC_SLANT_ROMAN;
+    for (jsize i = 0; i < count; i++) {
+        jint w, slant, group;
+        (*env)->GetIntArrayRegion(env, weights, i, 1, &w);
+        (*env)->GetIntArrayRegion(env, slants, i, 1, &slant);
+        (*env)->GetIntArrayRegion(env, groups, i, 1, &group);
+        if ((*env)->ExceptionCheck(env)) break;
+        char old_family[64], family[64];
+        g_snprintf(old_family, sizeof(old_family), "ATL private file font %d", (int)i);
+        g_snprintf(family, sizeof(family), "ATL legacy family %d", group);
+        if (group != previous_group) {
+            if (chain->len) g_string_append_c(chain, ',');
+            g_string_append(chain, family);
+            previous_group = group;
+        }
+        for (int n = 0; set && n < set->nfont; n++) {
+            FcPattern *pattern = set->fonts[n];
+            FcChar8 *name;
+            if (FcPatternGetString(pattern, FC_FAMILY, 0, &name) != FcResultMatch ||
+                strcmp((const char *)name, old_family)) continue;
+            FcPatternDel(pattern, FC_FAMILY);
+            FcPatternAddString(pattern, FC_FAMILY, (const FcChar8 *)family);
+            if (w != -1) {
+                FcPatternDel(pattern, FC_WEIGHT);
+                FcPatternAddInteger(pattern, FC_WEIGHT, FcWeightFromOpenType(w));
+            }
+            if (slant != -1) {
+                FcPatternDel(pattern, FC_SLANT);
+                FcPatternAddInteger(pattern, FC_SLANT, slant ? FC_SLANT_ITALIC : FC_SLANT_ROMAN);
+            }
+            if (i == 0) {
+                int fc_weight = FC_WEIGHT_REGULAR;
+                FcPatternGetInteger(pattern, FC_WEIGHT, 0, &fc_weight);
+                default_weight = FcWeightToOpenType(fc_weight);
+                FcPatternGetInteger(pattern, FC_SLANT, 0, &default_slant);
+            }
+            jstring settings = (jstring)(*env)->GetObjectArrayElement(env, variations, i);
+            if (settings) {
+                const char *value = (*env)->GetStringUTFChars(env, settings, NULL);
+                if (value) {
+                    FcPatternDel(pattern, FC_FONT_VARIATIONS);
+                    FcPatternAddString(pattern, FC_FONT_VARIATIONS, (const FcChar8 *)value);
+                    (*env)->ReleaseStringUTFChars(env, settings, value);
+                }
+                (*env)->DeleteLocalRef(env, settings);
+            }
+        }
+    }
+    pango_font_description_set_family(font->description, chain->str);
+    pango_font_description_set_weight(font->description, weight >= 0 ? weight : default_weight);
+    pango_font_description_set_style(font->description,
+        (italic >= 0 ? italic : default_slant != FC_SLANT_ROMAN) ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
+    pango_font_description_set_variations(font->description, NULL);
+    pango_fc_font_map_config_changed(PANGO_FC_FONT_MAP(font->map));
+    g_string_free(chain, TRUE);
+    return handle;
+}
+
 JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCopy(JNIEnv *env, jclass cls, jlong handle, jint weight, jint italic, jstring variations)
 {
 	struct AndroidTypeface *source = _PTR(handle);

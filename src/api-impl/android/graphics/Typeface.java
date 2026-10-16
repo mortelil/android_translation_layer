@@ -111,14 +111,18 @@ public class Typeface {
 		java.util.ArrayList<String> paths = new java.util.ArrayList<>();
 		java.util.ArrayList<Integer> indices = new java.util.ArrayList<>();
 		java.util.ArrayList<String> variations = new java.util.ArrayList<>();
+		java.util.ArrayList<Integer> weights = new java.util.ArrayList<>(), slants = new java.util.ArrayList<>(), groups = new java.util.ArrayList<>();
+		int group = 0;
 		if (families != null) for (FontFamily family : families) {
 			if (family == null) continue;
 			for (int i = 0; i < family.getFontCount(); i++) {
 				FontFamily.Entry entry = family.getFont(i);
 				paths.add(entry.path);
+				weights.add(entry.weight); slants.add(entry.italic); groups.add(group);
 				indices.add(entry.ttcIndex);
 				variations.add(FontVariationAxis.toFontVariationSettings(entry.axes));
 			}
+			group++;
 		}
 		if (paths.isEmpty()) {
 			ATLFontTrace.log("Typeface.createFromFamiliesWithDefault " + describeFamilies(families)
@@ -127,8 +131,10 @@ public class Typeface {
 		}
 		int[] indexArray = new int[indices.size()];
 		for (int i = 0; i < indexArray.length; i++) indexArray[i] = indices.get(i);
-		Typeface result = new Typeface(nativeCreateFromFamilies(paths.toArray(new String[0]), indexArray,
-				variations.toArray(new String[0]), fallbackName, weight, italic > 0));
+		int[] weightArray = new int[indices.size()], slantArray = new int[indices.size()], groupArray = new int[indices.size()];
+		for (int i = 0; i < indices.size(); i++) { weightArray[i] = weights.get(i); slantArray[i] = slants.get(i); groupArray[i] = groups.get(i); }
+		Typeface result = new Typeface(nativeCreateFromLegacyFamilies(paths.toArray(new String[0]), indexArray,
+				variations.toArray(new String[0]), fallbackName, weight, italic, weightArray, slantArray, groupArray));
 		ATLFontTrace.log("Typeface.createFromFamiliesWithDefault " + describeFamilies(families)
 		                 + " fallback=" + fallbackName + " weight=" + weight + " italic=" + italic
 		                 + " -> " + describe(result));
@@ -305,6 +311,14 @@ public class Typeface {
 	}
 
 	private static native long nativeCreate(String family, int weight, boolean italic);
+	static boolean isValidFont(String path, int index) {
+		long handle = nativeLoad(path, index);
+		if (handle == 0) return false;
+		nativeRelease(handle);
+		return true;
+	}
+	private static native long nativeCreateFromLegacyFamilies(String[] paths, int[] indices, String[] variations,
+		String fallback, int weight, int italic, int[] weights, int[] slants, int[] groups);
 	private static native long nativeLoad(String path, int index);
 	private static native long nativeCopy(long handle, int weight, int italic, String variations);
 	private static native long nativeCreateFromFamilies(String[] paths, int[] indices, String[] variations, String fallback, int weight, boolean italic);
