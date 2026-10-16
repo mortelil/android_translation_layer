@@ -191,6 +191,23 @@ public class ExtractorProbe extends Activity {
 		secondFormat(mp3, "audio/mpeg", 48000, 1, false);
 		secondFormat(flac, "audio/flac", 32000, 2, true);
 
+		secondFormat(new File(dir,"alaw.wav"), "audio/g711-alaw",8000,1,false);
+		secondFormat(new File(dir,"mulaw.wav"), "audio/g711-mlaw",8000,1,false);
+		section("mixed container rejects unsupported video track", new Attempt() {
+			public void run() throws Exception {
+				MediaExtractor e = new MediaExtractor();
+				try {
+					e.setDataSource(new File(dir,"mixed.mp4").getPath());
+					check("mixed container two streams", e.getTrackCount()==2);
+					boolean rejected=false, audio=false;
+					for(int i=0;i<2;i++) {
+						try {audio |= "audio/mp4a-latm".equals(e.getTrackFormat(i).getString("mime"));}
+						catch(UnsupportedOperationException expected) {rejected=true;}
+					}
+					check("video not mislabeled audio", rejected && audio);
+				} finally {e.release();}
+			}
+		});
 		section("file descriptor semantics", new Attempt() {
 			public void run() throws Exception { descriptorSemantics(wav); }
 		});
@@ -314,7 +331,7 @@ public class ExtractorProbe extends Activity {
 
 			// length beyond EOF is clamped to the real file size and still works.
 			MediaExtractor clamped = new MediaExtractor();
-			clamped.setDataSource(w.getFD(), 1000, wavLen + 100000);
+			clamped.setDataSource(w.getFD(), 1000, Long.MAX_VALUE);
 			checkEq("fd window clamped to EOF", Integer.valueOf(44100), Integer.valueOf(intOf(clamped, 0, "sample-rate")));
 			clamped.release();
 

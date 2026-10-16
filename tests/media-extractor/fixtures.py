@@ -25,6 +25,8 @@ WAVS = {
     "tone-22050-mono-8bit.wav": (22050, 1, 1, 3.0),
 }
 FFMPEG = {
+    "alaw.wav": (["-c:a", "pcm_alaw"], 8000, 1, 1.0),
+    "mulaw.wav": (["-c:a", "pcm_mulaw"], 8000, 1, 1.0),
     "tone-48000-mono.mp3": (["-c:a", "libmp3lame", "-b:a", "64k"], 48000, 1, 1.5),
     "tone-32000-stereo.flac": (["-c:a", "flac"], 32000, 2, 1.0),
 }
@@ -75,6 +77,9 @@ def main():
             [os.path.join(out, name)],
             check=True)
 
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+        "color=c=blue:s=32x32:d=1", "-i", os.path.join(out,"tone-44100-stereo-16bit.wav"),
+        "-c:v", "mpeg4", "-c:a", "aac", "-t", "1", os.path.join(out,"mixed.mp4")], check=True)
     # WAV with a 1000-byte junk prefix: exercises setDataSource(fd, offset, length).
     with open(os.path.join(out, "tone-44100-stereo-16bit.wav"), "rb") as f:
         wav_bytes = f.read()

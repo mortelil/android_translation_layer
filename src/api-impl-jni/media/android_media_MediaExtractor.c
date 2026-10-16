@@ -85,8 +85,14 @@ static int64_t atl_avio_seek(void *opaque, int64_t offset, int whence)
 
 	switch (whence) {
 	case SEEK_SET: target = offset; break;
-	case SEEK_CUR: target = e->pos + offset; break;
-	case SEEK_END: target = end + offset; break;
+	case SEEK_CUR:
+		if ((offset > 0 && e->pos > INT64_MAX - offset) ||
+		    (offset < 0 && e->pos < INT64_MIN - offset)) return AVERROR(EINVAL);
+		target = e->pos + offset; break;
+	case SEEK_END:
+		if ((offset > 0 && end > INT64_MAX - offset) ||
+		    (offset < 0 && end < INT64_MIN - offset)) return AVERROR(EINVAL);
+		target = end + offset; break;
 	default: return AVERROR(EINVAL);
 	}
 
@@ -114,6 +120,8 @@ static void atl_extractor_destroy(struct atl_extractor *e)
 		if (e->avio->buffer)
 			av_free(e->avio->buffer);
 		avio_context_free(&e->avio);
+	} else {
+		av_free(e->avio_buffer);
 	}
 	if (e->fd >= 0)
 		close(e->fd);
@@ -184,7 +192,7 @@ static struct atl_extractor *atl_extractor_open_fd(int fd, int64_t offset, int64
 	e->fd = dupfd;
 	e->base_offset = offset;
 	/* clamp the requested window to the real file size */
-	e->length = (length < 0 || offset + length > st.st_size) ? (st.st_size - offset) : length;
+	e->length = (length < 0 || length > st.st_size - offset) ? (st.st_size - offset) : length;
 	e->file_size = st.st_size;
 
 	e->avio_buffer = av_malloc(bufsize);
@@ -239,9 +247,9 @@ static const char *atl_mime_for_codec(enum AVCodecID id)
 	case AV_CODEC_ID_PCM_F32BE:
 	case AV_CODEC_ID_PCM_F64LE:
 	case AV_CODEC_ID_PCM_F64BE:
-	case AV_CODEC_ID_PCM_ALAW:
-	case AV_CODEC_ID_PCM_MULAW:
 		return "audio/raw";
+	case AV_CODEC_ID_PCM_ALAW: return "audio/g711-alaw";
+	case AV_CODEC_ID_PCM_MULAW: return "audio/g711-mlaw";
 	case AV_CODEC_ID_MP3: return "audio/mpeg";
 	case AV_CODEC_ID_MP2: return "audio/mpeg-L2";
 	case AV_CODEC_ID_AAC:
@@ -339,12 +347,9 @@ JNIEXPORT jstring JNICALL Java_android_media_MediaExtractor_native_1getTrackMime
 		return NULL;
 	mime = atl_mime_for_codec(stream->codecpar->codec_id);
 	if (!mime) {
-		const char *name = avcodec_get_name(stream->codecpar->codec_id);
-		char buf[128];
-		if (!name)
-			return NULL;
-		snprintf(buf, sizeof(buf), "audio/x-ffmpeg-%s", name);
-		return (*env)->NewStringUTF(env, buf);
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsupportedOperationException"),
+		    "MediaExtractor: unsupported track codec");
+		return NULL;
 	}
 	return (*env)->NewStringUTF(env, mime);
 }
