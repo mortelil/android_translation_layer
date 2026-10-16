@@ -139,3 +139,21 @@ and libs/hwui/jni/`BitmapFactory.cpp` (density resampling and bounds reporting).
 The existing Apache-2.0 header on BitmapFactory is retained; GTK drawing and
 resource integration are ATL-specific. This does not implement nine-patch
 chunks, all decode options, bitmap tiling/gravity, or full Canvas density support.
+
+`DensityActivity` is a separate, non-exiting synthetic screen in the same APK.
+Launch it with `-l DensityActivity` and a fixed logical window size (for example
+`-w 421 -h 924`) at each render scale. Compare text, compound drawables, EditText,
+CheckBox, Switch and SeekBar, then open the popup and tap its body to dismiss.
+The popup is explicitly 240x80 dp: its visible bounds and click response must
+stay the same at 1x and 2x, and opening it must not resize the main display.
+The dialog button is an additional manual check, not an automated assertion.
+
+The 2026-10-16 comparison found equal 240x80 logical popup bounds at (21,413)
+and successful body clicks at 1x and 2x after the PopupWindow repair. Dispensa's
+native dropdown arrow and Android popup rows also retain their logical sizes;
+selection changes the product category. The full smoke suite passes at 2x.
+Remaining visual defects exposed by this screen: the native CheckBox glyph and
+label, Switch width, and SeekBar thumb/trough still shrink at higher density.
+CompoundButton's no-op text setters and GTK theme dimensions require separate
+work; these observations are not claimed as passing density support. The dialog
+was not visibly opened in the scripted run, so its appearance is unverified.

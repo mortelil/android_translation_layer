@@ -96,6 +96,26 @@ JNIEXPORT jlong JNICALL Java_android_widget_Spinner_native_1constructor(JNIEnv *
 	model->jobject = _WEAK_REF(this);
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), dropdown);
 	gtk_widget_set_name(dropdown, "Spinner");
+	/* The Android subtree is in density-scaled pixels. GtkDropDown's built-in
+	 * arrow otherwise stays at GTK's 16px icon size and is shrunk a second
+	 * time by ATLScaleRoot. Scope the density adjustment to Spinner arrows;
+	 * window decorations and application-provided drawables are unaffected. */
+	GdkDisplay *display = gtk_widget_get_display(dropdown);
+	if (!g_object_get_data(G_OBJECT(display), "atl-spinner-density-style")) {
+		jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
+		double density = (*env)->GetStaticIntField(env, metrics,
+		    _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
+		(*env)->DeleteLocalRef(env, metrics);
+		GtkCssProvider *provider = gtk_css_provider_new();
+		char *css = g_strdup_printf("#Spinner arrow { min-width: %dpx; min-height: %dpx; -gtk-icon-size: %dpx; }",
+		    (int)(16 * density + 0.5), (int)(16 * density + 0.5), (int)(16 * density + 0.5));
+		gtk_css_provider_load_from_string(provider, css);
+		g_free(css);
+		gtk_style_context_add_provider_for_display(display, GTK_STYLE_PROVIDER(provider),
+		    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		g_object_set_data_full(G_OBJECT(display), "atl-spinner-density-style", provider, g_object_unref);
+	}
+
 	g_signal_connect(dropdown, "notify::selected", G_CALLBACK(on_selected_changed), wrapper->jobj);
 	/* Invoke the Java override before GtkDropDown opens its own menu. AppCompat
 	 * supplies a PopupWindow; opening both menus steals the first row click. */

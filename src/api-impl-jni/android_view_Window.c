@@ -18,6 +18,7 @@ typedef struct {
 	GtkWidget *child;
 	GskRenderNode *presented;
 	double scale;
+	gboolean window_content;
 } ATLScaleRoot;
 typedef GtkWidgetClass ATLScaleRootClass;
 G_DEFINE_TYPE(ATLScaleRoot, atl_scale_root, GTK_TYPE_WIDGET)
@@ -46,7 +47,7 @@ static void scale_root_allocate(GtkWidget *widget, int width, int height, int ba
 	int pixel_height = (int)(height * root->scale + 0.5);
 	JNIEnv *env = get_jni_env();
 	// A dialog has its own allocation, not a new app display size.
-	if (gtk_widget_get_root(widget) == GTK_ROOT(window)) {
+	if (root->window_content && gtk_widget_get_root(widget) == GTK_ROOT(window)) {
 		jclass display = (*env)->FindClass(env, "android/view/Display");
 		jmethodID resize = (*env)->GetStaticMethodID(env, display, "setWindowSize", "(II)V");
 		(*env)->CallStaticVoidMethod(env, display, resize, pixel_width, pixel_height);
@@ -68,7 +69,7 @@ static void scale_root_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	ATLScaleRoot *root = (ATLScaleRoot *)widget;
 	GtkRoot *window_root = gtk_widget_get_root(widget);
 
-	if (!window_root || atl_view_tree_observer_dispatch_pre_draw(GTK_WIDGET(window_root))) {
+	if (!root->window_content || !window_root || atl_view_tree_observer_dispatch_pre_draw(GTK_WIDGET(window_root))) {
 		GtkSnapshot *next = gtk_snapshot_new();
 		gtk_widget_snapshot_child(widget, root->child, next);
 		GskRenderNode *node = gtk_snapshot_free_to_node(next);
@@ -112,22 +113,27 @@ GtkWidget *atl_window_get_content(GtkWindow *window)
     return child;
 }
 
+GtkWidget *atl_scaled_content_new(JNIEnv *env, GtkWidget *content, gboolean window_content)
+{
+    jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
+    double scale = (*env)->GetStaticIntField(env, metrics,
+        _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
+    (*env)->DeleteLocalRef(env, metrics);
+    ATLScaleRoot *root = g_object_new(atl_scale_root_get_type(), NULL);
+    root->scale = scale;
+    root->window_content = window_content;
+    root->child = content;
+    gtk_widget_set_parent(content, GTK_WIDGET(root));
+    return GTK_WIDGET(root);
+}
+
 void atl_window_set_content(JNIEnv *env, GtkWindow *window, GtkWidget *content)
 {
     if (atl_window_get_content(window) == content)
         return;
     atl_cancel_java_touch_fallback(window);
     atl_install_java_touch_fallback(window);
-    {
-        jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
-        double scale = (*env)->GetStaticIntField(env, metrics, _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
-        (*env)->DeleteLocalRef(env, metrics);
-        ATLScaleRoot *root = g_object_new(atl_scale_root_get_type(), NULL);
-        root->scale = scale;
-        root->child = content;
-        gtk_widget_set_parent(content, GTK_WIDGET(root));
-        gtk_window_set_child(window, GTK_WIDGET(root));
-    }
+    gtk_window_set_child(window, atl_scaled_content_new(env, content, TRUE));
     /* Also expose Android coordinates to libandroid's native input queue. */
     g_object_set_data(G_OBJECT(window), "atl-content", content);
 }

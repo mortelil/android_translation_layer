@@ -3,6 +3,7 @@
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="26" />
     <application android:label="ATL synthetic smoke tests">
         <activity android:name="TestActivity" />
+        <activity android:name="DensityActivity" />
         <activity android:name="ExecutorProbeActivity" />
         <service android:name="ExecutorProbeActivity$ProbeService" />
     </application>

@@ -2,6 +2,17 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../android_view_Window.h"
+
+static double popup_density(JNIEnv *env)
+{
+	jclass metrics = (*env)->FindClass(env, "android/util/DisplayMetrics");
+	double scale = (*env)->GetStaticIntField(env, metrics,
+	    _STATIC_FIELD_ID(metrics, "DENSITY_DEVICE", "I")) / 160.0;
+	(*env)->DeleteLocalRef(env, metrics);
+	return scale;
+}
+
 
 #include "WrapperWidget.h"
 #include "PopupPlacement.h"
@@ -33,7 +44,12 @@ JNIEXPORT jlong JNICALL Java_android_widget_PopupWindow_native_1constructor(JNIE
 JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setContentView(JNIEnv *env, jobject this, jlong popover_ptr, jlong content_ptr)
 {
 	GtkWidget *content = content_ptr ? gtk_widget_get_parent(GTK_WIDGET(_PTR(content_ptr))) : NULL;
-	gtk_popover_set_child(GTK_POPOVER(_PTR(popover_ptr)), GTK_WIDGET(content));
+	GtkWidget *existing = gtk_popover_get_child(GTK_POPOVER(_PTR(popover_ptr)));
+	if (existing && gtk_widget_get_first_child(existing) == content) return;
+	/* Popovers have their own surface and do not inherit the window's
+	 * content-density transform. Do not update Display from popup allocation. */
+	gtk_popover_set_child(GTK_POPOVER(_PTR(popover_ptr)),
+	    content ? atl_scaled_content_new(env, content, FALSE) : NULL);
 }
 
 /* Keep a strong reference on the popover across reparenting (constructor).
@@ -61,6 +77,11 @@ JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1show(JNIEnv *env,
 	width = MAX(width, requested_width);
 	gtk_widget_measure(content, GTK_ORIENTATION_VERTICAL, width, NULL, &height, NULL, NULL);
 	height = MAX(height, requested_height);
+	/* GTK measures the popup in logical pixels, while the anchor/frame and
+	 * Android gravity calculation use Android pixels. */
+	double density = popup_density(env);
+	width = (int)(width * density + 0.5);
+	height = (int)(height * density + 0.5);
 	graphene_rect_t bounds;
 	if (!gtk_widget_compute_bounds(anchor, frame, &bounds)) return;
 	AtlPopupPoint p = atl_popup_position(bounds.origin.x, bounds.origin.y,
@@ -89,7 +110,7 @@ JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setWidth(JNIEnv *
 	int height;
 	GtkWidget *popover = GTK_WIDGET(_PTR(popover_ptr));
 	gtk_widget_get_size_request(popover, NULL, &height);
-	gtk_widget_set_size_request(popover, width, height);
+	gtk_widget_set_size_request(popover, width < 0 ? width : (int)(width / popup_density(env) + 0.5), height);
 }
 
 JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setHeight(JNIEnv *env, jobject this, jlong popover_ptr, jint height)
@@ -97,7 +118,7 @@ JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setHeight(JNIEnv 
 	int width;
 	GtkWidget *popover = GTK_WIDGET(_PTR(popover_ptr));
 	gtk_widget_get_size_request(popover, &width, NULL);
-	gtk_widget_set_size_request(popover, width, height);
+	gtk_widget_set_size_request(popover, width, height < 0 ? height : (int)(height / popup_density(env) + 0.5));
 }
 
 JNIEXPORT jint JNICALL Java_android_widget_PopupWindow_native_1getWidth(JNIEnv *env, jobject this, jlong popover_ptr)
@@ -105,7 +126,7 @@ JNIEXPORT jint JNICALL Java_android_widget_PopupWindow_native_1getWidth(JNIEnv *
 	GtkWidget *popover = GTK_WIDGET(_PTR(popover_ptr));
 	GtkRequisition natural_size;
 	gtk_widget_get_preferred_size(popover, &natural_size, NULL);
-	return natural_size.width;
+	return (int)(natural_size.width * popup_density(env) + 0.5);
 }
 
 JNIEXPORT jint JNICALL Java_android_widget_PopupWindow_native_1getHeight(JNIEnv *env, jobject this, jlong popover_ptr)
@@ -113,7 +134,7 @@ JNIEXPORT jint JNICALL Java_android_widget_PopupWindow_native_1getHeight(JNIEnv 
 	GtkWidget *popover = GTK_WIDGET(_PTR(popover_ptr));
 	GtkRequisition natural_size;
 	gtk_widget_get_preferred_size(popover, &natural_size, NULL);
-	return natural_size.height;
+	return (int)(natural_size.height * popup_density(env) + 0.5);
 }
 
 JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setTouchable(JNIEnv *env, jobject this, jlong popover_ptr, jboolean touchable)
