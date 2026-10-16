@@ -416,6 +416,7 @@ srcs = [
 	'android/net/UrlQuerySanitizer.java',
 	'android/net/http/X509TrustManagerExtensions.java',
 	'android/net/nsd/NsdManager.java',
+	'android/net/nsd/NsdServiceInfo.java',
 	'android/net/ssl/SSLSockets.java',
 	'android/net/wifi/WifiInfo.java',
 	'android/net/wifi/WifiManager.java',

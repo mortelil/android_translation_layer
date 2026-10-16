@@ -159,6 +159,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                   	'src/api-impl-jni/media/android_media_MediaPlayer.c',
                                                                   	'src/api-impl-jni/media/android_media_session_MediaSession.c',
                                                                   	'src/api-impl-jni/net/android_net_ConnectivityManager.c',
+                                                                  	'src/api-impl-jni/net/android_net_nsd_NsdManager.c',
                                                                   	'src/api-impl-jni/os/android_atl_GVariantBuilderParcel.c',
                                                                   	'src/api-impl-jni/os/android_atl_GVariantIterParcel.c',
                                                                   	'src/api-impl-jni/os/android_os_Process.c',
@@ -213,6 +214,7 @@ libtranslationlayer_so = shared_library('translation_layer_main', [
                                                                         extra_deps,
                                                                         cc.find_library('SkiaSharp'), dependency('fontconfig'), dependency('pangoft2'), dependency('pangocairo'), dependency('gtk4', version: '>=4.14'), dependency('gl'), dependency('egl'), dependency('wayland-client'), dependency('jni'),
 	dependency('libportal'), dependency('sqlite3'), dependency('libavcodec', version: '>=59'), dependency('libavformat'), dependency('libdrm'),
+                                                                        dependency('avahi-client'),
                                                                         dependency('gudev-1.0'), dependency('libswscale'), dependency('webkitgtk-6.0'), dependency('libsoup-3.0'), dependency('libsecret-1'),
                                                                         libart_dep, wayland_protos_dep
                                                                   ],
