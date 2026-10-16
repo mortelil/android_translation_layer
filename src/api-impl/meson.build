@@ -649,6 +649,7 @@ srcs = [
 	'android/view/Choreographer.java',
 	'android/view/ContextMenu.java',
 	'android/view/ContextThemeWrapper.java',
+	'android/view/CollapsibleActionView.java',
 	'android/view/Display.java',
 	'android/view/DisplayCutout.java',
 	'android/view/DisplayListCanvas.java',

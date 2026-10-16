@@ -25,11 +25,11 @@ JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setContentView
 
 /*
  * Class:     android_widget_PopupWindow
- * Method:    native_showAsDropDown
- * Signature: (JJIII)V
+ * Method:    native_show
+ * Signature: (JJJIIIIIZZZ)V
  */
-JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1showAsDropDown
-  (JNIEnv *, jobject, jlong, jlong, jint, jint, jint);
+JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1show
+  (JNIEnv *, jobject, jlong, jlong, jlong, jint, jint, jint, jint, jint, jboolean, jboolean, jboolean);
 
 /*
  * Class:     android_widget_PopupWindow
@@ -62,14 +62,6 @@ JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1setTouchModal
  */
 JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1dismiss
   (JNIEnv *, jobject, jlong);
-
-/*
- * Class:     android_widget_PopupWindow
- * Method:    native_update
- * Signature: (JJIIII)V
- */
-JNIEXPORT void JNICALL Java_android_widget_PopupWindow_native_1update
-  (JNIEnv *, jobject, jlong, jlong, jint, jint, jint, jint);
 
 /*
  * Class:     android_widget_PopupWindow

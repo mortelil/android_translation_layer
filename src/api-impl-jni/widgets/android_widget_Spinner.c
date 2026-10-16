@@ -62,6 +62,27 @@ static void bind_listitem_cb(GtkListItemFactory *factory, GtkListItem *list_item
 	gtk_list_item_set_child(list_item, child);
 }
 
+static void on_selected_changed(GtkDropDown *dropdown, GParamSpec *pspec, jobject spinner);
+
+static void spinner_pressed(GtkGestureClick *gesture, int n, double x, double y, gpointer data)
+{
+	GtkWidget *wrapper = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+	GdkEvent *event = gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(gesture));
+	/* A popup has its own surface. Its row clicks must not reopen the spinner. */
+	if (event && gdk_event_get_surface(event) == gtk_native_get_surface(gtk_widget_get_native(wrapper)))
+		gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+	else
+		gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_DENIED);
+}
+
+static void spinner_released(GtkGestureClick *gesture, int n, double x, double y, gpointer data)
+{
+	JNIEnv *env = get_jni_env();
+	WrapperWidget *wrapper = WRAPPER_WIDGET(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture)));
+	(*env)->CallBooleanMethod(env, wrapper->jobj, handle_cache.view.performClick);
+	if ((*env)->ExceptionCheck(env)) (*env)->ExceptionDescribe(env);
+}
+
 JNIEXPORT jlong JNICALL Java_android_widget_Spinner_native_1constructor(JNIEnv *env, jobject this, jobject context, jobject attrs)
 {
 	WrapperWidget *wrapper = g_object_ref(WRAPPER_WIDGET(wrapper_widget_new()));
@@ -75,7 +96,27 @@ JNIEXPORT jlong JNICALL Java_android_widget_Spinner_native_1constructor(JNIEnv *
 	model->jobject = _WEAK_REF(this);
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), dropdown);
 	gtk_widget_set_name(dropdown, "Spinner");
+	g_signal_connect(dropdown, "notify::selected", G_CALLBACK(on_selected_changed), wrapper->jobj);
+	/* Invoke the Java override before GtkDropDown opens its own menu. AppCompat
+	 * supplies a PopupWindow; opening both menus steals the first row click. */
+	GListModel *controllers = gtk_widget_observe_controllers(GTK_WIDGET(wrapper));
+	for (guint i = g_list_model_get_n_items(controllers); i > 0; i--) {
+		GtkEventController *controller = g_list_model_get_item(controllers, i - 1);
+		if (GTK_IS_GESTURE_CLICK(controller)) gtk_widget_remove_controller(GTK_WIDGET(wrapper), controller);
+		g_object_unref(controller);
+	}
+	g_object_unref(controllers);
+	GtkGesture *click = gtk_gesture_click_new();
+	gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+	g_signal_connect(click, "pressed", G_CALLBACK(spinner_pressed), NULL);
+	g_signal_connect(click, "released", G_CALLBACK(spinner_released), NULL);
+	gtk_widget_add_controller(GTK_WIDGET(wrapper), GTK_EVENT_CONTROLLER(click));
 	return _INTPTR(dropdown);
+}
+
+JNIEXPORT jboolean JNICALL Java_android_widget_Spinner_native_1performClick(JNIEnv *env, jobject this, jlong ptr)
+{
+	return gtk_widget_activate(gtk_widget_get_first_child(GTK_WIDGET(_PTR(ptr))));
 }
 
 JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setAdapter(JNIEnv *env, jobject this, jlong widget_ptr, jobject adapter)
@@ -91,22 +132,19 @@ JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setAdapter(JNIEnv *en
 	g_list_model_items_changed(G_LIST_MODEL(model), 0, old_n_items, model->n_items);
 }
 
-static void on_selected_changed(GtkDropDown *dropdown, GParamSpec *pspec, jobject listener)
+static void on_selected_changed(GtkDropDown *dropdown, GParamSpec *pspec, jobject spinner)
 {
 	JNIEnv *env = get_jni_env();
-	int index = gtk_drop_down_get_selected(dropdown);
-	gpointer selected = gtk_drop_down_get_selected_item(dropdown);
-	if (!selected)
-		return;
-	RangeListModel *model = RANGE_LIST_ITEM(selected)->model;
-	jmethodID onItemSelected = _METHOD(_CLASS(listener), "onItemSelected", "(Landroid/widget/AdapterView;Landroid/view/View;IJ)V");
-	(*env)->CallVoidMethod(env, listener, onItemSelected, model->jobject, NULL, index, (long)0);
+	guint selected = gtk_drop_down_get_selected(dropdown);
+	jmethodID changed = _METHOD(_CLASS(spinner), "onNativeSelectionChanged", "(I)V");
+	(*env)->CallVoidMethod(env, spinner, changed, selected == GTK_INVALID_LIST_POSITION ? -1 : (jint)selected);
 }
 
-JNIEXPORT void JNICALL Java_android_widget_Spinner_setOnItemSelectedListener(JNIEnv *env, jobject this, jobject listener)
+JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setSelection(JNIEnv *env, jobject this, jlong ptr, jint position)
 {
-	GtkDropDown *dropdown = GTK_DROP_DOWN(_PTR(_GET_LONG_FIELD(this, "widget")));
-	g_signal_connect(dropdown, "notify::selected", G_CALLBACK(on_selected_changed), _REF(listener));
+	GtkDropDown *dropdown = GTK_DROP_DOWN(_PTR(ptr));
+	guint count = g_list_model_get_n_items(gtk_drop_down_get_model(dropdown));
+	gtk_drop_down_set_selected(dropdown, position >= 0 && (guint)position < count ? (guint)position : GTK_INVALID_LIST_POSITION);
 }
 
 JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setBackgroundDrawable(JNIEnv *env, jobject this, jlong widget_ptr, jlong paintable_ptr)

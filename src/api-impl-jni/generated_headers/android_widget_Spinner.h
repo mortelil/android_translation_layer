@@ -275,6 +275,14 @@ JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setAdapter
 
 /*
  * Class:     android_widget_Spinner
+ * Method:    native_performClick
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_widget_Spinner_native_1performClick
+  (JNIEnv *, jobject, jlong);
+
+/*
+ * Class:     android_widget_Spinner
  * Method:    native_setBackgroundDrawable
  * Signature: (JJ)V
  */
@@ -291,11 +299,11 @@ JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setBackgroundColor
 
 /*
  * Class:     android_widget_Spinner
- * Method:    setOnItemSelectedListener
- * Signature: (Landroid/widget/AdapterView/OnItemSelectedListener;)V
+ * Method:    native_setSelection
+ * Signature: (JI)V
  */
-JNIEXPORT void JNICALL Java_android_widget_Spinner_setOnItemSelectedListener
-  (JNIEnv *, jobject, jobject);
+JNIEXPORT void JNICALL Java_android_widget_Spinner_native_1setSelection
+  (JNIEnv *, jobject, jlong, jint);
 
 #ifdef __cplusplus
 }
