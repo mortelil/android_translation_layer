@@ -18,7 +18,10 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCreate(JNIEnv *env,
 	if (!name) return 0;
 	struct AndroidTypeface *font = g_new0(struct AndroidTypeface, 1);
 	font->description = pango_font_description_new();
-	pango_font_description_set_family(font->description, name);
+	/* The family the typeface asks for resolved against the config Pango will resolve it with, so a
+	 * generic Android family reaches Pango as the face Android's font config gives it. */
+	pango_font_description_set_family(font->description,
+	                                  atl_resolve_android_family(FcConfigGetCurrent(), name));
 	pango_font_description_set_weight(font->description, weight);
 	pango_font_description_set_style(font->description, italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 	(*env)->ReleaseStringUTFChars(env, family, name);
@@ -96,7 +99,7 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeLoad(JNIEnv *env, j
 	 * typeface without a declared fallback family gets from a minikin FontCollection. Only this
 	 * font's own empty coverage selects it; the file, the family name and the text do not. */
 	pango_font_description_set_family(font->description, covered ? "ATL private file font"
-	                                                            : "sans-serif");
+	                                                            : atl_resolve_android_family(config, "sans-serif"));
 	int ot_weight = FcWeightToOpenType(weight);
 	pango_font_description_set_weight(font->description, ot_weight > 0 ? ot_weight : 400);
 	pango_font_description_set_style(font->description, slant == FC_SLANT_ROMAN ? PANGO_STYLE_NORMAL : PANGO_STYLE_ITALIC);
