@@ -1,0 +1,2 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"><View android:id="@+id/merged" android:layout_width="20dp" android:layout_height="20dp" /></merge>

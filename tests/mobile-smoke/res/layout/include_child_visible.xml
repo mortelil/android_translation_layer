@@ -1,0 +1,2 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<View xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/original" android:layout_width="20dp" android:layout_height="20dp" />
