@@ -18,20 +18,19 @@ import org.xmlpull.v1.XmlPullParserException;
 public class BitmapDrawable extends Drawable {
 
 	private Bitmap bitmap;
+	private int targetDensity = android.util.DisplayMetrics.DENSITY_DEFAULT;
+	private final Paint paint = new Paint();
 
 	public BitmapDrawable() {
 	}
 
 	public BitmapDrawable(Resources res, Bitmap bitmap) {
 		this.bitmap = bitmap;
-		if (bitmap != null)
-			setPaintable(bitmap.getTexture());
+		if (res != null) targetDensity = res.getDisplayMetrics().densityDpi;
 	}
 
 	public BitmapDrawable(Bitmap bitmap) {
 		this.bitmap = bitmap;
-		if (bitmap != null)
-			setPaintable(bitmap.getTexture());
 	}
 
 	public Bitmap getBitmap() {
@@ -56,27 +55,38 @@ public class BitmapDrawable extends Drawable {
 		a.recycle();
 		if (bitmap == null)
 			throw new XmlPullParserException("<bitmap> needs a valid `src' attribute");
-		setPaintable(bitmap.getTexture());
+		targetDensity = r.getDisplayMetrics().densityDpi;
 	}
 
 	@Override
 	public int getIntrinsicWidth() {
 		if (bitmap == null)
 			return 0;
-		return bitmap.getWidth();
+		return bitmap.getScaledWidth(targetDensity);
 	}
 
 	@Override
 	public int getIntrinsicHeight() {
 		if (bitmap == null)
 			return 0;
-		return bitmap.getHeight();
+		return bitmap.getScaledHeight(targetDensity);
+	}
+
+	public void setTargetDensity(int density) {
+		targetDensity = density == 0 ? android.util.DisplayMetrics.DENSITY_DEFAULT : density;
+		invalidateSelf();
+	}
+
+	@Override
+	public void draw(Canvas canvas) {
+		if (bitmap != null && !getBounds().isEmpty())
+			canvas.drawBitmap(bitmap, null, getBounds(), paint);
 	}
 
 	public void setTileModeX(Shader.TileMode mode) {}
 
 	public Paint getPaint() {
-		return new Paint();
+		return paint;
 	}
 
 	public void setGravity(int g) {}

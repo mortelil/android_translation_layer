@@ -118,3 +118,24 @@ Reference contracts for the review repairs: AOSP `android-16.0.0_r1`,
 these tests do not claim hardware key-policy enforcement or a TextureView
 compositor. Original lane reports under other test directories describe their
 recorded pre-review snapshots, not validation of every later revision.
+
+## Bitmap density
+
+`TestBitmapDensity` covers resource density propagation, mdpi/xhdpi selection,
+`nodpi`, actual decode resampling, `inScaled=false`, the `inScreenDensity`
+exemption, bounds-only decoding, density-preserving copies and parcels,
+BitmapDrawable intrinsic sizing, GTK ImageView preferred sizing, and pixels
+rendered into explicit bounds. Synthetic 24px mdpi/red, 48px xhdpi/blue and
+24px nodpi/green PNGs make resource selection independently observable.
+Run the suite with `ATL_RENDER_SCALE=1`, `1.5`, and `2`; a 24dp resource must
+occupy 24, 36 and 48 Android pixels respectively, then the window's inverse
+transform preserves its logical size.
+
+Contract references: AOSP frameworks/base `android-17.0.0_r1`, commit
+`94b4c163b7dfe5ce3607f7bb8456f9573f7de57d`, graphics/java/android/graphics/
+`Bitmap.java` (`scaleFromDensity`), `BitmapFactory.java`
+(`decodeResourceStream`, `setDensityFromOptions`), drawable/`BitmapDrawable.java`,
+and libs/hwui/jni/`BitmapFactory.cpp` (density resampling and bounds reporting).
+The existing Apache-2.0 header on BitmapFactory is retained; GTK drawing and
+resource integration are ATL-specific. This does not implement nine-patch
+chunks, all decode options, bitmap tiling/gravity, or full Canvas density support.

@@ -325,7 +325,8 @@ public class Drawable {
 	public static Drawable createFromResourceStream(Resources resources, TypedValue value, InputStream is, String file,
 	                                                Object object) {
 		if (!file.endsWith(".9.png")) {
-			final Bitmap bm = BitmapFactory.decodeStream(is);
+			final Bitmap bm = BitmapFactory.decodeResourceStream(resources, value, is, null,
+			    object instanceof BitmapFactory.Options ? (BitmapFactory.Options)object : null);
 			if (bm == null)
 				return null;
 			return new BitmapDrawable(resources, bm);

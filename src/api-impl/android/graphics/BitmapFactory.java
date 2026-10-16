@@ -446,14 +446,14 @@ public class BitmapFactory {
 	 *         size be returned (in opts.outWidth and opts.outHeight)
 	 */
 	public static Bitmap decodeResource(Resources res, int id, Options opts) throws NotFoundException {
-		Bitmap bitmap = decodeStreamInternal(res.openRawResource(id), null, opts);
-		if (bitmap == null && opts != null && opts.inBitmap != null) {
-			throw new IllegalArgumentException("Problem decoding into existing bitmap");
+		TypedValue value = new TypedValue();
+		try (InputStream stream = res.openRawResource(id, value)) {
+			Bitmap bitmap = decodeResourceStream(res, value, stream, null, opts);
+			if (bitmap != null) bitmap.mutable = opts != null && opts.inMutable;
+			return bitmap;
+		} catch (IOException e) {
+			return null;
 		}
-		if (bitmap != null && opts != null && opts.inScaled == false) {
-			bitmap.mutable = false;
-		}
-		return bitmap;
 	}
 
 	/**
@@ -510,27 +510,16 @@ public class BitmapFactory {
 	/**
 	 * Set the newly decoded bitmap's density based on the Options.
 	 */
-	private static void setDensityFromOptions(Bitmap outputBitmap, Options opts) { /*
-	     if (outputBitmap == null || opts == null) return;
-
-	     final int density = opts.inDensity;
-	     if (density != 0) {
-		 outputBitmap.setDensity(density);
-		 final int targetDensity = opts.inTargetDensity;
-		 if (targetDensity == 0 || density == targetDensity || density == opts.inScreenDensity) {
-		     return;
-		 }
-
-		 byte[] np = outputBitmap.getNinePatchChunk();
-		 final boolean isNinePatch = np != null && NinePatch.isNinePatchChunk(np);
-		 if (opts.inScaled || isNinePatch) {
-		     outputBitmap.setDensity(targetDensity);
-		 }
-	     } else if (opts.inBitmap != null) {
-		 // bitmap was reused, ensure density is reset
-		 outputBitmap.setDensity(Bitmap.getDefaultDensity());
-	     }
-	 */
+	private static void setDensityFromOptions(Bitmap bitmap, Options opts) {
+		if (bitmap == null || opts == null) return;
+		if (opts.inDensity != 0) {
+			int density = opts.inDensity;
+			if (opts.inScaled && opts.inTargetDensity != 0 &&
+			    opts.inDensity != opts.inScreenDensity) density = opts.inTargetDensity;
+			bitmap.setDensity(density);
+		} else if (opts.inBitmap != null) {
+			bitmap.setDensity(DisplayMetrics.DENSITY_DEVICE);
+		}
 	}
 
 	/**
@@ -603,6 +592,16 @@ public class BitmapFactory {
 			if (opts.inJustDecodeBounds) {
 				decoded.recycle();
 				return null;
+			}
+			if (opts.inScaled && opts.inDensity != 0 && opts.inTargetDensity != 0 &&
+			    opts.inDensity != opts.inTargetDensity && opts.inDensity != opts.inScreenDensity) {
+				int width = Math.max(1, Bitmap.scaleFromDensity(decoded.getWidth(), opts.inDensity, opts.inTargetDensity));
+				int height = Math.max(1, Bitmap.scaleFromDensity(decoded.getHeight(), opts.inDensity, opts.inTargetDensity));
+				Bitmap scaled = Bitmap.createScaledBitmap(decoded, width, height, true);
+				// Materialize before releasing the source texture referenced by the snapshot.
+				scaled.getTexture();
+				decoded.recycle();
+				decoded = scaled;
 			}
 			if (opts.inBitmap != null) {
 				opts.inBitmap.transferFrom(decoded);

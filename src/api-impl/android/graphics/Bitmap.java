@@ -32,6 +32,7 @@ public final class Bitmap implements Parcelable {
         dest.writeString(parcelConfig.name());
         dest.writeInt(mutable ? 1 : 0);
         dest.writeInt(hasAlpha ? 1 : 0);
+        dest.writeInt(density);
         dest.writeByteArray(buffer.array());
     }
 
@@ -42,6 +43,7 @@ public final class Bitmap implements Parcelable {
             try { config = Config.valueOf(in.readString()); }
             catch (RuntimeException e) { throw new BadParcelableException(e); }
             boolean mutable = in.readInt() != 0, alpha = in.readInt() != 0;
+            int density = in.readInt();
             byte[] pixels = in.createByteArray();
             long row = ((long) width * config.bytes_per_pixel + 3) & ~3L;
             long count = row * height;
@@ -53,6 +55,7 @@ public final class Bitmap implements Parcelable {
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels));
             bitmap.mutable = mutable;
             bitmap.hasAlpha = alpha;
+            bitmap.density = density;
             return bitmap;
         }
         @Override public Bitmap[] newArray(int size) { return new Bitmap[size]; }
@@ -96,6 +99,8 @@ public final class Bitmap implements Parcelable {
 	long bytes = 0; // used by native function AndroidBitmap_lockPixels()
 	private boolean recycled = false;
 	boolean mutable = true;
+	public static final int DENSITY_NONE = 0;
+	private int density = DisplayMetrics.DENSITY_DEVICE;
 
 	Bitmap(long texture) {
 		this(native_get_width(texture), native_get_height(texture), Config.ARGB_8888);
@@ -115,23 +120,28 @@ public final class Bitmap implements Parcelable {
 	}
 
 	public static Bitmap createBitmap(DisplayMetrics metrics, int width, int height, Config config) {
-		return new Bitmap(width, height, config);
+		Bitmap bitmap = new Bitmap(width, height, config);
+		if (metrics != null) bitmap.density = metrics.densityDpi;
+		return bitmap;
 	}
 
 	public static Bitmap createBitmap(DisplayMetrics metrics, int width, int height, Config config, boolean hasAlpha, ColorSpace colorSpace) {
 		Bitmap bitmap = new Bitmap(width, height, config);
 		bitmap.hasAlpha = hasAlpha;
+		if (metrics != null) bitmap.density = metrics.densityDpi;
 		return bitmap;
 	}
 
 	public static Bitmap createBitmap(Bitmap src, int x, int y, int width, int height) {
 		Bitmap dest = new Bitmap(width, height, src.getConfig());
+		dest.density = src.density;
 		new Canvas(dest).drawBitmap(src, new Rect(x, y, x + width, y + height), new Rect(0, 0, width, height), null);
 		return dest;
 	}
 
 	public static Bitmap createBitmap(Bitmap src, int x, int y, int width, int height, Matrix matrix, boolean filter) {
 		Bitmap dest = new Bitmap(width, height, src.getConfig());
+		dest.density = src.density;
 		Canvas canvas = new Canvas(dest);
 		canvas.concat(matrix);
 		canvas.drawBitmap(src, new Rect(x, y, x + width, y + height), new Rect(0, 0, width, height), null);
@@ -143,11 +153,14 @@ public final class Bitmap implements Parcelable {
 	}
 
 	public static Bitmap createBitmap(Bitmap src) {
-		return new Bitmap(native_ref_texture(src.getTexture()));
+		Bitmap bitmap = new Bitmap(native_ref_texture(src.getTexture()));
+		bitmap.density = src.density;
+		return bitmap;
 	}
 
 	public static Bitmap createScaledBitmap(Bitmap src, int dstWidth, int dstHeight, boolean filter) {
 		Bitmap dest = new Bitmap(dstWidth, dstHeight, src.getConfig());
+		dest.density = src.density;
 		new Canvas(dest).drawBitmap(src, new Rect(0, 0, src.getWidth(), src.getHeight()), new Rect(0, 0, dstWidth, dstHeight), null);
 		return dest;
 	}
@@ -222,6 +235,7 @@ public final class Bitmap implements Parcelable {
 		this.config = src.config;
 		this.hasAlpha = src.hasAlpha;
 		this.mutable = src.mutable;
+		this.density = src.density;
 		this.recycled = false;
 		src.texture = 0;
 		src.snapshot = 0;
@@ -236,14 +250,21 @@ public final class Bitmap implements Parcelable {
 		getTexture();
 	}
 
-	public void setDensity(int density) {}
+	public void setDensity(int density) { this.density = density; }
+
+	public int getDensity() { return density; }
+
+	public static int scaleFromDensity(int size, int source, int target) {
+		if (source == 0 || target == 0 || source == target) return size;
+		return (int)(((long) size * target + source / 2) / source);
+	}
 
 	public int getScaledWidth(int density) {
-		return width;
+		return scaleFromDensity(width, this.density, density);
 	}
 
 	public int getScaledHeight(int density) {
-		return height;
+		return scaleFromDensity(height, this.density, density);
 	}
 
 	public boolean isRecycled() {
@@ -271,6 +292,7 @@ public final class Bitmap implements Parcelable {
 	public Bitmap copy(Bitmap.Config config, boolean isMutable) {
 		Bitmap bitmap = new Bitmap(width, height, config);
 		bitmap.texture = native_ref_texture(getTexture());
+		bitmap.density = density;
 		return bitmap;
 	}
 

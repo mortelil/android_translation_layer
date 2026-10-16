@@ -176,7 +176,7 @@ JNIEXPORT jint JNICALL Java_android_content_res_AssetManager_loadResourceValue(J
 	uint32_t resId = ident;
 	struct Res_value value;
 	uint32_t outSpecFlags;
-	struct ResTable_config outConfig;
+	struct ResTable_config outConfig = {0};
 	uint32_t ref;
 	ApkAssetsCookie cookie = AssetManager_getResource(asset_manager, resId, false, density,
 	                                                  &value, &outConfig, &outSpecFlags);
@@ -187,6 +187,7 @@ JNIEXPORT jint JNICALL Java_android_content_res_AssetManager_loadResourceValue(J
 	}
 	if (cookie >= 0) {
 		_SET_INT_FIELD(outValue, "type", value.dataType);
+		_SET_INT_FIELD(outValue, "density", outConfig.density);
 		_SET_INT_FIELD(outValue, "data", value.data);
 		_SET_INT_FIELD(outValue, "resourceId", resId);
 		_SET_INT_FIELD(outValue, "assetCookie", JAVA_COOKIE(cookie));
