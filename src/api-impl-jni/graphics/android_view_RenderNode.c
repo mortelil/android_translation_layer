@@ -64,6 +64,52 @@ static GskRenderNode *patch_node(GskRenderNode *node, GskRenderNode *old_child, 
 			gsk_render_node_unref(child);
 			break;
 		}
+		case GSK_OPACITY_NODE: {
+			GskRenderNode *original = gsk_opacity_node_get_child(node);
+			GskRenderNode *child = patch_node(original, old_child, new_child);
+			new_node = child != original ? gsk_opacity_node_new(child, gsk_opacity_node_get_opacity(node)) : gsk_render_node_ref(node);
+			gsk_render_node_unref(child);
+			break;
+		}
+		case GSK_ROUNDED_CLIP_NODE: {
+			GskRenderNode *original = gsk_rounded_clip_node_get_child(node);
+			GskRenderNode *child = patch_node(original, old_child, new_child);
+			new_node = child != original ? gsk_rounded_clip_node_new(child, gsk_rounded_clip_node_get_clip(node)) : gsk_render_node_ref(node);
+			gsk_render_node_unref(child);
+			break;
+		}
+		case GSK_COLOR_MATRIX_NODE: {
+			GskRenderNode *original = gsk_color_matrix_node_get_child(node);
+			GskRenderNode *child = patch_node(original, old_child, new_child);
+			new_node = child != original ? gsk_color_matrix_node_new(child, gsk_color_matrix_node_get_color_matrix(node), gsk_color_matrix_node_get_color_offset(node)) : gsk_render_node_ref(node);
+			gsk_render_node_unref(child);
+			break;
+		}
+		case GSK_FILL_NODE: {
+			GskRenderNode *original = gsk_fill_node_get_child(node);
+			GskRenderNode *child = patch_node(original, old_child, new_child);
+			new_node = child != original ? gsk_fill_node_new(child, gsk_fill_node_get_path(node), gsk_fill_node_get_fill_rule(node)) : gsk_render_node_ref(node);
+			gsk_render_node_unref(child);
+			break;
+		}
+		case GSK_STROKE_NODE: {
+			GskRenderNode *original = gsk_stroke_node_get_child(node);
+			GskRenderNode *child = patch_node(original, old_child, new_child);
+			new_node = child != original ? gsk_stroke_node_new(child, gsk_stroke_node_get_path(node), gsk_stroke_node_get_stroke(node)) : gsk_render_node_ref(node);
+			gsk_render_node_unref(child);
+			break;
+		}
+		case GSK_MASK_NODE: {
+			GskRenderNode *source = patch_node(gsk_mask_node_get_source(node), old_child, new_child);
+			GskRenderNode *mask = patch_node(gsk_mask_node_get_mask(node), old_child, new_child);
+			if (source != gsk_mask_node_get_source(node) || mask != gsk_mask_node_get_mask(node))
+				new_node = gsk_mask_node_new(source, mask, gsk_mask_node_get_mask_mode(node));
+			else
+				new_node = gsk_render_node_ref(node);
+			gsk_render_node_unref(source);
+			gsk_render_node_unref(mask);
+			break;
+		}
 		default:
 			new_node = gsk_render_node_ref(node);
 	}
