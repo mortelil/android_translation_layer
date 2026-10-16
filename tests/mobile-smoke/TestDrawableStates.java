@@ -74,6 +74,21 @@ public final class TestDrawableStates {
         check(row.isChecked() && background.getCurrent() == checked, "Checkmark checked state");
         row.toggle();
         check(!row.isChecked() && background.getCurrent() == normal, "Checkmark toggle");
+        ColorDrawable mark = new ColorDrawable(0xff12ab34) {
+            public int getIntrinsicWidth() { return 12; }
+            public int getIntrinsicHeight() { return 10; }
+        };
+        row.setCheckMarkDrawable(mark);
+        row.setPadding(3, 4, 5, 6);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.layout(0, 0, 100, 40);
+        android.graphics.Bitmap pixels = android.graphics.Bitmap.createBitmap(100, 40,
+                android.graphics.Bitmap.Config.ARGB_8888);
+        row.onDraw(new android.graphics.Canvas(pixels));
+        check(mark.getBounds().left == 83 && mark.getBounds().top == 15,
+                "Checkmark end/vertical geometry");
+        check(pixels.getPixel(88, 20) == 0xff12ab34, "Checkmark was not rendered");
+        check(pixels.getPixel(80, 20) == 0, "Checkmark escaped its bounds");
         row.setCheckMarkDrawable((android.graphics.drawable.Drawable)null);
         check(row.getCheckMarkDrawable() == null, "Checkmark removal");
         System.out.println("PASS: drawable state extension, selectors and state-change dispatch");
