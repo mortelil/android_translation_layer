@@ -221,8 +221,9 @@ static void test_clip_inside_transform(void) {
 	/* rotated by 90 degrees the outline rotates with the content */
 	child = solid_rect();
 	clipped = clip(child, MODE_ROUND_RECT, radius, 0, NULL);
-	transform = gsk_transform_rotate(NULL, 90);
-	transform = gsk_transform_translate(transform, &GRAPHENE_POINT_INIT(80, 0));
+	/* Translate in device space after rotating, keeping all ink on the canvas. */
+	transform = gsk_transform_translate(NULL, &GRAPHENE_POINT_INIT(80, 0));
+	transform = gsk_transform_rotate(transform, 90);
 	node = gsk_transform_node_new(clipped, transform);
 	gsk_transform_unref(transform);
 	gsk_render_node_unref(clipped);
