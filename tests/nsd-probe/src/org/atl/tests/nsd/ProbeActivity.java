@@ -119,6 +119,32 @@ public class ProbeActivity extends Activity {
             }
         }
 
+        // Stress the backend callback/control overlap while the original browser
+        // remains live. Resolve each result and restart a separate browser.
+        if (info != null) {
+            java.lang.reflect.Field lf = NsdManager.class.getDeclaredField("sLock");
+            lf.setAccessible(true);
+            ResolveRec duplicate = new ResolveRec();
+            NsdManager.ResolveListener shared = duplicate.listener();
+            synchronized (lf.get(null)) {
+                nsd.resolveService(info, shared);
+                try {nsd.resolveService(info, shared);throw new AssertionError("ResolveListener reuse accepted");}
+                catch (IllegalArgumentException expected) {}
+            }
+            if (!duplicate.done.await(5,TimeUnit.SECONDS) || !duplicate.resolved)
+                throw new AssertionError("original resolve damaged by duplicate rejection");
+            for (int round = 0; round < 20; round++) {
+                Rec stress = new Rec();
+                RecListener sl = new RecListener(stress, new CountDownLatch(1));
+                nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, sl);
+                ResolveRec rr = new ResolveRec();
+                nsd.resolveService(info, rr.listener());
+                if (!rr.done.await(5, TimeUnit.SECONDS) || !rr.resolved)
+                    throw new AssertionError("concurrent NSD resolve failed at " + round);
+                nsd.stopServiceDiscovery(sl);
+            }
+        }
+
         // ---- B: operation generations ----------------------------------------
         Long oldHandle = handleFor(nsd, l1);
         CountDownLatch stopped1 = new CountDownLatch(1);

@@ -22,6 +22,7 @@
 
 #include <jni.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,8 +67,8 @@ static int nsd_bridge_init(JNIEnv *env, jclass clazz)
 			"(JLjava/lang/String;Ljava/lang/String;)V");
 	g_m_resolve_result = (*env)->GetStaticMethodID(env, clazz, "onNativeResolveResult",
 			"(J[BI[BLjava/lang/String;I)V");
-	g_m_backend_failed = (*env)->GetStaticMethodID(env, clazz, "onNativeBackendFailed",
-			"()V");
+	g_m_backend_failed = (*env)->GetStaticMethodID(env, clazz, "onNativeOperationFailed",
+			"(J)V");
 	if (!g_m_service_found || !g_m_service_lost || !g_m_resolve_result || !g_m_backend_failed) {
 		android_log_printf(ANDROID_LOG_ERROR, "NsdManager",
 				"failed to resolve NsdManager callback methods");
@@ -129,12 +130,12 @@ static void java_resolve_result(long handle, jbyteArray address, int port,
 		(*env)->DeleteLocalRef(env, txt);
 }
 
-static void java_backend_failed(void)
+static void java_operation_failed(jlong handle)
 {
 	JNIEnv *env = nsd_attach();
 	if (!env)
 		return;
-	(*env)->CallStaticVoidMethod(env, g_nsd_class, g_m_backend_failed);
+	(*env)->CallStaticVoidMethod(env, g_nsd_class, g_m_backend_failed, handle);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
 }
@@ -143,7 +144,7 @@ static void java_backend_failed(void)
 
 static AvahiThreadedPoll *g_nsd_poll = NULL;
 static AvahiClient *g_client = NULL;
-static int g_client_running = 0;
+static atomic_int g_client_running = 0;
 static int g_failure_notified = 0;
 static pthread_mutex_t g_init_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -162,6 +163,14 @@ struct resolve_op {
 
 static struct discovery_op *g_discoveries = NULL;
 static struct resolve_op *g_resolves = NULL;
+
+static void java_backend_failed(void)
+{
+	for (struct discovery_op *d = g_discoveries; d; d = d->next)
+		java_operation_failed(d->handle);
+	for (struct resolve_op *r = g_resolves; r; r = r->next)
+		java_operation_failed(r->handle);
+}
 
 static void clear_ops(void)
 {
@@ -244,8 +253,7 @@ static jbyteArray build_address(JNIEnv *env, const AvahiAddress *a)
 	return NULL;
 }
 
-/* Build the TXT record as a NUL-separated list of "key=value" entries so that
- * arbitrary (possibly binary) values survive; the Java layer splits it. */
+/* DNS-SD length-prefixed TXT records preserve embedded NUL and binary values. */
 static jbyteArray build_txt(JNIEnv *env, AvahiStringList *txt)
 {
 	AvahiStringList *l;
@@ -258,9 +266,9 @@ static jbyteArray build_txt(JNIEnv *env, AvahiStringList *txt)
 	jbyte *buf = (*env)->GetByteArrayElements(env, arr, NULL);
 	for (l = txt; l; l = avahi_string_list_get_next(l)) {
 		size_t sz = avahi_string_list_get_size(l);
+		buf[off++] = (jbyte)sz;
 		memcpy(buf + off, avahi_string_list_get_text(l), sz);
 		off += sz;
-		buf[off++] = 0;
 	}
 	(*env)->ReleaseByteArrayElements(env, arr, buf, 0);
 	return arr;
@@ -309,6 +317,7 @@ static void browse_cb(AvahiServiceBrowser *b, AvahiIfIndex interface,
 		break;
 	case AVAHI_BROWSER_FAILURE:
 		g_client_running = 0;
+		java_operation_failed(op->handle);
 		unlink_discovery_locked(op->handle);
 		avahi_service_browser_free(b);
 		free(op->service_type);
@@ -425,9 +434,10 @@ JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeStartDiscovery(
 		op->next = g_discoveries;
 		g_discoveries = op;
 	}
+	int started = op->browser != NULL;
 	avahi_threaded_poll_unlock(g_nsd_poll);
 
-	if (!op->browser) {
+	if (!started) {
 		free(op->service_type);
 		free(op);
 		return JNI_FALSE;
@@ -464,8 +474,7 @@ JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeResolve(
 	const char *name = (*env)->GetStringUTFChars(env, jname, NULL);
 	const char *type = (*env)->GetStringUTFChars(env, jtype, NULL);
 	const char *domain = jdomain ? (*env)->GetStringUTFChars(env, jdomain, NULL) : NULL;
-	if (domain && domain[0] == '\0')
-		domain = NULL;
+	const char *lookup_domain = domain && domain[0] ? domain : NULL;
 
 	struct resolve_op *op = calloc(1, sizeof(*op));
 	op->handle = handle;
@@ -474,11 +483,12 @@ JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeResolve(
 	if (g_client_running)
 		op->resolver = avahi_service_resolver_new(g_client,
 				(AvahiIfIndex)iface, (AvahiProtocol)proto, name, type,
-				domain, AVAHI_PROTO_UNSPEC, 0, resolve_cb, op);
+				lookup_domain, AVAHI_PROTO_UNSPEC, 0, resolve_cb, op);
 	if (op->resolver) {
 		op->next = g_resolves;
 		g_resolves = op;
 	}
+	int started = op->resolver != NULL;
 	avahi_threaded_poll_unlock(g_nsd_poll);
 
 	(*env)->ReleaseStringUTFChars(env, jname, name);
@@ -486,7 +496,7 @@ JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeResolve(
 	if (jdomain && domain)
 		(*env)->ReleaseStringUTFChars(env, jdomain, domain);
 
-	if (!op->resolver) {
+	if (!started) {
 		free(op);
 		return JNI_FALSE;
 	}

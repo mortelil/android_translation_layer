@@ -18,12 +18,9 @@ package android.net.nsd;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import java.net.InetAddress;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -75,6 +72,7 @@ public class NsdManager {
         final long handle;
         final DiscoveryListener listener;
         final String serviceType;
+        boolean started;
         DiscoveryOp(long handle, DiscoveryListener listener, String serviceType) {
             this.handle = handle;
             this.listener = listener;
@@ -113,11 +111,8 @@ public class NsdManager {
 
     private static void runOnMain(Runnable r) {
         Handler h = handler();
-        if (h != null && Looper.myLooper() != Looper.getMainLooper()) {
-            h.post(r);
-        } else {
-            r.run();
-        }
+        if (h == null || !h.post(r))
+            throw new IllegalStateException("NSD requires a running main looper");
     }
 
     /**
@@ -128,7 +123,7 @@ public class NsdManager {
         if (listener == null) {
             throw new IllegalArgumentException("listener cannot be null");
         }
-        if (serviceType == null) {
+        if (serviceType == null || serviceType.isEmpty()) {
             throw new IllegalArgumentException("serviceType cannot be null");
         }
         if (protocol != PROTOCOL_DNS_SD) {
@@ -155,7 +150,11 @@ public class NsdManager {
             }
             sDiscoveries.put(handle, new DiscoveryOp(handle, listener, serviceType));
         }
-        postDiscoveryStarted(listener, serviceType);
+        runOnMain(new Runnable() { public void run() {
+            DiscoveryOp op;
+            synchronized (sLock) { op = sDiscoveries.get(handle); }
+            if (op != null) notifyStarted(op);
+        }});
     }
 
     /**
@@ -173,8 +172,8 @@ public class NsdManager {
                 throw new IllegalArgumentException("listener not registered");
             }
             sDiscoveries.remove(op.handle);
+            nativeStopDiscovery(op.handle);
         }
-        nativeStopDiscovery(op.handle);
         postDiscoveryStopped(op.listener, op.serviceType);
     }
 
@@ -186,11 +185,16 @@ public class NsdManager {
         if (listener == null) {
             throw new IllegalArgumentException("listener cannot be null");
         }
-        if (serviceInfo.getServiceName() == null) {
+        if (serviceInfo.getServiceName() == null || serviceInfo.getServiceName().isEmpty()) {
             throw new IllegalArgumentException("serviceInfo must have a service name");
         }
+        if (serviceInfo.getServiceType() == null || serviceInfo.getServiceType().isEmpty())
+            throw new IllegalArgumentException("serviceInfo must have a service type");
         final long handle;
         synchronized (sLock) {
+            for (ResolveOp op : sResolves.values()) {
+                if (op.listener == listener) throw new IllegalArgumentException("listener already in use");
+            }
             handle = sNextHandle.getAndIncrement();
             if (!nativeIsAvailable()
                     || !nativeResolve(handle, serviceInfo.getServiceName(),
@@ -218,8 +222,11 @@ public class NsdManager {
         runOnMain(new Runnable() { public void run() { l.onStartDiscoveryFailed(type, code); } });
     }
 
-    private static void postDiscoveryStarted(final DiscoveryListener l, final String type) {
-        runOnMain(new Runnable() { public void run() { l.onDiscoveryStarted(type); } });
+    private static void notifyStarted(DiscoveryOp op) {
+        if (!op.started) {
+            op.started = true;
+            op.listener.onDiscoveryStarted(op.serviceType);
+        }
     }
 
     private static void postDiscoveryStopped(final DiscoveryListener l, final String type) {
@@ -234,126 +241,87 @@ public class NsdManager {
 
     private static void onNativeServiceFound(final long handle, final String name,
             final String type, final String domain, final int iface, final int proto) {
-        final DiscoveryOp op;
-        synchronized (sLock) {
-            op = sDiscoveries.get(handle);
-        }
-        if (op == null) {
-            return; // stale generation: discovery stopped or restarted
-        }
-        final NsdServiceInfo info = new NsdServiceInfo();
-        info.setServiceName(name);
-        info.setServiceType(op.serviceType != null ? op.serviceType : type);
-        info.mNativeIface = iface;
-        info.mNativeProto = proto;
-        info.mNativeDomain = domain;
         runOnMain(new Runnable() { public void run() {
-            // Re-check under lock: the discovery may have been stopped between
-            // the native event and this main-thread delivery.
-            synchronized (sLock) {
-                if (sDiscoveries.get(handle) != op) {
-                    return;
-                }
-            }
+            DiscoveryOp op;
+            synchronized (sLock) { op = sDiscoveries.get(handle); }
+            if (op == null) return;
+            NsdServiceInfo info = new NsdServiceInfo();
+            info.setServiceName(name);
+            info.setServiceType(op.serviceType);
+            info.mNativeIface = iface;
+            info.mNativeProto = proto;
+            info.mNativeDomain = domain;
+            notifyStarted(op);
+            // The start callback may itself stop discovery.
+            synchronized (sLock) { if (sDiscoveries.get(handle) != op) return; }
             op.listener.onServiceFound(info);
         }});
     }
 
     private static void onNativeServiceLost(final long handle, final String name, final String type) {
-        final DiscoveryOp op;
-        synchronized (sLock) {
-            op = sDiscoveries.get(handle);
-        }
-        if (op == null) {
-            return;
-        }
-        final NsdServiceInfo info = new NsdServiceInfo();
-        info.setServiceName(name);
-        info.setServiceType(op.serviceType != null ? op.serviceType : type);
         runOnMain(new Runnable() { public void run() {
-            synchronized (sLock) {
-                if (sDiscoveries.get(handle) != op) {
-                    return;
-                }
-            }
+            DiscoveryOp op;
+            synchronized (sLock) { op = sDiscoveries.get(handle); }
+            if (op == null) return;
+            NsdServiceInfo info = new NsdServiceInfo();
+            info.setServiceName(name);
+            info.setServiceType(op.serviceType);
+            notifyStarted(op);
+            synchronized (sLock) { if (sDiscoveries.get(handle) != op) return; }
             op.listener.onServiceLost(info);
         }});
     }
 
     private static void onNativeResolveResult(final long handle, final byte[] address,
             final int port, final byte[] txt, final String hostname, final int error) {
-        final ResolveOp op;
-        synchronized (sLock) {
-            op = sResolves.remove(handle);
-        }
-        if (op == null) {
-            return; // cancelled or already completed
-        }
-        if (error != 0) {
-            postResolveFailed(op.listener, op.info, error);
-            return;
-        }
-        if (address != null) {
+        runOnMain(new Runnable() { public void run() {
+            ResolveOp op;
+            synchronized (sLock) { op = sResolves.remove(handle); }
+            if (op == null) return;
+            if (error != 0 || address == null) {
+                op.listener.onResolveFailed(op.info, FAILURE_INTERNAL_ERROR);
+                return;
+            }
             try {
                 op.info.setHost(InetAddress.getByAddress(address));
-            } catch (Exception e) {
-                Log.w(TAG, "could not build InetAddress from resolved address", e);
+                op.info.setPort(port);
+                if (txt != null) parseTxt(txt, op.info);
+            } catch (java.net.UnknownHostException | IllegalArgumentException e) {
+                op.listener.onResolveFailed(op.info, FAILURE_INTERNAL_ERROR);
+                return;
             }
-        }
-        op.info.setPort(port);
-        if (txt != null) {
-            parseTxt(txt, op.info);
-        }
-        runOnMain(new Runnable() { public void run() { op.listener.onServiceResolved(op.info); } });
+            op.listener.onServiceResolved(op.info);
+        }});
     }
 
-    /**
-     * The backend went away (daemon died / disconnected). Android defines no
-     * callback for this, so terminate every active operation explicitly rather
-     * than leaving the application waiting forever: discoveries report
-     * onDiscoveryStopped and pending resolves report onResolveFailed.
-     */
-    private static void onNativeBackendFailed() {
-        final List<DiscoveryOp> discoveries = new ArrayList<DiscoveryOp>();
-        final List<ResolveOp> resolves = new ArrayList<ResolveOp>();
-        synchronized (sLock) {
-            discoveries.addAll(sDiscoveries.values());
-            resolves.addAll(sResolves.values());
-            sDiscoveries.clear();
-            sResolves.clear();
-        }
-        for (final DiscoveryOp op : discoveries) {
-            postDiscoveryStopped(op.listener, op.serviceType);
-        }
-        for (final ResolveOp op : resolves) {
-            postResolveFailed(op.listener, op.info, FAILURE_INTERNAL_ERROR);
-        }
+    // Called under the backend lock: only enqueue, never acquire sLock here.
+    private static void onNativeOperationFailed(final long handle) {
+        runOnMain(new Runnable() { public void run() {
+            DiscoveryOp discovery;
+            ResolveOp resolve;
+            synchronized (sLock) {
+                discovery = sDiscoveries.remove(handle);
+                resolve = sResolves.remove(handle);
+            }
+            if (discovery != null) discovery.listener.onDiscoveryStopped(discovery.serviceType);
+            if (resolve != null) resolve.listener.onResolveFailed(resolve.info, FAILURE_INTERNAL_ERROR);
+        }});
     }
 
-    /** Split the native null-terminated "key=value" TXT blob into attributes. */
+    /** DNS-SD TXT wire records: one unsigned length byte followed by raw bytes. */
     private static void parseTxt(byte[] txt, NsdServiceInfo info) {
-        int start = 0;
-        for (int i = 0; i <= txt.length; i++) {
-            if (i == txt.length || txt[i] == 0) {
-                if (i > start) {
-                    int eq = -1;
-                    for (int j = start; j < i; j++) {
-                        if (txt[j] == '=') { eq = j; break; }
-                    }
-                    String key;
-                    byte[] value;
-                    if (eq >= 0) {
-                        key = new String(txt, start, eq - start, java.nio.charset.StandardCharsets.UTF_8);
-                        value = new byte[i - eq - 1];
-                        System.arraycopy(txt, eq + 1, value, 0, value.length);
-                    } else {
-                        key = new String(txt, start, i - start, java.nio.charset.StandardCharsets.UTF_8);
-                        value = new byte[0];
-                    }
-                    info.setAttribute(key, value);
-                }
-                start = i + 1;
+        for (int pos = 0; pos < txt.length;) {
+            int size = txt[pos++] & 0xff;
+            if (size > txt.length - pos) throw new IllegalArgumentException("Truncated TXT record");
+            int end = pos + size;
+            int eq = pos;
+            while (eq < end && txt[eq] != '=') eq++;
+            if (eq > pos) {
+                String key = new String(txt, pos, eq - pos, java.nio.charset.StandardCharsets.US_ASCII);
+                byte[] value = eq == end ? null : java.util.Arrays.copyOfRange(txt, eq + 1, end);
+                info.setAttribute(key, value);
             }
+            pos = end;
         }
     }
 

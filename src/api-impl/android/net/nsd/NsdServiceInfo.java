@@ -92,9 +92,14 @@ public class NsdServiceInfo {
      * The value may be null (an empty-string value).
      */
     public void setAttribute(String key, byte[] value) {
-        if (key == null) {
-            throw new IllegalArgumentException("key cannot be null");
+        if (key == null || key.isEmpty()) throw new IllegalArgumentException("empty TXT key");
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (c < 0x20 || c > 0x7e || c == '=')
+                throw new IllegalArgumentException("TXT key must be printable ASCII without '='");
         }
+        if (key.length() + 1 + (value == null ? 0 : value.length) > 255)
+            throw new IllegalArgumentException("TXT record exceeds 255 bytes");
         mTxtRecord.put(key, value);
     }
 
@@ -105,10 +110,10 @@ public class NsdServiceInfo {
 
     /**
      * Returns the TXT records (attributes) as a map of key to value bytes.
-     * The returned map is the live backing store, matching AOSP semantics.
+     * The returned map is an unmodifiable view, matching AOSP semantics.
      */
     public Map<String, byte[]> getAttributes() {
-        return mTxtRecord;
+        return java.util.Collections.unmodifiableMap(mTxtRecord);
     }
 
     @Override

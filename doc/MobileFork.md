@@ -45,7 +45,7 @@ be shared with Toolbox. Install development packages inside Alpine:
 sudo apk add git build-base meson python3 pkgconf java-common openjdk8-jdk \
   android-build-tools elfutils-dev libunwind-dev libbsd-dev libcap-dev \
   pc:alsa pc:glib-2.0 pc:gtk4 pc:fontconfig pc:pangoft2 pc:pangocairo pc:gudev-1.0 pc:libportal pc:openxr \
-  pc:vulkan pc:webkitgtk-6.0 pc:libsoup-3.0 pc:libsecret-1 ffmpeg-dev skiasharp \
+  pc:vulkan pc:webkitgtk-6.0 pc:libsoup-3.0 pc:libsecret-1 pc:avahi-client ffmpeg-dev skiasharp \
   bionic_translation-dev art_standalone-dev libandroidfw-dev libopensles-standalone
 ```
 
@@ -272,3 +272,12 @@ originally developed alongside `mortelil/atl-shelf` (commit `62ee446`). It keeps
 activity stacks, dialogs and native touch coordinates in the same coordinate
 space. Existing scale settings remain explicit; this does not claim complete
 Android display/inset behavior.
+
+DNS-SD discovery uses libavahi-client and requires a reachable Avahi daemon on
+D-Bus. Installing the development library alone does not provide discovery.
+The current subset supports browsing and resolving, not service publication or
+network-specific overloads. Backend failures are delivered to listeners.
+
+The software keystore uses the session's Secret Service. Backend timeouts and
+connection failures are errors, not evidence that an alias is absent. Headless
+or private-D-Bus app tests that need keys must supply a working test backend.
