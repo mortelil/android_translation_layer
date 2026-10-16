@@ -13,9 +13,9 @@ static gboolean on_close_request(GtkWidget *dialog, jobject jobj)
 {
 	printf("on_close_request\n");
 	JNIEnv *env = get_jni_env();
-	jmethodID dismiss = _METHOD(_CLASS(jobj), "dismiss", "()V");
+	jmethodID dismiss = _METHOD(_CLASS(jobj), "cancelFromUser", "()V");
 	(*env)->CallVoidMethod(env, jobj, dismiss);
-	return FALSE;
+	return TRUE;
 }
 
 /* state for Dialog.setCanceledOnTouchOutside() */
@@ -30,7 +30,7 @@ static gboolean on_touch_outside(GtkEventControllerLegacy *controller, GdkEvent 
 	GdkEventType event_type = gdk_event_get_event_type(event);
 	if ((event_type == GDK_BUTTON_PRESS || event_type == GDK_TOUCH_BEGIN) && gtk_widget_get_visible(GTK_WIDGET(outside->dialog))) {
 		JNIEnv *env = get_jni_env();
-		jmethodID dismiss = _METHOD(_CLASS(outside->jobj), "dismiss", "()V");
+		jmethodID dismiss = _METHOD(_CLASS(outside->jobj), "cancelFromUser", "()V");
 		(*env)->CallVoidMethod(env, outside->jobj, dismiss);
 		if ((*env)->ExceptionCheck(env))
 			(*env)->ExceptionDescribe(env);
@@ -90,7 +90,7 @@ JNIEXPORT void JNICALL Java_android_app_Dialog_nativeClose(JNIEnv *env, jobject 
 {
 	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
 	remove_touch_outside(dialog);
-	gtk_window_close(dialog);
+	gtk_widget_set_visible(GTK_WIDGET(dialog), FALSE);
 }
 
 JNIEXPORT jboolean JNICALL Java_android_app_Dialog_nativeIsShowing(JNIEnv *env, jobject this, jlong ptr)

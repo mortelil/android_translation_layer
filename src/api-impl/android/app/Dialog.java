@@ -33,6 +33,8 @@ public class Dialog implements Window.Callback, DialogInterface {
 	private Window window;
 	private OnDismissListener onDismissListener;
 	private OnShowListener onShowListener;
+	private OnCancelListener onCancelListener;
+	private boolean cancelable = true, canceled, created, showing;
 
 	public Dialog(Context context, int themeResId) {
 		this.context = context;
@@ -77,9 +79,9 @@ public class Dialog implements Window.Callback, DialogInterface {
 
 	public void setOwnerActivity(Activity activity) {}
 
-	public void setCancelable(boolean cancelable) {}
+	public void setCancelable(boolean cancelable) { this.cancelable = cancelable; }
 
-	public void setOnCancelListener(OnCancelListener onCancelListener) {}
+	public void setOnCancelListener(OnCancelListener onCancelListener) { this.onCancelListener = onCancelListener; }
 
 	public void setOnDismissListener(OnDismissListener onDismissListener) {
 		this.onDismissListener = onDismissListener;
@@ -94,7 +96,9 @@ public class Dialog implements Window.Callback, DialogInterface {
 		Runnable action = new Runnable() {
 			@Override
 			public void run() {
-				onCreate(null);
+				if (!created) { created = true; onCreate(null); }
+				showing = true;
+				canceled = false;
 				// Read the size of the main window. Floating dialogs should be smaller as specified in the windowMinWidth* attributes.
 				// Non-floating are typically constructed with MATCH_PARENT layout params and thus get the exact size of the main window.
 				// Most non-floating dialogs are technically dialogs, but are expected to behave more like full size activities.
@@ -139,6 +143,9 @@ public class Dialog implements Window.Callback, DialogInterface {
 	}
 
 	public void dismiss() {
+		if (!showing) return;
+		showing = false;
+		final OnDismissListener listener = onDismissListener;
 		System.out.println("dismissing the Dialog " + Dialog.this);
 		// HACK: dismissing the Dialog takes some time in AOSP, as the request goes back and forth between the application
 		// and the system server. We replicate this behavior by adding 10 ms delay.
@@ -148,8 +155,7 @@ public class Dialog implements Window.Callback, DialogInterface {
 			@Override
 			public void run() {
 				nativeClose(nativePtr);
-				if (onDismissListener != null)
-					onDismissListener.onDismiss(Dialog.this);
+				if (listener != null) listener.onDismiss(Dialog.this);
 			}
 		}, 10);
 	}
@@ -214,8 +220,11 @@ public class Dialog implements Window.Callback, DialogInterface {
 
 	@Override
 	public void cancel() {
+		if (!canceled) { canceled = true; if (onCancelListener != null) onCancelListener.onCancel(this); }
 		dismiss();
 	}
+
+	private void cancelFromUser() { if (cancelable) cancel(); }
 
 	public void setOnShowListener(OnShowListener onShowListener) {
 		this.onShowListener = onShowListener;

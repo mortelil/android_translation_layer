@@ -39,6 +39,10 @@ public class Window {
 
 	public static interface OnFrameMetricsAvailableListener {}
 
+	private android.media.session.MediaController mediaController;
+	public void setMediaController(android.media.session.MediaController controller) { mediaController = controller; }
+	public android.media.session.MediaController getMediaController() { return mediaController; }
+
 	public long native_window;
 	private ViewGroup decorView;
 

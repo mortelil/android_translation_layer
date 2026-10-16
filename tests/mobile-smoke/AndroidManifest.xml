@@ -6,5 +6,6 @@
         <activity android:name="DensityActivity" />
         <activity android:name="ExecutorProbeActivity" />
         <service android:name="ExecutorProbeActivity$ProbeService" />
+    <activity android:name="DialogFragmentActivity" android:exported="true" />
     </application>
 </manifest>

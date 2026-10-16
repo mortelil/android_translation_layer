@@ -113,6 +113,10 @@ public class Fragment {
 	public void onDestroy() {
 	}
 
+	public FragmentManager getFragmentManager() {
+		return activity == null ? null : activity.getFragmentManager();
+	}
+
 	public Activity getActivity() {
 		return activity;
 	}
