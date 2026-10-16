@@ -3,6 +3,7 @@ package android.graphics.fonts;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.atl.ATLFontTrace;
 import android.graphics.Typeface;
 
 import java.io.File;
@@ -142,6 +143,8 @@ public final class Font {
 				throw new IOException("Unable to load font: " + mFile);
 			int weight = mWeight < 0 ? face.getWeight() : mWeight;
 			boolean italic = mItalic < 0 ? face.isItalic() : mItalic == 1;
+			ATLFontTrace.log("Font.Builder.build file=" + mFile + " ttcIndex=" + mTtcIndex
+			                 + " -> Font(weight=" + weight + ", italic=" + italic + ")");
 			return new Font(mFile, mTtcIndex, weight, italic, mAxes);
 		}
 	}

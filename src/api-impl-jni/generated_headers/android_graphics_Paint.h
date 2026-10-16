@@ -207,6 +207,22 @@ JNIEXPORT jfloat JNICALL Java_android_graphics_Paint_native_1get_1text_1size
 
 /*
  * Class:     android_graphics_Paint
+ * Method:    native_set_fake_bold_text
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1fake_1bold_1text
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     android_graphics_Paint
+ * Method:    native_set_text_skew_x
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_android_graphics_Paint_native_1set_1text_1skew_1x
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     android_graphics_Paint
  * Method:    native_set_color_filter
  * Signature: (JII)V
  */

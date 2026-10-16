@@ -8,11 +8,20 @@
 struct AndroidPaint {
 	GdkRGBA color;
 	GskStroke *gsk_stroke;
+	/* The caller's stroke width, verbatim (hwui's mStrokeWidth, default 0 = hairline).
+	 * GskStroke cannot hold 0, so the render path may differ from this value; Paint's
+	 * getter must still report what was set (see android_graphics_Paint.c). */
+	float stroke_width;
 	PangoFontDescription *font;
 	PangoFontMap *font_map;
 	PangoAlignment alignment;
 	graphene_matrix_t color_matrix;
 	graphene_vec4_t color_offset;
+	/* hwui Paint's mTextSkewX and the FAKE_BOLD_TEXT_FLAG: the two style requests Android's
+	 * framework Skia satisfies by synthesising a bold/oblique face when the family has none
+	 * (SkFont::setEmbolden, SkFont::setSkewX). See android_graphics_Paint.h. */
+	float text_skew_x;
+	bool fake_bold : 1;
 	bool is_fill : 1;
 	bool is_stroke : 1;
 	bool use_color_filter : 1;

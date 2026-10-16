@@ -41,11 +41,11 @@ JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeTransform
 
 /*
  * Class:     android_view_RenderNode
- * Method:    nativeClip
- * Signature: (JFFFF)J
+ * Method:    nativeClipOutline
+ * Signature: (JIFFFFFIJ)J
  */
-JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeClip
-  (JNIEnv *, jobject, jlong, jfloat, jfloat, jfloat, jfloat);
+JNIEXPORT jlong JNICALL Java_android_view_RenderNode_nativeClipOutline
+  (JNIEnv *, jobject, jlong, jint, jfloat, jfloat, jfloat, jfloat, jfloat, jint, jlong);
 
 /*
  * Class:     android_view_RenderNode

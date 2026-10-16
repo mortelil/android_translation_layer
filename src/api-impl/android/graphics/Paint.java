@@ -165,6 +165,10 @@ public class Paint {
 		this.flags = flags;
 		if ((flags & ANTI_ALIAS_FLAG) != 0)
 			setAntiAlias(true);
+		// hwui's setJavaFlags applies every legacy flag bit to the SkFont
+		// (PaintImpl.cpp:170,208): the fake bold bit is SkFont::setEmbolden, and the run that is
+		// drawn must carry it as well as the measurement.
+		native_set_fake_bold_text(paint, (flags & FAKE_BOLD_TEXT_FLAG) != 0);
 	}
 
 	public int getHinting() { return hinting; }
@@ -322,11 +326,13 @@ public class Paint {
 	public /*native*/ void setUnderlineText(boolean underlineText) {}
 	public /*native*/ void setStrikeThruText(boolean strikeThruText) {}
 	public void setFakeBoldText(boolean fakeBoldText) {
-		// Android's FAKE_BOLD_TEXT_FLAG is what hwui turns into SkFont::setEmbolden().
+		// Android's FAKE_BOLD_TEXT_FLAG is what hwui turns into SkFont::setEmbolden()
+		// (hwui/jni/Paint.cpp:782).
 		if (fakeBoldText)
 			flags |= FAKE_BOLD_TEXT_FLAG;
 		else
 			flags &= ~FAKE_BOLD_TEXT_FLAG;
+		native_set_fake_bold_text(paint, fakeBoldText);
 	}
 
 	public float getStrokeWidth() {
@@ -342,7 +348,12 @@ public class Paint {
 	public /*native*/ float getTextScaleX() { return 0; }
 	public /*native*/ void setTextScaleX(float scaleX) {}
 	public float getTextSkewX() { return textSkewX; }
-	public void setTextSkewX(float skewX) { this.textSkewX = skewX; }
+	public void setTextSkewX(float skewX) {
+		// SkFont::setSkewX (hwui/jni/Paint.cpp:1018): the shear reaches the drawn run, not just
+		// the measurement the field used to feed.
+		this.textSkewX = skewX;
+		native_set_text_skew_x(paint, skewX);
+	}
 
 	public /*native*/ float descent() { return 0; }
 	public float getFontMetrics(FontMetrics metrics) {
@@ -549,6 +560,8 @@ public class Paint {
 	private static native int native_get_stroke_join(long paint);
 	private static native void native_set_text_size(long paint, float size);
 	private static native float native_get_text_size(long paint);
+	private static native void native_set_fake_bold_text(long paint, boolean fakeBoldText);
+	private static native void native_set_text_skew_x(long paint, float skewX);
 	private static native void native_set_color_filter(long paint, int mode, int color);
 	private static native void native_get_text_bounds(long paint, String text, Rect bounds, int flags, int hinting, int typefaceWeight, float letterSpacing, float textSkewX);
 	private static native void native_set_text_align(long paint, int align);

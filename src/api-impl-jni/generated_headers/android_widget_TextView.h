@@ -333,6 +333,14 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShadowLayer
 JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setShowSoftInputOnFocus
   (JNIEnv *, jobject, jlong, jboolean);
 
+/*
+ * Class:     android_widget_TextView
+ * Method:    native_setTextAlignment
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setTextAlignment
+  (JNIEnv *, jobject, jlong, jint);
+
 #ifdef __cplusplus
 }
 #endif

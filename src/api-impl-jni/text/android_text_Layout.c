@@ -176,7 +176,10 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw(JNIEnv *env, jobjec
 	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	struct AndroidPaint *android_paint = _PTR(paint_ptr);
 
-	atl_layout_snapshot(snapshot, pango_layout, &android_paint->color);
+	/* The paint carries the run's synthetic style: Android draws the runs its font family
+	 * cannot serve with Skia's fake bold/oblique (see graphics/android_graphics_Paint.h). */
+	const AtlTextStyle style = { .color = android_paint->color, .paint = android_paint };
+	atl_layout_snapshot(snapshot, pango_layout, &style);
 }
 
 JNIEXPORT void JNICALL Java_android_text_Layout_native_1draw_1custom_1canvas(JNIEnv *env, jobject object, jlong layout, jobject canvas, jobject paint)

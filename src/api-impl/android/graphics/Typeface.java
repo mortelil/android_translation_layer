@@ -1,5 +1,7 @@
 package android.graphics;
 
+import android.atl.ATLFontFiles;
+import android.atl.ATLFontTrace;
 import android.content.res.AssetManager;
 import java.io.File;
 import android.graphics.fonts.FontVariationAxis;
@@ -7,6 +9,9 @@ import java.util.Objects;
 
 public class Typeface {
 	public static final int NORMAL = 0, BOLD = 1, ITALIC = 2, BOLD_ITALIC = 3;
+	/** The family a typeface created from bundled fonts falls back to (frameworks-base 94b4c163
+	 *  graphics/java/android/graphics/Typeface.java:292). */
+	public static final String DEFAULT_FAMILY = "sans-serif";
 	public static final Typeface DEFAULT = create("sans-serif", NORMAL);
 	public static final Typeface DEFAULT_BOLD = create("sans-serif", BOLD);
 	public static final Typeface SANS_SERIF = DEFAULT;
@@ -49,24 +54,130 @@ public class Typeface {
 	public boolean isBold() { return weight >= 600; }
 	public int getStyle() { return (isBold() ? BOLD : 0) | (italic ? ITALIC : 0); }
 	public static Typeface defaultFromStyle(int style) { return create((String)null, style); }
-	public static Typeface createFromFile(String path) { return createFromFile(new File(path)); }
+	public static Typeface createFromFile(String path) {
+		ATLFontTrace.log("Typeface.createFromFile(String) path=" + path);
+		return createFromFile(new File(path));
+	}
 	public static Typeface createFromFile(File file) {
 		Typeface result = new Builder(file).build();
+		ATLFontTrace.log("Typeface.createFromFile(File) path="
+		                 + (file == null ? "null" : file.getAbsolutePath())
+		                 + " -> " + describe(result));
 		if (result == null) throw new RuntimeException("Unable to load font: " + file);
 		return result;
 	}
-	// These older asset/family entry points still need a font-data backend.
-	public static Typeface createFromAsset(AssetManager mgr, String path) { return DEFAULT; }
-	public static Typeface createFromFamiliesWithDefault(FontFamily[] families) { return DEFAULT; }
-	public static Typeface createFromFamiliesWithDefault(FontFamily[] families, int a, int b) { return DEFAULT; }
+	/**
+	 * Creates a typeface from a font resource the AssetManager serves. AOSP reads the entry
+	 * through the AssetManager (frameworks-base 94b4c163 graphics/java/android/graphics/Typeface.java
+	 * createFromAsset/nativeCreateFromAsset); ATL materializes those bytes as a file the native
+	 * loader can open, and - like AOSP, whose font collection then holds only the system fallback -
+	 * leaves the result on DEFAULT_FAMILY when the entry cannot be read.
+	 */
+	public static Typeface createFromAsset(AssetManager mgr, String path) {
+		Objects.requireNonNull(mgr, "AssetManager cannot be null");
+		Objects.requireNonNull(path, "The asset path cannot be null");
+		long handle = 0;
+		try {
+			handle = nativeLoad(ATLFontFiles.materialize(mgr.open(path, AssetManager.ACCESS_STREAMING)), 0);
+		} catch (java.io.IOException e) {
+			ATLFontTrace.log("Typeface.createFromAsset asset=" + path + " failed: " + e);
+		}
+		Typeface result = handle == 0 ? create(DEFAULT_FAMILY, NORMAL) : new Typeface(handle);
+		ATLFontTrace.log("Typeface.createFromAsset asset=" + path + " -> " + describe(result));
+		return result;
+	}
+
+	/**
+	 * Creates a typeface from an array of font families followed by the system fallback family.
+	 * AOSP delegates both public overloads to frameworks-base 94b4c163
+	 * graphics/java/android/graphics/Typeface.java:1310
+	 * createFromFamiliesWithDefault(families, fallbackName, weight, italic), which resolves
+	 * FALLBACKNAME as the fallback typeface and passes it with the families' native pointers and the
+	 * chain-level weight/slant to nativeCreateFromArray; ATL passes the equivalent file chain to
+	 * nativeCreateFromFamilies. androidx.core's TypefaceCompatApi26Impl builds a bundled FontFamily
+	 * and calls the (families, weight, italic) overload, so this is the only way a font resource
+	 * reaches the layout on SDK 26.
+	 */
+	public static Typeface createFromFamiliesWithDefault(FontFamily[] families) {
+		return createFromFamiliesWithDefault(families, DEFAULT_FAMILY, -1, -1);
+	}
+
+	/** See {@link #createFromFamiliesWithDefault(FontFamily[])}. */
+	public static Typeface createFromFamiliesWithDefault(FontFamily[] families, int weight, int italic) {
+		return createFromFamiliesWithDefault(families, DEFAULT_FAMILY, weight, italic);
+	}
+
+	private static Typeface createFromFamiliesWithDefault(FontFamily[] families, String fallbackName, int weight, int italic) {
+		java.util.ArrayList<String> paths = new java.util.ArrayList<>();
+		java.util.ArrayList<Integer> indices = new java.util.ArrayList<>();
+		java.util.ArrayList<String> variations = new java.util.ArrayList<>();
+		java.util.ArrayList<Integer> weights = new java.util.ArrayList<>(), slants = new java.util.ArrayList<>(), groups = new java.util.ArrayList<>();
+		int group = 0;
+		if (families != null) for (FontFamily family : families) {
+			if (family == null) continue;
+			for (int i = 0; i < family.getFontCount(); i++) {
+				FontFamily.Entry entry = family.getFont(i);
+				paths.add(entry.path);
+				weights.add(entry.weight); slants.add(entry.italic); groups.add(group);
+				indices.add(entry.ttcIndex);
+				variations.add(FontVariationAxis.toFontVariationSettings(entry.axes));
+			}
+			group++;
+		}
+		if (paths.isEmpty()) {
+			ATLFontTrace.log("Typeface.createFromFamiliesWithDefault " + describeFamilies(families)
+			                 + " -> no font, using " + fallbackName);
+			return create(fallbackName, NORMAL);
+		}
+		int[] indexArray = new int[indices.size()];
+		for (int i = 0; i < indexArray.length; i++) indexArray[i] = indices.get(i);
+		int[] weightArray = new int[indices.size()], slantArray = new int[indices.size()], groupArray = new int[indices.size()];
+		for (int i = 0; i < indices.size(); i++) { weightArray[i] = weights.get(i); slantArray[i] = slants.get(i); groupArray[i] = groups.get(i); }
+		Typeface result = new Typeface(nativeCreateFromLegacyFamilies(paths.toArray(new String[0]), indexArray,
+				variations.toArray(new String[0]), fallbackName, weight, italic, weightArray, slantArray, groupArray));
+		ATLFontTrace.log("Typeface.createFromFamiliesWithDefault " + describeFamilies(families)
+		                 + " fallback=" + fallbackName + " weight=" + weight + " italic=" + italic
+		                 + " -> " + describe(result));
+		return result;
+	}
+
+	/** @return a one-line description of a typeface for the ATL_DEBUG_FONT trace */
+	private static String describe(Typeface typeface) {
+		if (typeface == null) return "null";
+		return "handle=0x" + Long.toHexString(typeface.native_instance)
+		       + (typeface == DEFAULT ? " (Typeface.DEFAULT)" : "");
+	}
+
+	/** @return a one-line description of a family chain for the ATL_DEBUG_FONT trace */
+	private static String describeFamilies(FontFamily[] families) {
+		if (families == null) return "families=null";
+		StringBuilder sb = new StringBuilder("families=").append(families.length);
+		for (int i = 0; i < families.length; i++) {
+			FontFamily family = families[i];
+			if (family == null) {
+				sb.append(" [").append(i).append("]=null");
+				continue;
+			}
+			sb.append(" [").append(i).append("] fonts=").append(family.getFontCount());
+			for (int j = 0; j < family.getFontCount(); j++) {
+				FontFamily.Entry entry = family.getFont(j);
+				sb.append(' ').append(entry.path).append('#').append(entry.ttcIndex);
+			}
+		}
+		return sb.toString();
+	}
 
 	public static class Builder {
 		private String path, fallback, variations;
 		private int weight = -1, italic = -1, index;
-		private boolean asset;
+		private AssetManager assets;
 		public Builder(File file) { path = Objects.requireNonNull(file).getAbsolutePath(); }
 		public Builder(String path) { this(new File(Objects.requireNonNull(path))); }
-		public Builder(AssetManager mgr, String path) { asset = true; }
+		public Builder(AssetManager mgr, String path) {
+			assets = Objects.requireNonNull(mgr);
+			this.path = Objects.requireNonNull(path);
+			ATLFontTrace.log("Typeface.Builder(AssetManager, " + path + ")");
+		}
 		public Builder setWeight(int weight) { checkWeight(weight); this.weight = weight; return this; }
 		public Builder setItalic(boolean italic) { this.italic = italic ? 1 : 0; return this; }
 		public Builder setTtcIndex(int index) { if (index < 0) throw new IllegalArgumentException("negative font index"); this.index = index; return this; }
@@ -87,12 +198,30 @@ public class Typeface {
 			return this;
 		}
 		public Typeface build() {
-			if (asset) return DEFAULT; // Existing asset behavior, not file-font support.
-			long handle = nativeLoad(path, index);
-			if (handle == 0) return fallback == null ? null : create(create(fallback, NORMAL), weight < 0 ? 400 : weight, italic == 1);
+			long handle;
+			if (assets != null) {
+				// An asset is a font resource inside the APK, the same input createFromAsset takes.
+				try {
+					handle = nativeLoad(ATLFontFiles.materialize(assets.open(path, AssetManager.ACCESS_STREAMING)), index);
+				} catch (java.io.IOException e) {
+					ATLFontTrace.log("Typeface.Builder.build asset=" + path + " failed: " + e);
+					handle = 0;
+				}
+			} else {
+				handle = nativeLoad(path, index);
+			}
+			if (handle == 0) {
+				ATLFontTrace.log("Typeface.Builder.build path=" + path + " index=" + index
+				                 + " -> nativeLoad failed (handle=0), fallback=" + fallback);
+				if (fallback == null && assets != null) return create(DEFAULT_FAMILY, NORMAL);
+				return fallback == null ? null : create(create(fallback, NORMAL), weight < 0 ? 400 : weight, italic == 1);
+			}
 			long configured = nativeCopy(handle, weight, italic, variations);
 			nativeRelease(handle);
-			return new Typeface(configured);
+			Typeface result = new Typeface(configured);
+			ATLFontTrace.log("Typeface.Builder.build path=" + path + " index=" + index
+			                 + " -> " + describe(result));
+			return result;
 		}
 	}
 
@@ -171,13 +300,25 @@ public class Typeface {
 			int weight = mStyle == null ? 400 : mStyle.getWeight();
 			boolean italic = mStyle != null
 					&& mStyle.getSlant() == android.graphics.fonts.FontStyle.FONT_SLANT_ITALIC;
-			return new Typeface(nativeCreateFromFamilies(
+			Typeface result = new Typeface(nativeCreateFromFamilies(
 					paths.toArray(new String[0]), indexArray, variations.toArray(new String[0]),
 					mFallbackName, weight, italic));
+			ATLFontTrace.log("Typeface.CustomFallbackBuilder.build paths=" + paths
+			                 + " fallback=" + mFallbackName + " weight=" + weight + " italic=" + italic
+			                 + " -> " + describe(result));
+			return result;
 		}
 	}
 
 	private static native long nativeCreate(String family, int weight, boolean italic);
+	static boolean isValidFont(String path, int index) {
+		long handle = nativeLoad(path, index);
+		if (handle == 0) return false;
+		nativeRelease(handle);
+		return true;
+	}
+	private static native long nativeCreateFromLegacyFamilies(String[] paths, int[] indices, String[] variations,
+		String fallback, int weight, int italic, int[] weights, int[] slants, int[] groups);
 	private static native long nativeLoad(String path, int index);
 	private static native long nativeCopy(long handle, int weight, int italic, String variations);
 	private static native long nativeCreateFromFamilies(String[] paths, int[] indices, String[] variations, String fallback, int weight, boolean italic);

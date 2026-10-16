@@ -613,6 +613,13 @@ public class TextView extends View {
 
 	public boolean hasSelection() { return false; }
 
+	@Override
+	public void setTextAlignment(int textAlignment) {
+		super.setTextAlignment(textAlignment);
+		native_setTextAlignment(widget, getLayoutAlignment().ordinal());
+	}
+	private native void native_setTextAlignment(long widget, int alignment);
+
 	@UnsupportedAppUsage /* androidx ACTVAutoSizeHelper seems to love this */
 	/* Copyright (C) 2006 The Android Open Source Project */
 	private Layout.Alignment getLayoutAlignment() {

@@ -2,6 +2,8 @@
 #include <gtk/gtk.h>
 #include <math.h>
 #include <stdio.h>
+#include "../../src/api-impl-jni/graphics/AndroidPaint.h"
+#include "../../src/api-impl-jni/graphics/android_graphics_Paint.h"
 #include "../../src/api-impl-jni/text/AndroidLineGeometry.h"
 #include "../../src/api-impl-jni/widgets/AndroidLineBox.h"
 
@@ -31,12 +33,89 @@ static int node_ink_bands(GskRenderNode *node, int *tops)
 	return count;
 }
 
+/* The synthetic bold/oblique of one run is decided from the font file the run resolved to, which
+ * needs FreeType and the paint's font map (graphics/android_graphics_Paint.c). The drawing code is
+ * exercised here with the decision under the test's control instead. */
+static double test_embolden;
+static float test_skew_x;
+AtlTextSynthesis atl_paint_run_synthesis(struct AndroidPaint *paint, PangoFont *font, double size_dp)
+{
+	AtlTextSynthesis synthesis = { test_embolden, test_skew_x };
+	return synthesis;
+}
+
 static int ink_bands(PangoLayout *layout, int *tops)
 {
 	GtkSnapshot *snapshot = gtk_snapshot_new();
 	GdkRGBA black = {0,0,0,1};
-	atl_layout_snapshot(snapshot, layout, &black);
+	const AtlTextStyle style = { .color = black, .paint = NULL };
+	atl_layout_snapshot(snapshot, layout, &style);
 	return node_ink_bands(gtk_snapshot_free_to_node(snapshot), tops);
+}
+
+/* The ink box of the drawn layout, in surface pixels. */
+static void node_ink_box(GskRenderNode *node, int *min_x, int *min_y, int *max_x, int *max_y)
+{
+	cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 1024);
+	cairo_t *cr = cairo_create(surface);
+	if (node) { gsk_render_node_draw(node, cr); gsk_render_node_unref(node); }
+	cairo_destroy(cr);
+	cairo_surface_flush(surface);
+	unsigned char *bytes = cairo_image_surface_get_data(surface);
+	int stride = cairo_image_surface_get_stride(surface);
+	*min_x = 512; *min_y = 1024; *max_x = -1; *max_y = -1;
+	for (int y = 0; y < 1024; y++)
+		for (int x = 0; x < 512; x++)
+			if (bytes[y * stride + x * 4 + 3]) {
+				if (x < *min_x) *min_x = x;
+				if (x > *max_x) *max_x = x;
+				if (y < *min_y) *min_y = y;
+				if (y > *max_y) *max_y = y;
+			}
+	cairo_surface_destroy(surface);
+}
+
+static void synthesis_box(PangoLayout *layout, struct AndroidPaint *paint, int *box)
+{
+	GtkSnapshot *snapshot = gtk_snapshot_new();
+	GdkRGBA black = {0,0,0,1};
+	const AtlTextStyle style = { .color = black, .paint = paint };
+	atl_layout_snapshot(snapshot, layout, &style);
+	node_ink_box(gtk_snapshot_free_to_node(snapshot), &box[0], &box[1], &box[2], &box[3]);
+}
+
+/* Android dilates the drawn outline by em/34 without touching the layout: the ink must grow by
+ * about strength/2 on every side while the advances stay put. A synthetic oblique shears about
+ * the baseline, so the ink leans sideways without changing height. */
+static void synthesis_case(PangoContext *context)
+{
+	PangoLayout *layout = pango_layout_new(context);
+	PangoFontDescription *font = pango_font_description_from_string("DejaVu Sans 40");
+	pango_font_description_set_absolute_size(font, 40*PANGO_SCALE);
+	pango_layout_set_font_description(layout, font);
+	pango_layout_set_text(layout, "ll", -1);
+	struct AndroidPaint paint = { .font = font };
+	int plain[4], bold[4], slanted[4];
+	test_embolden = 0; test_skew_x = 0;
+	synthesis_box(layout, &paint, plain);
+	int width, height;
+	pango_layout_get_pixel_size(layout, &width, &height);
+	test_embolden = 40.0 / 34.0; /* SkFontHost_FreeType.cpp: SK_OUTLINE_EMBOLDEN_DIVISOR */
+	synthesis_box(layout, &paint, bold);
+	int bold_width, bold_height;
+	pango_layout_get_pixel_size(layout, &bold_width, &bold_height);
+	CHECK(bold_width == width && bold_height == height); /* advances are never emboldened */
+	int grow = (int)lround(40.0 / 34.0 * 0.5);
+	CHECK(abs((plain[0] - bold[0]) - grow) <= 1 && abs((bold[2] - plain[2]) - grow) <= 1);
+	CHECK(abs((plain[1] - bold[1]) - grow) <= 1 && abs((bold[3] - plain[3]) - grow) <= 1);
+	test_embolden = 0; test_skew_x = -0.25f; /* MinikinSkia.cpp: fake italic leans right */
+	synthesis_box(layout, &paint, slanted);
+	CHECK(abs(slanted[1] - plain[1]) <= 1 && abs(slanted[3] - plain[3]) <= 1); /* height unchanged */
+	double expected = 0.25 * (plain[3] - plain[1] + 1);
+	CHECK(fabs((slanted[2] - plain[2]) - expected) <= 2.0); /* top right corner moves right */
+	CHECK(abs(slanted[0] - plain[0]) <= 1);              /* baseline left corner stays */
+	pango_font_description_free(font);
+	g_object_unref(layout);
 }
 
 static int widget_ink_bands(GtkWidget *widget, int *tops)
@@ -97,6 +176,50 @@ static void spacing_case(PangoContext *context, const char *text, int width, gbo
 	g_object_unref(layout);
 }
 
+/* Count real coloured pixels; a glyph-only path loses the decoration/background
+ * colours even though its monochrome geometry tests continue to pass. */
+static void styled_attributes_case(PangoContext *context)
+{
+    PangoLayout *layout = pango_layout_new(context);
+    PangoFontDescription *font = pango_font_description_from_string("DejaVu Sans 32");
+    pango_font_description_set_absolute_size(font, 32 * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_layout_set_markup(layout,
+        "<span foreground='#ff0000' underline='single' underline_color='#0000ff'>LINK</span> "
+        "<span foreground='#00ff00' background='#ffff00' strikethrough='true' strikethrough_color='#ff00ff'>TEXT</span>", -1);
+    struct AndroidPaint paint = { .font = font };
+    test_embolden = 32.0 / 34; test_skew_x = -.25f;
+    GdkRGBA black = {0, 0, 0, 1};
+    AtlTextStyle style = { .paint = &paint, .color = black };
+    GtkSnapshot *snapshot = gtk_snapshot_new();
+    atl_layout_snapshot(snapshot, layout, &style);
+    GskRenderNode *node = gtk_snapshot_free_to_node(snapshot);
+    CHECK(node != NULL);
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 128);
+    cairo_t *cr = cairo_create(surface);
+    gsk_render_node_draw(node, cr);
+    cairo_destroy(cr); cairo_surface_flush(surface);
+    int counts[5] = {0};
+    unsigned char *data = cairo_image_surface_get_data(surface);
+    int stride = cairo_image_surface_get_stride(surface);
+    for (int y = 0; y < 128; y++) for (int x = 0; x < 512; x++) {
+        unsigned int pixel = ((unsigned int *)(data + y * stride))[x];
+        int r = (pixel >> 16) & 255, g = (pixel >> 8) & 255, b = pixel & 255;
+        if (r > 100 && g < 20 && b < 20) counts[0]++;
+        if (r < 20 && g > 100 && b < 20) counts[1]++;
+        if (r < 20 && g < 20 && b > 100) counts[2]++;
+        if (r > 100 && g > 100 && b < 20) counts[3]++;
+        if (r > 100 && g < 20 && b > 100) counts[4]++;
+    }
+    for (int i = 0; i < 5; i++) {
+        printf("styled colour %d pixels=%d\n", i, counts[i]);
+        CHECK(counts[i] > 10);
+    }
+    gsk_render_node_unref(node); cairo_surface_destroy(surface);
+    pango_font_description_free(font); g_object_unref(layout);
+    test_embolden = 0; test_skew_x = 0;
+}
+
 int main(void)
 {
 	gtk_init();
@@ -111,6 +234,8 @@ int main(void)
 	spacing_case(context,"Ag\nAg\nAg",-1,FALSE,0,0.5);
 	spacing_case(context,"Ag\nAg\n",-1,FALSE,9,1);
 	spacing_case(context,"Ag",-1,FALSE,40,2);
+	synthesis_case(context);
+	styled_attributes_case(context);
 	int before,natural,after,baseline;
 	gtk_widget_measure(box,GTK_ORIENTATION_VERTICAL,160,&before,&natural,NULL,NULL);
 	atl_line_box_set_spacing(ATL_LINE_BOX(box),10,1);

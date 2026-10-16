@@ -25,6 +25,14 @@ JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCreate
 
 /*
  * Class:     android_graphics_Typeface
+ * Method:    nativeCreateFromLegacyFamilies
+ * Signature: ([Ljava/lang/String;[I[Ljava/lang/String;Ljava/lang/String;II[I[I[I)J
+ */
+JNIEXPORT jlong JNICALL Java_android_graphics_Typeface_nativeCreateFromLegacyFamilies
+  (JNIEnv *, jclass, jobjectArray, jintArray, jobjectArray, jstring, jint, jint, jintArray, jintArray, jintArray);
+
+/*
+ * Class:     android_graphics_Typeface
  * Method:    nativeLoad
  * Signature: (Ljava/lang/String;I)J
  */

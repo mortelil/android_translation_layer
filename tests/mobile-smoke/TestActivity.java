@@ -9,6 +9,7 @@ public class TestActivity extends android.app.Activity {
 			TestUsabilityRepairs.run(this);
 			TestViewState.run(this);
 			TestTypeface.run(this);
+			TestLegacyFontFamily.run(this);
 			TestKeySpec.run();
 			TestSigningInfo.run();
 			final android.os.Binder localBinder = new android.os.Binder();

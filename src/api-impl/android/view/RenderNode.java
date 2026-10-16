@@ -34,11 +34,21 @@ public class RenderNode {
 	private float alpha = 1.0f;
 	private Outline outline = null;
 
+	/* Outline is mutable - callers (e.g. Compose's OutlineResolver) keep one instance and
+	 * setRoundRect()/setPath() into it - so setOutline()'s identity comparison alone would leave
+	 * the clip of an already built transformed_node stale. These remember the outline geometry
+	 * that the cached node was clipped with. */
+	private final Rect outlineRect = new Rect();
+	private int outlineMode = Outline.MODE_EMPTY;
+	private float outlineRadius = Float.NEGATIVE_INFINITY;
+	private long outlinePath = 0;
+
 	private native long nativeCreateSnapshot();
 	private native long nativeCreateNode(long snapshot);
 	private native long nativePatchNode(long node, long old_child, long new_child);
 	private native long nativeTransform(long node, float scaleX, float scaleY, float translationX, float translationY, float rotation, float pivotX, float pivotY);
-	private native long nativeClip(long node, float left, float top, float right, float bottom);
+	private native long nativeClipOutline(long node, int mode, float left, float top, float right, float bottom, float radius, int fillType, long path);
+
 	private native long nativeOpacity(long node, float alpha);
 	private native void nativeUnref(long node);
 	private native long nativeAddStubNode(long snapshot);
@@ -290,20 +300,66 @@ public class RenderNode {
 				children_nodes.set(i, new_child_node);
 			}
 		}
-		if (transformed_node == 0 || old_render_node != render_node) {
+		if (transformed_node == 0 || old_render_node != render_node || outlineClipChanged()) {
 			nativeUnref(transformed_node);
-			transformed_node = nativeTransform(render_node, scaleX, scaleY, translationX, translationY, rotation, pivotX, pivotY);
-			if (clipToOutline) {
-				Rect bounds = new Rect();
-				outline.getRect(bounds);
-				transformed_node = nativeClip(transformed_node, bounds.left, bounds.top, bounds.right, bounds.bottom);
-			}
+			/* Android clips the layer to its outline in the layer's own coordinate space
+			 * (AOSP RenderNodeDrawable::applyViewClips() concatenates the node matrix and then
+			 * calls clipOutline()), so the clip goes inside the transform here. */
+			long clipped_node = outlineClipNode();
+			transformed_node = nativeTransform(clipped_node, scaleX, scaleY, translationX, translationY, rotation, pivotX, pivotY);
+			if (clipped_node != render_node)
+				nativeUnref(clipped_node);
+			rememberOutline();
 			/* Android applies the render node's alpha when the layer is composited; without this the
 			 * layer's content is drawn fully opaque (translucent scrims/shadows become solid black). */
 			if (alpha != 1.0f)
 				transformed_node = nativeOpacity(transformed_node, alpha);
 		}
 		return transformed_node;
+	}
+
+	/* The node render_node clipped to this layer's outline, or render_node itself when there is
+	 * nothing to clip with. Mirrors AOSP's clipOutline() shape selection: a round-rect outline
+	 * clips to a rounded rectangle (a zero radius is a plain rectangle), a path outline clips to
+	 * its path. The result is a new node that references render_node; callers own both.
+	 * AOSP: frameworks/base/libs/hwui/pipeline/skia/RenderNodeDrawable.cpp clipOutline(),
+	 * android-17.0.0_r1 (commit 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d). */
+	private long outlineClipNode() {
+		if (!clipToOutline || outline == null || outline.isEmpty())
+			return render_node;
+		int mode = outline.mMode;
+		long path = 0;
+		int fillType = 0;
+		if (mode == Outline.MODE_PATH) {
+			if (outline.mPath == null)
+				return render_node;
+			path = outline.mPath.getGskPath();
+			fillType = outline.mPath.getFillType().ordinal();
+		} else if (mode != Outline.MODE_ROUND_RECT) {
+			return render_node;
+		}
+		Rect rect = outline.mRect;
+		long clipped_node = nativeClipOutline(render_node, mode, rect.left, rect.top, rect.right, rect.bottom,
+				outline.getRadius(), fillType, path);
+		return clipped_node != 0 ? clipped_node : render_node;
+	}
+
+	private boolean outlineClipChanged() {
+		if (outline == null)
+			return false;
+		long path = outline.mPath != null ? outline.mPath.getGskPath() : 0;
+		return outlineMode != outline.mMode || outlineRadius != outline.mRadius
+				|| outlinePath != path || !outlineRect.equals(outline.mRect);
+	}
+
+	private void rememberOutline() {
+		outlineMode = outline != null ? outline.mMode : Outline.MODE_EMPTY;
+		outlineRadius = outline != null ? outline.mRadius : Float.NEGATIVE_INFINITY;
+		outlinePath = outline != null && outline.mPath != null ? outline.mPath.getGskPath() : 0;
+		if (outline != null)
+			outlineRect.set(outline.mRect);
+		else
+			outlineRect.setEmpty();
 	}
 
 	public DisplayListCanvas start(int width, int height) {
