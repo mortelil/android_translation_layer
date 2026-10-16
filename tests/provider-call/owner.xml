@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.atl.providerowner">
+<uses-sdk android:minSdkVersion="23" android:targetSdkVersion="26" />
+<application android:label="Provider test owner">
+<provider android:name="org.atl.providertest.Owner" android:authorities="org.atl.owner;org.atl.owner.alias" android:exported="true" />
+<provider android:name="org.atl.providertest.Owner" android:authorities="org.atl.private" android:exported="false" />
+<provider android:name="org.atl.providertest.Owner" android:authorities="org.atl.protected" android:exported="true" android:readPermission="org.atl.permission.TEST" />
+</application></manifest>

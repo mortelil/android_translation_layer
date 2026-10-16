@@ -155,6 +155,18 @@ public class ChildHost {
 		System.out.flush();
 	}
 
+	/** Only expose a caller known through the live, authenticated parent link. */
+	public static android.app.ActivityManager.RunningAppProcessInfo callingProcess() {
+		if (link == null || Binder.getCallingPid() == android.os.Process.myPid()) return null;
+		String pidText = System.getenv("ATL_SERVICE_PARENT_PID");
+		String pkg = System.getenv("ATL_SERVICE_PARENT_PACKAGE");
+		if (pidText == null || pkg == null) return null;
+		int pid = Integer.parseInt(pidText);
+		if (Binder.getCallingPid() != pid) return null;
+		return new android.app.ActivityManager.RunningAppProcessInfo(
+		    System.getenv("ATL_SERVICE_PARENT_PROCESS"), pid, new String[] {pkg});
+	}
+
 	private static void die(String marker, int status) {
 		System.out.println(marker);
 		System.out.flush();
@@ -218,6 +230,8 @@ public class ChildHost {
 		return new Binder() {
 			@Override
 			protected boolean onTransact(final int code, final Parcel data, final Parcel reply, int flags) {
+				if (code == ATLProviderBridge.ACQUIRE || code == ATLProviderBridge.CALL || code == ATLProviderBridge.QUERY)
+					return ATLProviderBridge.dispatch(app, process, code, data, reply);
 				if (code < ATLProcessControl.START || code > ATLProcessControl.STATUS)
 					return super.onTransact(code, data, reply, flags);
 				final FutureTask<Boolean> task = new FutureTask<Boolean>(new Callable<Boolean>() {

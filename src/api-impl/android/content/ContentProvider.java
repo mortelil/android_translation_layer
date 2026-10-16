@@ -40,8 +40,9 @@ public abstract class ContentProvider {
 				System.out.println("not creating provider " + provider_parsed.className + ", it belongs to process " + process_name);
 				continue;
 			}
-			atl_providers.put(provider_parsed.info.authority,
-			                  new ATLProvider(primary, provider_parsed));
+			ATLProvider hosted = new ATLProvider(primary, provider_parsed);
+			for (String authority : provider_parsed.info.authority.split(";"))
+				atl_providers.put(authority, hosted);
 		}
 		// getContentProvider() initializes the content providers,
 		// we also opportunistically remove the ones that failed to load
@@ -61,7 +62,7 @@ public abstract class ContentProvider {
 		return primary.pkg.applicationInfo.processName != null ? primary.pkg.applicationInfo.processName : primary.pkg.packageName;
 	}
 
-	static ContentProvider atl_get_content_provider(String authority) {
+	public static ContentProvider atl_get_content_provider(String authority) {
 		ATLProvider atlProvider = atl_providers.get(authority);
 		return atlProvider == null ? null : atlProvider.getContentProvider();
 	}
@@ -75,8 +76,10 @@ public abstract class ContentProvider {
 
 	public boolean onCreate() { return false; }
 
+	private Context context;
+	private final ThreadLocal<String> callerPackage = new ThreadLocal<>();
 	public Context getContext() {
-		return ATLLoadedApp.getPrimaryApplication().getApplication();
+		return context != null ? context : ATLLoadedApp.getPrimaryApplication().getApplication();
 	}
 
 	public abstract Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder);
@@ -109,9 +112,27 @@ public abstract class ContentProvider {
 		return fd != null ? new AssetFileDescriptor(fd, 0, -1) : null;
 	}
 
-	public void attachInfo(Context context, ProviderInfo provider) {}
+	public void attachInfo(Context context, ProviderInfo provider) {
+		if (this.context == null) this.context = context;
+	}
+
+	public final android.os.Bundle atl_callFromPackage(String caller, String method, String arg, android.os.Bundle extras) {
+		String previous = callerPackage.get();
+		callerPackage.set(caller);
+		try { return call(method, arg, extras); }
+		finally { if (previous == null) callerPackage.remove(); else callerPackage.set(previous); }
+	}
+
+	public final Cursor atl_queryFromPackage(String caller, Uri uri, String[] projection,
+	                                        String selection, String[] args, String order) {
+		String previous = callerPackage.get();
+		callerPackage.set(caller);
+		try { return query(uri, projection, selection, args, order); }
+		finally { if (previous == null) callerPackage.remove(); else callerPackage.set(previous); }
+	}
 
 	public String getCallingPackage() {
-		return ATLLoadedApp.getPrimaryApplication().pkg.packageName;
+		String caller = callerPackage.get();
+		return caller != null ? caller : ATLLoadedApp.getPrimaryApplication().pkg.packageName;
 	}
 }

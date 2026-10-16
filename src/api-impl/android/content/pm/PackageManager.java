@@ -2684,13 +2684,7 @@ public class PackageManager {
 	 * @throws Exception
 	 */
 	public ProviderInfo resolveContentProvider(String authority, int flags) {
-		for (PackageParser.Provider p : ATLLoadedApp.getPrimaryApplication().pkg.providers) {
-			if (p.info.authority.equals(authority))
-				return p.info;
-		}
-
-		Slog.w(TAG, "Provider not found: " + authority);
-		return null;
+		return android.atl.ATLProviderBridge.resolve(authority);
 	}
 
 	/**

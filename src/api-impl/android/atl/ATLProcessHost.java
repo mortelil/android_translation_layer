@@ -85,7 +85,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 	 * body (src/api-impl-jni/atl_binder_spawn.h); implemented in
 	 * src/api-impl-jni/android_atl_ATLProcessHost.c.
 	 */
-	private static native int[] nativeSpawnServiceChild(String apk, String process, int sdk,
+	static native int[] nativeSpawnServiceChild(String apk, String process, int sdk,
 	                                                    String parentPackage, String parentProcess)
 			throws IOException;
 

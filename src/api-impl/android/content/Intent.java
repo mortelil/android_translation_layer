@@ -491,6 +491,41 @@ public class Intent implements Parcelable {
 	private String type;
 	private String packageName;
 	private Intent selector;
+	private final java.util.LinkedHashSet<String> categories = new java.util.LinkedHashSet<>();
+
+	/** ATL parcel encoding of the supported Intent fields. Reference: AOSP
+	 * Intent.writeToParcel/readFromParcel, frameworks/base android-17.0.0_r1
+	 * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d. Not Android wire-compatible.
+	 */
+	@Override public void writeToParcel(android.os.Parcel out, int parcelFlags) {
+		out.writeString(action);
+		out.writeString(data == null ? null : data.toString());
+		out.writeString(type); out.writeInt(flags); out.writeString(packageName);
+		out.writeString(component == null ? null : component.getPackageName());
+		out.writeString(component == null ? null : component.getClassName());
+		out.writeStringArray(categories.toArray(new String[0]));
+		out.writeParcelable(selector, parcelFlags);
+		out.writeBundle(extras);
+	}
+	public static final Parcelable.ClassLoaderCreator<Intent> CREATOR = new Parcelable.ClassLoaderCreator<Intent>() {
+		public Intent createFromParcel(android.os.Parcel in) { return createFromParcel(in, null); }
+		public Intent createFromParcel(android.os.Parcel in, ClassLoader loader) {
+			Intent intent = new Intent(in.readString());
+			String uri = in.readString();
+			intent.setDataAndType(uri == null ? null : Uri.parse(uri), in.readString());
+			intent.setFlags(in.readInt()); intent.setPackage(in.readString());
+			String pkg = in.readString(), cls = in.readString();
+			if (pkg != null) intent.setComponent(new ComponentName(pkg, cls));
+			String[] categories = in.createStringArray();
+			if (categories != null) for (String category : categories) intent.addCategory(category);
+			intent.selector = (Intent)in.readParcelable(loader);
+			try { intent.extras = in.readBundle(loader); }
+			catch (ReflectiveOperationException e) { throw new android.os.BadParcelableException(e); }
+			if (intent.extras == null) intent.extras = new Bundle();
+			return intent;
+		}
+		public Intent[] newArray(int size) { return new Intent[size]; }
+	};
 
 	public Intent() {}
 	public Intent(Intent o) {
@@ -751,6 +786,7 @@ public class Intent implements Parcelable {
 	}
 
 	public Intent addCategory(String action) {
+		categories.add(action);
 		return this;
 	}
 
@@ -837,7 +873,7 @@ public class Intent implements Parcelable {
 	}
 
 	public Set<String> getCategories() {
-		return Collections.emptySet();
+		return categories;
 	}
 
 	public byte[] getByteArrayExtra(String name) {

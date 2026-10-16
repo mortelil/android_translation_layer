@@ -101,6 +101,7 @@ srcs = [
 	'android/atl/ATLServiceController.java',
 	'android/atl/ATLServiceDispatcher.java',
 	'android/atl/ChildHost.java',
+	'android/atl/ATLProviderBridge.java',
     'android/atl/EarlyPackageParser.java',
 	'android/atl/ATLLoadedAppManager.java',
 	'android/atl/ATLNativeAbi.java',

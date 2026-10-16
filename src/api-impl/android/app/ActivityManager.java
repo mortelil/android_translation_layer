@@ -50,15 +50,17 @@ public class ActivityManager {
 	}
 
 	/**
-	 * The one process ATL runs: this one, which hosts every loaded package, so the
-	 * calling process reports its own pid and the packages loaded into it. Android
-	 * packs one package name per process entry, and the caller's own package is what
-	 * a caller asking for its identity must find here.
+	 * Reports this process and, during a child-host Binder transaction, its
+	 * authenticated parent caller. This is a limited process snapshot, not a
+	 * machine-wide list of Android applications.
 	 */
 	public List<RunningAppProcessInfo> getRunningAppProcesses() {
 		String packageName = ATLLoadedApp.getPrimaryApplication().pkg.packageName;
-		return Arrays.asList(
-		    new RunningAppProcessInfo(Process.myPid(), packageName, new String[] {packageName}));
+		ArrayList<RunningAppProcessInfo> result = new ArrayList<>();
+		result.add(new RunningAppProcessInfo(Process.myPid(), packageName, new String[] {packageName}));
+		RunningAppProcessInfo caller = android.atl.ChildHost.callingProcess();
+		if (caller != null) result.add(caller);
+		return result;
 	}
 
 	public boolean isLowRamDevice() { return false; }

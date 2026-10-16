@@ -181,7 +181,9 @@ public class ContentResolver {
 
 	public final ContentProviderClient acquireContentProviderClient(String name) {
 		ContentProvider provider = ContentProvider.atl_get_content_provider(name);
-		return provider != null ? new ContentProviderClient(provider) : null;
+		if (provider != null) return new ContentProviderClient(provider);
+		android.atl.ATLProviderBridge.Endpoint remote = android.atl.ATLProviderBridge.acquire(name);
+		return remote == null ? null : new ContentProviderClient(remote);
 	}
 
 	public final ContentProviderClient acquireUnstableContentProviderClient(Uri uri) {
