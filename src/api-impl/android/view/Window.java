@@ -247,6 +247,30 @@ public void setContentView(View view) {
 
 	public void setStatusBarContrastEnforced(boolean enforced) {}
 
+	/**
+	 * Requested colour mode of this window. ATL renders through GTK/GSK into an
+	 * 8-bit sRGB surface and has no wide-gamut/HDR output path, so the request is
+	 * recorded for the getColorMode()/ActivityInfo contract but the backend
+	 * limitation is explicit: it is not reported as satisfied anywhere.
+	 */
+	public static final int COLOR_MODE_DEFAULT = 0;
+	public static final int COLOR_MODE_WIDE_COLOR_GAMUT = 1;
+	public static final int COLOR_MODE_HDR = 2;
+
+	private int colorMode = COLOR_MODE_DEFAULT;
+
+	/** @hide */
+	public void setColorMode(int colorMode) {
+		if (colorMode < COLOR_MODE_DEFAULT || colorMode > COLOR_MODE_HDR)
+			throw new IllegalArgumentException("Invalid color mode: " + colorMode);
+		this.colorMode = colorMode;
+	}
+
+	/** @hide */
+	public int getColorMode() {
+		return colorMode;
+	}
+
 	public void setNavigationBarContrastEnforced(boolean enforced) {}
 
 	public void setSharedElementEnterTransition(Transition transition) {}

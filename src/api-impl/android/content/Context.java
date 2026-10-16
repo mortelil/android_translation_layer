@@ -128,6 +128,18 @@ public abstract class Context {
 		provider.put("KeyGenerator.HmacSHA512", "android.security.keystore.KeyGenerator$HmacSHA512");
 		Security.addProvider(provider);
 
+		// Android's AES/GCM/NoPadding cipher generates a 12-byte IV when the
+		// caller supplies none; the BouncyCastle provider on the boot classpath
+		// uses the AES block size (16 bytes), which breaks callers relying on
+		// the Android convention (Tink/androidx.security slice a fixed 12-byte
+		// IV, so the GCM tag check fails). Register an Android-compatible
+		// implementation for that single service in its own provider, installed
+		// with precedence; the AndroidKeyStore provider above stays last so that
+		// a provider-less KeyGenerator.getInstance("AES") still resolves to BC.
+		Provider cipher_provider = new Provider("ATLAndroidCrypto", 1.0, "ATL Android-compatible crypto provider") {};
+		cipher_provider.put("Cipher.AES/GCM/NoPadding", "android.security.keystore.AndroidKeyStore$AesGcmCipher");
+		Security.insertProviderAt(cipher_provider, 1);
+
 		for (PackageParser.Activity receiver : primary_application.pkg.receivers) {
 			if (receiver.intents == null)
 				continue;

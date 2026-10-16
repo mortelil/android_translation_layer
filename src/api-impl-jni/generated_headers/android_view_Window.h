@@ -11,6 +11,12 @@ extern "C" {
 #define android_view_Window_FEATURE_OPTIONS_PANEL 0L
 #undef android_view_Window_FEATURE_NO_TITLE
 #define android_view_Window_FEATURE_NO_TITLE 1L
+#undef android_view_Window_COLOR_MODE_DEFAULT
+#define android_view_Window_COLOR_MODE_DEFAULT 0L
+#undef android_view_Window_COLOR_MODE_WIDE_COLOR_GAMUT
+#define android_view_Window_COLOR_MODE_WIDE_COLOR_GAMUT 1L
+#undef android_view_Window_COLOR_MODE_HDR
+#define android_view_Window_COLOR_MODE_HDR 2L
 /*
  * Class:     android_view_Window
  * Method:    set_title

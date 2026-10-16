@@ -26,6 +26,7 @@ import android.media.AudioManager;
 import android.media.MediaRouter;
 import android.net.ConnectivityManager;
 import android.net.Uri;
+import android.net.nsd.NsdManager;
 import android.net.wifi.WifiManager;
 import android.os.*;
 import android.os.storage.StorageManager;
@@ -65,6 +66,7 @@ public final class ContextImpl extends Context {
 	private final LayoutInflater layout_inflater = new LayoutInflater(this);
 	private final JobScheduler job_scheduler = new JobScheduler(this);
 	private final ShortcutManager shortcut_manager = new ShortcutManager(this);
+	private NsdManager nsd_manager;
 
 	private final int atl_flags;
 
@@ -154,6 +156,8 @@ public final class ContextImpl extends Context {
 				return new SensorManager();
 			case "connectivity":
 				return new ConnectivityManager();
+			case "servicediscovery":
+				return (nsd_manager != null) ? nsd_manager : (nsd_manager = new NsdManager());
 			case "keyguard":
 				return new KeyguardManager();
 			case "phone":
@@ -236,6 +240,8 @@ public final class ContextImpl extends Context {
 			return shortcut_manager;
 		if (serviceClass == WindowManager.class)
 			return new WindowManagerImpl();
+		if (serviceClass == NsdManager.class)
+			return (nsd_manager != null) ? nsd_manager : (nsd_manager = new NsdManager());
 		return serviceClass.getConstructors()[0].newInstance();
 	}
 

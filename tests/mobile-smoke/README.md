@@ -95,3 +95,26 @@ Operation vocabulary and mode values are derived from AOSP
 `94b4c163b7dfe5ce3607f7bb8456f9573f7de57d` (Android 17), under Apache-2.0.
 The local policy is ATL-specific. AOSP's `strOpToOp` validates names even for
 NoThrow queries; NoThrow does not mean invalid arguments are silently accepted.
+
+`TestCompatRepairs` covers AES default/explicit sizes and CBC key generation
+without persisting keys, all three null-parameter GCM initialization variants
+with authenticated round trips and tamper rejection, TextureView ownership on
+all detach paths and surface replacement, binary DNS-SD TXT decoding, and a
+barrier check proving a backend event can enqueue while the Java operation
+lock is held. The separate `tests/nsd-probe` exercises real Avahi callbacks
+through 20 browse/resolve/stop cycles and rejects simultaneous listener reuse.
+
+For keystore backend-failure testing, run `tests/keystore-probe` against a
+working Secret Service using a disposable application ID/profile, then run the
+same probe with `ATL_TEST_KEYSTORE_UNAVAILABLE=1` and an unreachable test bus.
+The latter must report a bounded read error and must not write any key. Restore
+the original bus and rerun with the same profile: persistence decryption and
+key identity must still pass. Never point this test at a personal app's schema.
+
+Reference contracts for the review repairs: AOSP `android-16.0.0_r1`,
+`keystore/java/android/security/keystore2/AndroidKeyStoreKeyGeneratorSpi.java`
+(default AES size) and `core/java/android/view/TextureView.java`
+(surface ownership/replacement). The implementation remains software-only;
+these tests do not claim hardware key-policy enforcement or a TextureView
+compositor. Original lane reports under other test directories describe their
+recorded pre-review snapshots, not validation of every later revision.

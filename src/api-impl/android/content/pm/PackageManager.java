@@ -1931,6 +1931,54 @@ public class PackageManager {
 	}
 
 	/**
+	 * Query if an app is currently suspended.
+	 *
+	 * <p>ATL has no suspension mechanism (there is no suspending device-policy
+	 * service and no persisted suspended state), so a package ATL knows about is
+	 * never suspended. The package is resolved through {@link #getPackageInfo}
+	 * first, so an unknown or invisible package is not accepted as valid.
+	 *
+	 * @param packageName the name of the package to get the suspended status of
+	 * @return {@code true} if the given package is suspended, {@code false} otherwise
+	 * @throws NameNotFoundException if the package could not be found.
+	 *
+	 * @see #isPackageSuspended()
+	 */
+	public boolean isPackageSuspended(String packageName) throws NameNotFoundException {
+		// AOSP ApplicationPackageManager.isPackageSuspended(String) resolves the
+		// package and converts the unknown-package failure into NameNotFoundException
+		// (frameworks/base/core/java/android/app/ApplicationPackageManager.java,
+		// tag android-17.0.0_r1, commit 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).
+		// Reusing getPackageInfo keeps ATL's package identity/visibility rules: a
+		// package this app cannot see is reported as not found, never as unsuspended.
+		if (packageName == null)
+			throw new NameNotFoundException(packageName);
+		getPackageInfo(packageName, 0);
+		return false;
+	}
+
+	/**
+	 * Apps can query this to know if they have been suspended. A system app with the
+	 * permission {@code android.permission.SUSPEND_APPS} can put any app on the device
+	 * into a suspended state.
+	 *
+	 * <p>ATL has no suspension mechanism, so the calling package is never suspended.
+	 *
+	 * @return {@code true} if the calling package has been suspended, {@code false} otherwise.
+	 *
+	 * @see #isPackageSuspended(String)
+	 */
+	public boolean isPackageSuspended() {
+		// AOSP resolves the caller's own package here (mContext.getOpPackageName());
+		// on that path an unknown package surfaces as IllegalArgumentException.
+		try {
+			return isPackageSuspended(ATLLoadedApp.getPrimaryApplication().pkg.packageName);
+		} catch (NameNotFoundException e) {
+			throw new IllegalArgumentException("Unknown target package: " + e.getMessage(), e);
+		}
+	}
+
+	/**
 	 * Add a new dynamic permission to the system.  For this to work, your
 	 * package must have defined a permission tree through the
 	 * {@link android.R.styleable#AndroidManifestPermissionTree

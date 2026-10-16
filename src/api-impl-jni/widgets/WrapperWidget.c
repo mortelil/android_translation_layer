@@ -473,6 +473,16 @@ static void root_changed_cb(WrapperWidget *wrapper, GParamSpec *pspec, gpointer 
 {
 	GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(wrapper));
 	JNIEnv *env = get_jni_env();
+	/* A lifecycle callback that threw leaves its exception pending. Any further
+	 * JNI call from this native method would abort the VM ("JNI CallVoidMethod
+	 * called with pending exception"), which is what removing a view whose
+	 * onDetachedFromWindow() throws used to do. Stop dispatching instead and let
+	 * the pending Java exception propagate to the removeView() caller: the error
+	 * is still reported and thrown, never cleared or swallowed. */
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		return;
+	}
 	if (!root)
 		currently_unmapping = wrapper->child;
 	(*env)->CallVoidMethod(env, wrapper->jobj, root ? handle_cache.view.onAttachedToWindow : handle_cache.view.onDetachedFromWindow);

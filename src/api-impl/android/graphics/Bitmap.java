@@ -258,6 +258,16 @@ public final class Bitmap implements Parcelable {
 		return hasAlpha;
 	}
 
+	/**
+	 * The colour space of this bitmap. ATL decodes and composites every bitmap
+	 * as 8-bit sRGB (GTK/GSK has no wide-gamut/HDR path), so this is always the
+	 * sRGB colour space and {@link ColorSpace#isWideGamut()} is false - it never
+	 * claims a gamut the renderer cannot deliver.
+	 */
+	public ColorSpace getColorSpace() {
+		return ColorSpace.get(ColorSpace.Named.SRGB);
+	}
+
 	public Bitmap copy(Bitmap.Config config, boolean isMutable) {
 		Bitmap bitmap = new Bitmap(width, height, config);
 		bitmap.texture = native_ref_texture(getTexture());
