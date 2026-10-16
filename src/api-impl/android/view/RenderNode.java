@@ -1,6 +1,6 @@
 package android.view;
 
-import android.atl.GskCanvas;
+import android.atl.RecordingCanvas;
 import android.graphics.Matrix;
 import android.graphics.Outline;
 import android.graphics.Paint;
@@ -14,7 +14,11 @@ public class RenderNode {
 	private long render_node = 0;
 	private long transformed_node = 0;
 	private List<RenderNode> children = new ArrayList<RenderNode>();
-	private List<Long> children_nodes = new ArrayList<Long>();
+	private long[] childGenerations = new long[0];
+	private long[] childNodes = new long[0];
+	private RecordingCanvas displayList, recording;
+	private long generation;
+	private boolean resolving;
 
 	private float width = 0.0f;
 	private float height = 0.0f;
@@ -43,15 +47,11 @@ public class RenderNode {
 	private float outlineRadius = Float.NEGATIVE_INFINITY;
 	private long outlinePath = 0;
 
-	private native long nativeCreateSnapshot();
-	private native long nativeCreateNode(long snapshot);
-	private native long nativePatchNode(long node, long old_child, long new_child);
 	private native long nativeTransform(long node, float scaleX, float scaleY, float translationX, float translationY, float rotation, float pivotX, float pivotY);
 	private native long nativeClipOutline(long node, int mode, float left, float top, float right, float bottom, float radius, int fillType, long path);
 
 	private native long nativeOpacity(long node, float alpha);
 	private native void nativeUnref(long node);
-	private native long nativeAddStubNode(long snapshot);
 	private native long nativeCreateEmpyNode();
 
 	public static RenderNode create(String name, View view) {
@@ -231,7 +231,7 @@ public class RenderNode {
 	}
 
 	public boolean isValid() {
-		return render_node != 0;
+		return displayList != null;
 	}
 
 	public boolean setLeftTopRightBottom(int left, int top, int right, int bottom) {
@@ -256,7 +256,10 @@ public class RenderNode {
 		render_node = 0;
 		transformed_node = 0;
 		children.clear();
-		children_nodes.clear();
+		childGenerations = new long[0];
+		childNodes = new long[0];
+		if (displayList != null) { displayList.release(); displayList = null; }
+		if (recording != null) { recording.release(); recording = null; }
 	}
 
 	public void destroyDisplayListData() {
@@ -290,32 +293,36 @@ public class RenderNode {
 	}
 
 	public long getGskNode() {
-		if (render_node == 0)
-			render_node = nativeCreateEmpyNode();
-		long old_render_node = render_node;
-		for (int i = 0; i < children.size(); i++) {
-			long new_child_node = children.get(i).getGskNode();
-			if (new_child_node != children_nodes.get(i)) {
-				render_node = nativePatchNode(render_node, children_nodes.get(i), new_child_node);
-				children_nodes.set(i, new_child_node);
+		if (resolving) throw new IllegalStateException("Cyclic RenderNode display list");
+		resolving = true;
+		try {
+			boolean changed = render_node == 0;
+			for (int i = 0; i < children.size(); i++) {
+				RenderNode child = children.get(i);
+				childNodes[i] = child.getGskNode();
+				changed |= childGenerations[i] != child.generation;
 			}
+			if (changed) {
+				long replacement = displayList != null ? displayList.replay(childNodes) : 0;
+				if (replacement == 0) replacement = nativeCreateEmpyNode();
+				nativeUnref(render_node);
+				render_node = replacement;
+				for (int i = 0; i < children.size(); i++) childGenerations[i] = children.get(i).generation;
+			}
+			if (transformed_node == 0 || changed || outlineClipChanged()) {
+				long clipped_node = outlineClipNode();
+				long replacement = nativeTransform(clipped_node, scaleX, scaleY, translationX, translationY, rotation, pivotX, pivotY);
+				if (clipped_node != render_node) nativeUnref(clipped_node);
+				if (alpha != 1.0f) replacement = nativeOpacity(replacement, alpha);
+				nativeUnref(transformed_node);
+				transformed_node = replacement;
+				rememberOutline();
+				generation++;
+			}
+			return transformed_node;
+		} finally {
+			resolving = false;
 		}
-		if (transformed_node == 0 || old_render_node != render_node || outlineClipChanged()) {
-			nativeUnref(transformed_node);
-			/* Android clips the layer to its outline in the layer's own coordinate space
-			 * (AOSP RenderNodeDrawable::applyViewClips() concatenates the node matrix and then
-			 * calls clipOutline()), so the clip goes inside the transform here. */
-			long clipped_node = outlineClipNode();
-			transformed_node = nativeTransform(clipped_node, scaleX, scaleY, translationX, translationY, rotation, pivotX, pivotY);
-			if (clipped_node != render_node)
-				nativeUnref(clipped_node);
-			rememberOutline();
-			/* Android applies the render node's alpha when the layer is composited; without this the
-			 * layer's content is drawn fully opaque (translucent scrims/shadows become solid black). */
-			if (alpha != 1.0f)
-				transformed_node = nativeOpacity(transformed_node, alpha);
-		}
-		return transformed_node;
 	}
 
 	/* The node render_node clipped to this layer's outline, or render_node itself when there is
@@ -363,30 +370,29 @@ public class RenderNode {
 	}
 
 	public DisplayListCanvas start(int width, int height) {
+		if (recording != null) throw new IllegalStateException("RenderNode already recording");
 		this.width = width;
 		this.height = height;
-		children.clear();
-		children_nodes.clear();
-		return new GskCanvas(nativeCreateSnapshot()) {
-			@Override
-			public void drawRenderNode(RenderNode node) {
-				/* gtk_snapshot_append_node() may unpack container nodes since GTK 4.22 https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/9488
-				 * We prevent this using stub nodes, because we need the container nodes as handles in nativePatchNode() */
-				long stub_node = nativeAddStubNode(snapshot);
-				children.add(node);
-				children_nodes.add(stub_node);
-			}
-		};
+		recording = new RecordingCanvas();
+		return recording;
 	}
 
 	public void end(DisplayListCanvas canvas) {
-		nativeUnref(render_node);
-		render_node = nativeCreateNode(((GskCanvas)canvas).snapshot);
-		((GskCanvas)canvas).snapshot = 0;
-		if (transformed_node != 0) {
-			nativeUnref(transformed_node);
-			transformed_node = 0;
-		}
+		if (canvas != recording || recording == null)
+			throw new IllegalArgumentException("Canvas does not belong to this recording");
+		recording.seal();
+		if (displayList != null) displayList.release();
+		displayList = recording;
+		recording = null;
+		children = displayList.getChildren();
+		childGenerations = new long[children.size()];
+		childNodes = new long[children.size()];
+		nativeUnref(render_node); render_node = 0;
+		nativeUnref(transformed_node); transformed_node = 0;
+	}
+
+	@Override protected void finalize() throws Throwable {
+		try { discardDisplayList(); } finally { super.finalize(); }
 	}
 
 	public void getMatrix(Matrix matrix) {
