@@ -8,6 +8,7 @@ public class TestActivity extends android.app.Activity {
 			TestCompatibilityValues.run(this);
 			TestUsabilityRepairs.run(this);
 			TestViewState.run(this);
+			TestDrawableStates.run(this);
 			TestCollapsibleActionView.run(this);
 			TestPopupContracts.run(this);
 			TestSpinner.run(this);

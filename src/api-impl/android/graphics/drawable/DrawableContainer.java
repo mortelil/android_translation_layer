@@ -16,13 +16,19 @@ public class DrawableContainer extends Drawable {
 	}
 
 	public boolean selectDrawable(int idx) {
-		if (idx >= 0 && idx < state.childCount && idx != curIndex && state.drawables[idx] != null) {
-			curIndex = idx;
-			native_selectChild(paintable, state.drawables[idx].paintable);
-			invalidateSelf();
-			return true;
-		}
-		return false;
+		int next = state != null && idx >= 0 && idx < state.childCount
+			&& state.drawables[idx] != null ? idx : -1;
+		if (next == curIndex) return false;
+		curIndex = next;
+		Drawable current = getCurrent();
+		native_selectChild(paintable, current == null ? 0 : current.paintable);
+		invalidateSelf();
+		return true;
+	}
+
+	@Override
+	public Drawable getCurrent() {
+		return curIndex >= 0 ? state.drawables[curIndex] : null;
 	}
 
 	protected void setConstantState(DrawableContainerState state) {

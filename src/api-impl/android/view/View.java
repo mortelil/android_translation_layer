@@ -1146,11 +1146,23 @@ public class View implements Drawable.Callback {
 	}
 
 	protected int[] onCreateDrawableState(int extraSpace) {
-		return new int[0];
+		// Keep extension slots at the end for app-defined states (e.g. checked).
+		int count = (isEnabled() ? 1 : 0) + (pressed ? 1 : 0)
+			+ (isSelected() ? 1 : 0) + (isActivated() ? 1 : 0);
+		int[] state = new int[count + extraSpace];
+		int next = 0;
+		if (isSelected()) state[next++] = R.attr.state_selected;
+		if (isEnabled()) state[next++] = R.attr.state_enabled;
+		if (pressed) state[next++] = R.attr.state_pressed;
+		if (isActivated()) state[next++] = R.attr.state_activated;
+		return state;
 	}
 
 	protected static int[] mergeDrawableStates(int[] curState, int[] newState) {
-		return new int[0];
+		int used = curState.length;
+		while (used > 0 && curState[used - 1] == 0) used--;
+		System.arraycopy(newState, 0, curState, used, newState.length);
+		return curState;
 	}
 
 	public View findViewById(int id) {
@@ -1385,15 +1397,18 @@ public class View implements Drawable.Callback {
 	}
 
 	public void setPressed(boolean pressed) {
-		Slog.w(TAG, "calling setPressed on " + this + " with value: " + pressed);
 		if (this.pressed != pressed) {
 			this.pressed = pressed;
-			if (background != null && background.isStateful())
-				background.setState(getDrawableState());
+			refreshDrawableState();
 		}
 	}
 
-	public void setSelected(boolean selected) {}
+	private boolean atl_selected;
+	public void setSelected(boolean selected) {
+		if (atl_selected == selected) return;
+		atl_selected = selected;
+		refreshDrawableState();
+	}
 
 	public native Window native_get_window(long widget);
 	public ViewTreeObserver getViewTreeObserver() {
@@ -1596,6 +1611,12 @@ public class View implements Drawable.Callback {
 	}
 
 	public void refreshDrawableState() {
+		drawableStateChanged();
+	}
+
+	protected void drawableStateChanged() {
+		if (background != null && background.isStateful()
+				&& background.setState(getDrawableState())) invalidate();
 	}
 
 	public void setDescendantFocusability(int value) {}
@@ -1616,9 +1637,11 @@ public class View implements Drawable.Callback {
 	}
 
 	public void setEnabled(boolean enabled) {
+		if (atl_enabled == enabled) return;
 		atl_enabled = enabled;
 		if (!enabled) { touchClickPending = false; setPressed(false); }
 		native_setVisibility(widget, visibility, alpha, atl_enabled);
+		refreshDrawableState();
 	}
 
 	public CharSequence getContentDescription() {
@@ -1797,6 +1820,7 @@ public class View implements Drawable.Callback {
 		}
 		if (backgroundDrawable != null) {
 			backgroundDrawable.setCallback(this);
+			if (backgroundDrawable.isStateful()) backgroundDrawable.setState(getDrawableState());
 			if (backgroundTint != 0)
 				backgroundDrawable.setTint(backgroundTint);
 		}
@@ -1890,7 +1914,7 @@ public class View implements Drawable.Callback {
 			on_layout_change_listeners.remove(listener);
 	}
 
-	public boolean isSelected() { return false; }
+	public boolean isSelected() { return atl_selected; }
 
 	public void sendAccessibilityEvent(int eventType) {}
 
@@ -1901,9 +1925,14 @@ public class View implements Drawable.Callback {
 		this.minWidth = minWidth;
 	}
 
-	public void setActivated(boolean activated) {}
+	private boolean atl_activated;
+	public void setActivated(boolean activated) {
+		if (atl_activated == activated) return;
+		atl_activated = activated;
+		refreshDrawableState();
+	}
 
-	public boolean isActivated() { return false; }
+	public boolean isActivated() { return atl_activated; }
 
 	public int getVisibility() { return visibility; }
 
@@ -1920,12 +1949,7 @@ public class View implements Drawable.Callback {
 	}
 
 	public final int[] getDrawableState() {
-		int[] state = new int[2];
-		state[0] = R.attr.state_enabled;
-		if (pressed) {
-			state[1] = R.attr.state_pressed;
-		}
-		return state;
+		return onCreateDrawableState(0);
 	}
 
 	public float getRotation() { return 0.f; }
