@@ -13,6 +13,17 @@ public class AccountManager {
 		return new Account[0];
 	}
 
+	/** Package-scoped view of the account store. ATL's current store is empty;
+	 * do not invent an account or claim that login/account persistence works.
+	 */
+	public Account[] getAccountsByTypeForPackage(String type, String packageName) {
+		if (packageName == null) throw new IllegalArgumentException("packageName is null");
+		Account[] accounts = getAccountsByType(type);
+		if (accounts.length != 0)
+			throw new UnsupportedOperationException("Account visibility policy is not implemented");
+		return accounts;
+	}
+
 	public Account[] getAccounts() {
 		return new Account[0];
 	}

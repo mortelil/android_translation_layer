@@ -2241,6 +2241,10 @@ public class View implements Drawable.Callback {
 
 	public final boolean isFocusable() { return atl_focusable; }
 	public boolean isClickable() { return clickable; }
+
+	private boolean contextClickable;
+	public boolean isContextClickable() { return contextClickable; }
+	public void setContextClickable(boolean value) { contextClickable = value; }
 	public boolean isLongClickable() { return true; }
 
 	public int getLayoutDirection() { return LAYOUT_DIRECTION_LTR; }

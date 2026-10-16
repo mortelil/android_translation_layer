@@ -1,6 +1,9 @@
 package android.net.wifi;
 
 public class WifiInfo {
+	/** Android's unavailable/redacted SSID value; ATL has no Wi-Fi identity backend. */
+	public String getSSID() { return "<unknown ssid>"; }
+
 	public String getMacAddress() {
 		return "";
 	}

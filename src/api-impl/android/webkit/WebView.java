@@ -8,6 +8,14 @@ import android.view.ViewGroup;
 
 public class WebView extends ViewGroup {
 
+	/** ATL's WebView implementation lives in the framework loader. Optional
+	 * Chromium support-library classes are absent and must not be advertised.
+	 */
+	public static ClassLoader getWebViewClassLoader() {
+		return WebView.class.getClassLoader();
+	}
+
+
 	private WebViewClient webViewClient;
 	private WebSettings settings;
 	// AOSP: WebView keeps the current page URL and the URL it was originally requested with.

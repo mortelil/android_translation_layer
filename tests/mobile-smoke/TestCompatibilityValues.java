@@ -52,6 +52,23 @@ public class TestCompatibilityValues {
         captions.removeCaptioningChangeListener(captionListener);
         captions.removeCaptioningChangeListener(captionListener); // absent removal is harmless
         check(!captions.isEnabled() && captions.getFontScale() == 1f, "caption preferences unchanged");
+        check(android.webkit.WebView.getWebViewClassLoader() == android.webkit.WebView.class.getClassLoader(), "actual WebView implementation loader");
+        android.view.View contextView = new android.view.View(context);
+        check(!contextView.isContextClickable(), "context-click default");
+        contextView.setContextClickable(true);
+        check(contextView.isContextClickable() && !contextView.isClickable(), "independent context-click flag");
+        contextView.setContextClickable(false);
+        check(!contextView.isContextClickable(), "context-click cleared");
+        check("<unknown ssid>".equals(new android.net.wifi.WifiInfo().getSSID()), "unavailable Wi-Fi identity");
+        check(android.accounts.AccountManager.get(context).getAccountsByTypeForPackage("probe", context.getPackageName()).length == 0,
+            "empty account store stays empty");
+        android.accounts.AccountManager populated = new android.accounts.AccountManager() {
+            @Override public android.accounts.Account[] getAccountsByType(String type) {
+                return new android.accounts.Account[]{new android.accounts.Account("synthetic", type)};
+            }
+        };
+        try { populated.getAccountsByTypeForPackage("probe", context.getPackageName()); throw new AssertionError("visibility bypass"); }
+        catch (UnsupportedOperationException expected) {}
         System.out.println("PASS: compatibility value APIs and account service");
     }
 }
