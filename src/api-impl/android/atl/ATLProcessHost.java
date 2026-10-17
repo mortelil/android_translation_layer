@@ -33,6 +33,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Parcel;
 import android.util.Slog;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -69,6 +70,30 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	public static ATLProcessHost get() {
 		return Holder.INSTANCE;
+	}
+
+	/**
+	 * The APK a service child for {@code processName} must be booted from.
+	 *
+	 * <p>A process belongs to the package named before its ':' suffix
+	 * ({@code ActivityManagerService.startProcessLocked} picks the app that owns
+	 * the process), and a child is the app whose component it hosts. Booting
+	 * every child from the loader's own APK put the loader's classes on the
+	 * child's {@code java.class.path} ahead of the service app's: with the app
+	 * dex now on that classpath (main-executable/main.c), YouTube ReVanced's
+	 * r8-pruned {@code kotlin/jvm/internal/Intrinsics} shadowed microG's own
+	 * copy and microG's {@code GassService} died with
+	 * {@code NoSuchMethodError: checkNotNullParameter}. Falling back to the
+	 * primary application keeps the system app and the test fake working.
+	 */
+	private static String spawnApk(String processName) {
+		int colon = processName.indexOf(':');
+		String pkg = colon < 0 ? processName : processName.substring(0, colon);
+		File installed = new File(ATLPaths.installed_apks_dir, pkg + ".apk");
+		if (installed.isFile())
+			return installed.getPath();
+		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
+		return primary == null ? null : primary.pkg.applicationInfo.sourceDir;
 	}
 
 	/** Holds the launcher application while a child is live; implemented in main.c. */
@@ -484,7 +509,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 			ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
 			int[] spawned;
 			try {
-				String apk = app.pkg.applicationInfo.sourceDir;
+				String apk = spawnApk(name);
 				if (apk == null)
 					throw new IOException("the primary application has no APK path");
 				spawned = nativeSpawnServiceChild(apk, name, Build.VERSION.SDK_INT, app.pkg.packageName,
