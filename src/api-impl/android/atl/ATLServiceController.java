@@ -15,6 +15,7 @@
  */
 package android.atl;
 
+import android.app.ActivityThread;
 import android.app.ContextImpl;
 import android.app.Service;
 import android.content.ComponentName;
@@ -59,9 +60,10 @@ import java.util.IdentityHashMap;
  * never unbound lives as long as the registry's own client entry does.
  *
  * <p>Placement: {@link #resolvePlacement} decides per manifest service whether it
- * runs in the loader's own process (null) or in a process of its own. A remote
- * placement needs a process backend: with none installed (the production
- * default) {@link #placementRemoteProcess} refuses it exactly as before, and
+ * runs in the process this controller runs in -- the loader's, or a service
+ * child's own ({@code ATL_SERVICE_PROCESS}) -- (null) or in a process of its own. A remote
+ * placement needs a process backend: with none installed (a tree without the
+ * lane-D host) {@link #placementRemoteProcess} refuses it exactly as before, and
  * with the fake backend installed (env {@code ATL_PROCESS_BACKEND=fake}) the
  * child-side lifecycle runs through {@link ATLProcessBackend} operations on
  * the main looper, in post order with every other op.
@@ -239,20 +241,33 @@ public final class ATLServiceController {
 	}
 
 	/**
-	 * Where {@code service} runs: null for the loader's own process, otherwise the
-	 * manifest-declared process. An isolated service is refused, and so is a
-	 * service in another process until {@link #placementRemoteProcess} accepts it.
-	 * The refusals keep the message the local-service probe's unsupported-remote
-	 * check (SVC-014) expects.
+	 * Where {@code service} runs: null for the process this controller runs in,
+	 * otherwise the manifest-declared process. An isolated service is refused, and
+	 * so is a service in another process until {@link #placementRemoteProcess}
+	 * accepts it. The refusals keep the message the local-service probe's
+	 * unsupported-remote check (SVC-014) expects.
+	 *
+	 * <p>The comparison is against the process that is RUNNING, not against the
+	 * application's default process: a service child ({@code ATL_SERVICE_PROCESS},
+	 * see ATLProcessHost/ChildHost) hosts the services declared for its own
+	 * android:process, and a bind it issues to one of them is a bind to itself.
+	 * AOSP resolves a service request to a process by the DECLARED name of the
+	 * service and reuses that process when it is already up
+	 * ({@code ActiveServices.bringUpServiceLocked}: {@code procName = r.processName}
+	 * then {@code mAm.getProcessRecordLocked(procName, uid)},
+	 * services/core/java/com/android/server/am/ActiveServices.java:6228-6266 in the
+	 * pinned tree), so on Android the crash-helper child's own
+	 * {@code bindService(CrashHelper)} lands on itself with no second process;
+	 * comparing with the default process name instead made it look remote and,
+	 * inside a child, refused it. Note the same-process case is decided here and
+	 * not by {@link #placementRemoteProcess}: it is not a remote placement at all.
 	 */
 	private String resolvePlacement(PackageParser.Service service) {
 		if ((service.info.flags & android.content.pm.ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
 			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
 		}
 		String process = service.info.processName;
-		String appProcess = app.pkg.applicationInfo.processName;
-		if (appProcess == null) appProcess = app.pkg.packageName;
-		if (process == null || process.equals(appProcess)) {
+		if (process == null || process.equals(ActivityThread.currentProcessName())) {
 			return null;
 		}
 		return placementRemoteProcess(service, process);
@@ -260,11 +275,14 @@ public final class ATLServiceController {
 
 	/**
 	 * SEAM for the process backend wiring: the single place that decides whether a
-	 * service placed in {@code process} (not the loader's own) may run there. It
-	 * returns the process name to place the record in, or throws when it may
-	 * not. Split APKs and service children are refused with the PR31 wording;
-	 * with no backend installed (the production default) a remote service stays
-	 * explicitly unsupported with the message the SVC-014 check grew up with.
+	 * service placed in {@code process} (neither the running process nor a null
+	 * process) may run there. It returns the process name to place the record in,
+	 * or throws when it may not. Split APKs and service children are refused with
+	 * the PR31 wording -- a child reaches this only for a service whose declared
+	 * process is not the child's own, i.e. a binding that would need yet another
+	 * process and that the child's transport cannot establish; with no backend
+	 * installed (a tree without the lane-D host) a remote service stays explicitly
+	 * unsupported with the message the SVC-014 check grew up with.
 	 */
 	private String placementRemoteProcess(PackageParser.Service service, String process) {
 		String[] splits = app.pkg.applicationInfo.splitSourceDirs;
