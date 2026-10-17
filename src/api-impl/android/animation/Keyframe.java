@@ -16,6 +16,22 @@ public class Keyframe {
 		return kf;
 	}
 
+	// AOSP Keyframe.ofInt(float) / ofInt(float, int): AOSP returns IntKeyframe
+	// instances carrying an Integer value (android/animation/Keyframe.java:82-105).
+	// ATL models every keyframe with the single Object value slot above, so the
+	// boxed Integer keeps getValue()/hasValue() equivalent for callers.
+	public static Keyframe ofInt(float fraction) {
+		Keyframe kf = new Keyframe();
+		kf.setFraction(fraction);
+		return kf;
+	}
+
+	public static Keyframe ofInt(float fraction, int value) {
+		Keyframe kf = ofInt(fraction);
+		kf.setValue(Integer.valueOf(value));
+		return kf;
+	}
+
 	public float getFraction() {
 		return fraction;
 	}
