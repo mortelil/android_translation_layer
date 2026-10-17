@@ -277,17 +277,27 @@ public final class ATLServiceController {
 	 * SEAM for the process backend wiring: the single place that decides whether a
 	 * service placed in {@code process} (neither the running process nor a null
 	 * process) may run there. It returns the process name to place the record in,
-	 * or throws when it may not. Split APKs and service children are refused with
-	 * the PR31 wording -- a child reaches this only for a service whose declared
-	 * process is not the child's own, i.e. a binding that would need yet another
-	 * process and that the child's transport cannot establish; with no backend
-	 * installed (a tree without the lane-D host) a remote service stays explicitly
-	 * unsupported with the message the SVC-014 check grew up with.
+	 * or throws when it may not. Split APKs are refused with the PR31 wording.
+	 *
+	 * <p>In a service child there are two cases. A real spawned child
+	 * ({@code ATL_SERVICE_HOST}, set by the loader's spawn) reaches other
+	 * processes through the loader: the request is forwarded over the control
+	 * link and the loader performs it with its own backend, so the placement is
+	 * allowed only when that forwarding backend is installed; without one the
+	 * child stays explicitly unable to establish the process. A probe launch that
+	 * merely claims {@code ATL_SERVICE_PROCESS} (the S14c gate) has no host and
+	 * is refused with exactly the message the SVC-014 check grew up with, and a
+	 * tree without the lane-D host keeps the generic unsupported-remote wording.
 	 */
 	private String placementRemoteProcess(PackageParser.Service service, String process) {
 		String[] splits = app.pkg.applicationInfo.splitSourceDirs;
 		if (splits != null && splits.length > 0)
 			throw new UnsupportedOperationException("Remote services in split APKs are not implemented");
+		if (System.getenv(ENV_SERVICE_HOST) != null) {
+			if (processBackend == null)
+				throw new UnsupportedOperationException("Service-to-other-process bindings are not implemented");
+			return process;
+		}
 		if (System.getenv(ENV_SERVICE_PROCESS) != null)
 			throw new UnsupportedOperationException("Service-to-other-process bindings are not implemented");
 		if (processBackend == null)
@@ -816,10 +826,12 @@ public final class ATLServiceController {
 	}
 
 	/**
-	 * The backend to install: the test fake, the lane-D transport host, or null.
+	 * The backend to install: the test fake, the service-child forwarding backend,
+	 * the lane-D transport host, or null.
 	 * Order: {@code ATL_PROCESS_BACKEND=fake} first (lane-B test seam), then the
-	 * {@code ATL_SERVICE_HOST} child guard (this process IS a service child, so it
-	 * hosts nothing itself), then the reflective host lookup: a
+	 * {@code ATL_SERVICE_HOST} marker (this process IS a service child: it hosts
+	 * its own process's services but forwards every other declared process to the
+	 * loader), then the reflective host lookup: a
 	 * {@link ClassNotFoundException} means a tree without the lane-D host and
 	 * leaves remote placements refused, any other reflective failure is loud
 	 * (never a silent degradation), and a {@link LinkageError} from loading the
@@ -828,8 +840,15 @@ public final class ATLServiceController {
 	private ATLProcessBackend selectProcessBackend() {
 		if ("fake".equals(System.getenv(ENV_PROCESS_BACKEND)))
 			return new ATLFakeProcessBackend(app);
-		if (System.getenv(ENV_SERVICE_HOST) != null)
-			return null;
+		if (System.getenv(ENV_SERVICE_HOST) != null) {
+			// This process IS a service child (spawned by the loader's transport):
+			// it hosts services of its own process but cannot spawn another one, so
+			// a component of another declared process is forwarded to the loader
+			// (ATLProcessControl SVC_*). The backend resolves the control link when
+			// an op runs, not now: this constructor runs during Context's static
+			// initialization, before ChildHost starts the link.
+			return ATLForwardingProcessBackend.get();
+		}
 		final Object host;
 		try {
 			host = Class.forName(ATL_PROCESS_HOST_CLASS).getMethod("get").invoke(null);

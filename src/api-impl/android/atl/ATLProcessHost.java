@@ -22,7 +22,9 @@ package android.atl;
 
 import android.app.Application;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageParser;
 import android.os.ATLBinderConnection;
 import android.os.Build;
@@ -32,6 +34,7 @@ import android.os.Looper;
 import android.os.Parcel;
 import android.util.Slog;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.concurrent.CountDownLatch;
@@ -556,6 +559,12 @@ public class ATLProcessHost implements ATLProcessBackend {
 		private boolean ready, down, held;
 		private final HashSet<String> hosted = new HashSet<>();
 		private int activeBinds;
+		/**
+		 * Token -&gt; the loader-side client of one binding a service child of this
+		 * process forwarded (SVC_BIND). Touched on the main looper; the teardown of
+		 * the entry (any thread) posts a release that empties it.
+		 */
+		private final HashMap<Integer, ForwardedBinding> forwarded = new HashMap<>();
 
 		Entry(String processName, int generation, int pid) {
 			this.processName = processName;
@@ -614,6 +623,247 @@ public class ATLProcessHost implements ATLProcessBackend {
 			ATLBinderConnection transport = this.transport;
 			if (transport != null)
 				transport.close();
+		}
+
+		@Override
+		public boolean isProcessUp(String processName) {
+			// Synchronous PROCESS_UP, answered on the transport worker the child is
+			// parked in. AOSP's process check (ActiveServices.bringUpServiceLocked:
+			// getProcessRecordLocked(procName, uid)) sees the loader's own process
+			// as up, and any spawned child that already reported READY.
+			if (processName.equals(Application.getProcessName()))
+				return true;
+			synchronized (lock) {
+				Entry other = entries.get(processName);
+				return other != null && other.isReady();
+			}
+		}
+
+		@Override
+		public void onForwardedServiceOp(final int code, final int token, final String process,
+		                                 final ComponentName component, final Intent intent,
+		                                 final int flags, final int startId) {
+			// Accepted on the transport worker, performed on the loader's main looper
+			// (where the controller and its callbacks live), answered later through
+			// SVC_RESULT. The worker must stay free for the child's synchronous calls.
+			post(new Runnable() {
+				public void run() {
+					forwardOnMain(code, token, process, component, intent, flags, startId);
+				}
+			});
+		}
+
+		/**
+		 * One forwarded request, on the main looper. The component must be declared
+		 * for exactly the process the child resolved (a child cannot talk the loader
+		 * into running an arbitrary component elsewhere), and the loader's own
+		 * {@link ATLLoadedApp#bindService}/{@link ATLLoadedApp#startService} then
+		 * applies the same placement and backend rules as a loader-initiated call -
+		 * the service still runs in its DECLARED process, never downgraded.
+		 */
+		private void forwardOnMain(int code, int token, String process, ComponentName component,
+		                           Intent intent, int flags, int startId) {
+			ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
+			PackageParser.Service service = ATLProcessControl.findService(app, component.getClassName());
+			if (service == null || !app.pkg.packageName.equals(component.getPackageName())
+			    || !process.equals(ATLProcessControl.componentProcess(app, service))) {
+				Slog.w(TAG, "refusing a forwarded service op " + code + " for " + component + " from process "
+				       + processName);
+				sendServiceResult(token, ATLProcessControl.SVC_STATUS_REFUSED, 0, null);
+				return;
+			}
+			switch (code) {
+			case ATLProcessControl.SVC_START: {
+				ComponentName resolved;
+				try {
+					resolved = app.startService(intent);
+				} catch (RuntimeException x) {
+					Slog.w(TAG, "forwarded startService of " + component + " was refused", x);
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_REFUSED, 0, null);
+					return;
+				}
+				if (resolved == null) {
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_REFUSED, 0, null);
+					return;
+				}
+				// The loader's controller owns the instance and its restart ladder;
+				// the child's mirrored record only needs a valid start result.
+				sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK,
+				                  android.app.Service.START_STICKY_COMPATIBILITY, null);
+				return;
+			}
+			case ATLProcessControl.SVC_BIND: {
+				Context context = app.getApplication();
+				ServiceConnection connection = new ForwardedConnection(token, true);
+				ForwardedBinding binding = new ForwardedBinding(context, connection);
+				synchronized (forwarded) {
+					forwarded.put(Integer.valueOf(token), binding);
+				}
+				ComponentName resolved;
+				try {
+					// Same flags as the child's caller: a bind without BIND_AUTO_CREATE
+					// keeps the loader's guard (it may not spawn a process).
+					resolved = app.bindService(context, intent, connection, flags);
+				} catch (RuntimeException x) {
+					forgetForwarded(token);
+					Slog.w(TAG, "forwarded bindService of " + component + " was refused", x);
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_REFUSED, 0, null);
+					return;
+				}
+				if (resolved == null) {
+					forgetForwarded(token);
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_REFUSED, 0, null);
+				}
+				// Otherwise the result arrives through ForwardedConnection, on the main
+				// looper, exactly where an app's onServiceConnected would run.
+				return;
+			}
+			case ATLProcessControl.SVC_REBIND: {
+				// The child already holds the binder for this identity: the loader only
+				// has to run onRebind() on the surviving instance. A fresh registration
+				// makes the controller consume its armed rebind state.
+				Context context = app.getApplication();
+				ServiceConnection connection = new ForwardedConnection(token, false);
+				synchronized (forwarded) {
+					forwarded.put(Integer.valueOf(token), new ForwardedBinding(context, connection));
+				}
+				try {
+					app.bindService(context, intent, connection, Context.BIND_AUTO_CREATE);
+				} catch (RuntimeException x) {
+					forgetForwarded(token);
+					Slog.w(TAG, "forwarded rebind of " + component + " was refused", x);
+				}
+				return;
+			}
+			case ATLProcessControl.SVC_UNBIND: {
+				ForwardedBinding binding = forgetForwarded(token);
+				if (binding != null) {
+					try {
+						app.unbindService(binding.context, binding.connection);
+					} catch (RuntimeException x) {
+						Slog.w(TAG, "forwarded unbind of " + component + " failed", x);
+					}
+				}
+				// The loader's controller applies onUnbind()'s rebind arming to its own
+				// record; the child's record mirrors the identity but not the arming,
+				// so a later bind re-runs onBind() there (never a false rebind).
+				sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK, 0, null);
+				return;
+			}
+			default: { // SVC_DESTROY
+				try {
+					app.stopService(new Intent().setComponent(component));
+				} catch (RuntimeException x) {
+					Slog.w(TAG, "forwarded stopService of " + component + " failed", x);
+				}
+				return;
+			}
+			}
+		}
+
+		private ForwardedBinding forgetForwarded(int token) {
+			synchronized (forwarded) {
+				return forwarded.remove(Integer.valueOf(token));
+			}
+		}
+
+		/**
+		 * Releases every loader-side binding this process forwarded: a dead client's
+		 * registrations must not keep the declared process alive (AOSP
+		 * ActiveServices.removeConnectionLocked/cleanUpApplicationRecordLocked).
+		 * Runs on the main looper; the entry is already down, so nothing is reported.
+		 */
+		private void releaseForwarded() {
+			ArrayList<ForwardedBinding> released;
+			synchronized (forwarded) {
+				if (forwarded.isEmpty())
+					return;
+				released = new ArrayList<>(forwarded.values());
+				forwarded.clear();
+			}
+			ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
+			for (ForwardedBinding binding : released) {
+				try {
+					app.unbindService(binding.context, binding.connection);
+				} catch (RuntimeException x) {
+					Slog.w(TAG, "releasing a forwarded binding of " + processName + " failed", x);
+				}
+			}
+		}
+
+		@Override
+		public void sendServiceResult(int token, int status, int result, IBinder binder) {
+			Parcel data = Parcel.obtain();
+			try {
+				data.writeInt(token);
+				data.writeInt(status);
+				data.writeInt(result);
+				data.writeStrongBinder(binder);
+				transactChild(Entry.this, ATLProcessControl.SVC_RESULT, data).recycle();
+			} catch (RuntimeException x) {
+				// The child is gone (or its link is): its teardown already released the
+				// bindings this result would have served.
+				Slog.w(TAG, "cannot deliver a service result to process " + processName, x);
+			} finally {
+				data.recycle();
+			}
+		}
+
+		/** The loader-side client of one forwarded binding. Main looper only. */
+		private final class ForwardedBinding {
+			final Context context;
+			final ServiceConnection connection;
+
+			ForwardedBinding(Context context, ServiceConnection connection) {
+				this.context = context;
+				this.connection = connection;
+			}
+		}
+
+		/**
+		 * The loader's own client for a forwarded bind: every app-visible outcome of
+		 * the loader's controller is reported back to the requesting child with the
+		 * token it sent (AOSP's client observes the same events through
+		 * ServiceDispatcher.doConnected, LoadedApk.java 2402-2459).
+		 */
+		private final class ForwardedConnection implements ServiceConnection {
+			private final int token;
+			/** False for a rebind: the requester already holds its binder and awaits nothing. */
+			private final boolean report;
+
+			ForwardedConnection(int token, boolean report) {
+				this.token = token;
+				this.report = report;
+			}
+
+			@Override
+			public void onServiceConnected(ComponentName name, IBinder service) {
+				if (report)
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK, 1, service);
+			}
+
+			@Override
+			public void onNullBinding(ComponentName name) {
+				// The binding machinery worked; onBind() returned no binder. Forwarded as
+				// a successful null result: the child reports onNullBinding().
+				if (report)
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK, 0, null);
+			}
+
+			@Override
+			public void onServiceDisconnected(ComponentName name) {
+				// An undelivered client whose declared process could not be reached: the
+				// approved DO_SPAWN_FAILURE mapping. A later disconnect is dropped by the
+				// child (its request has no pending token any more).
+				if (report)
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
+			}
+
+			@Override
+			public void onBindingDied(ComponentName name) {
+				if (report)
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
+			}
 		}
 
 		synchronized boolean isReady() {
@@ -725,6 +975,14 @@ public class ATLProcessHost implements ATLProcessBackend {
 				}
 			});
 		}
+		// A dead client's registrations must not keep a declared process alive:
+		// AOSP drops them with the client (ActiveServices.killServicesLocked ->
+		// removeConnectionLocked). Posted: the map belongs to the main looper.
+		post(new Runnable() {
+			public void run() {
+				e.releaseForwarded();
+			}
+		});
 		if (release) {
 			post(new Runnable() {
 				public void run() {

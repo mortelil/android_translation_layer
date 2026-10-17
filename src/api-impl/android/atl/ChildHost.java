@@ -167,6 +167,25 @@ public class ChildHost {
 		    System.getenv("ATL_SERVICE_PARENT_PROCESS"), pid, new String[] {pkg});
 	}
 
+	/**
+	 * One synchronous transaction to the loader's control binder (this child's
+	 * {@code remote(1)}): the parent's {@link ATLProcessControl.ParentControl}.
+	 * Returns false when there is no live link or the transport did not deliver;
+	 * the caller decides how to report that (the service backend reports a host
+	 * that could not be reached, never a synthetic success). Safe on any thread:
+	 * the link is read under the class lock, and the transport does its own
+	 * synchronisation.
+	 */
+	static boolean transactParent(int code, Parcel data, Parcel reply) {
+		ATLBinderConnection connection;
+		synchronized (lock) {
+			connection = link;
+		}
+		if (connection == null)
+			return false;
+		return connection.remote(1).transact(code, data, reply, 0);
+	}
+
 	private static void die(String marker, int status) {
 		System.out.println(marker);
 		System.out.flush();
@@ -232,6 +251,12 @@ public class ChildHost {
 			protected boolean onTransact(final int code, final Parcel data, final Parcel reply, int flags) {
 				if (code == ATLProviderBridge.ACQUIRE || code == ATLProviderBridge.CALL || code == ATLProviderBridge.QUERY)
 					return ATLProviderBridge.dispatch(app, process, code, data, reply);
+				// The loader's answer to a forwarded service op. Handled inline on the
+				// transport worker, never posted to the main looper: the loader may be
+				// waiting for this reply while the main looper is blocked in a
+				// synchronous call of its own (a nested wait would deadlock both).
+				if (code == ATLProcessControl.SVC_RESULT)
+					return ATLForwardingProcessBackend.dispatchResult(data, reply);
 				if (code < ATLProcessControl.START || code > ATLProcessControl.STATUS)
 					return super.onTransact(code, data, reply, flags);
 				final FutureTask<Boolean> task = new FutureTask<Boolean>(new Callable<Boolean>() {

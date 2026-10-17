@@ -22,6 +22,7 @@ import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.os.Parcel;
 import android.util.Slog;
 import java.util.Set;
@@ -44,7 +45,48 @@ import java.util.Set;
  * STATUS    parent -> child : -                              reply: String pkg, String process,
  *                                                            int pid, String dataDir, String[] fd names
  * STOP_SELF child -> parent : String componentClass, int startId  reply: int decision (1/0)
+ * SVC_START child -> parent : int token, String processName, ComponentName, Intent|null,
+ *                             int flags, int startId         reply: - (the result arrives as SVC_RESULT)
+ * SVC_BIND  child -> parent : int token, String processName, ComponentName, Intent,
+ *                             int flags                      reply: -
+ * SVC_UNBIND child -> parent: int token, String processName, ComponentName, Intent  reply: -
+ * SVC_REBIND child -> parent: int token, String processName, ComponentName, Intent  reply: -
+ * SVC_DESTROY child -> parent: int token, String processName, ComponentName         reply: -
+ * PROCESS_UP child -> parent: String processName             reply: int 1/0
+ * SVC_RESULT parent -> child: int token, int status, int result, IBinder binder     reply: -
  * </pre>
+ *
+ * <p>The SVC_* messages are a service child asking its loader to act on a
+ * service declared for a process other than the child's own. AOSP has one
+ * ActivityManagerService service record for the whole application and resolves
+ * a request to the DECLARED process of the component
+ * ({@code ActiveServices.startServiceLocked}/{@code bringUpServiceLocked}:
+ * {@code procName = r.processName} then
+ * {@code mAm.getProcessRecordLocked(procName, uid)}, pinned 94b4c163b7df
+ * {@code services/core/java/com/android/server/am/ActiveServices.java:6228-6266};
+ * {@code bindServiceInstanceLocked} routes through
+ * {@code retrieveServiceLocked} + {@code bringUpServiceLocked}, and the
+ * client observes the binder through {@code scheduleBindService} - {@code
+ * ActivityManagerService.bindServiceInstance} ->
+ * {@code ApplicationThread.scheduleBindService} -> the client's
+ * {@code onServiceConnected} on its own looper). The loader is the one
+ * authority here, so the child forwards the request, the loader resolves it
+ * through its own {@link ATLServiceController} (which owns the process backend
+ * and spawns the declared process if it is not running), and the outcome comes
+ * back to the child as SVC_RESULT. The child's app-visible outcome is exactly
+ * the one its own {@code bindService}/{@code startService} would report: a
+ * binder delivered to {@code ServiceConnection.onServiceConnected}, a null
+ * binder as {@code onNullBinding}, and a host that could not be reached as
+ * {@code onServiceDisconnected} (the DO_SPAWN_FAILURE ruling), never a fake
+ * success.
+ *
+ * <p>SVC_RESULT's {@code status} is one of {@link #SVC_STATUS_OK},
+ * {@link #SVC_STATUS_HOST_UNAVAILABLE} or {@link #SVC_STATUS_REFUSED}. A
+ * refusal is a synchronous check of the loader's controller (an unknown or
+ * unhostable component, a split APK, a non-auto-create bind of a process that
+ * is not running) and is reported to the child as a loud failure, never
+ * retried and never downgraded to an in-process service: the service always
+ * runs in the process its manifest declares.
  *
  * <p>STOP_SELF is the one child-initiated message whose reply carries a payload: the sender is
  * {@code Service.stopSelfResult(int)}, which must return the authority's decision synchronously
@@ -84,6 +126,27 @@ public final class ATLProcessControl {
 	public static final int STATUS = 7;
 	/** child -> parent: component class + startId of a Service.stopSelf*() call. */
 	public static final int STOP_SELF = 8;
+	/** child -> parent: token + process + component + intent(nullable) + flags + startId; result via SVC_RESULT. */
+	public static final int SVC_START = 9;
+	/** child -> parent: token + process + component + intent + flags; result via SVC_RESULT. */
+	public static final int SVC_BIND = 10;
+	/** child -> parent: token + process + component + intent; result via SVC_RESULT. */
+	public static final int SVC_UNBIND = 11;
+	/** child -> parent: token + process + component + intent; no result. */
+	public static final int SVC_REBIND = 12;
+	/** child -> parent: token + process + component; no result. */
+	public static final int SVC_DESTROY = 13;
+	/** child -> parent: process name; reply int 1 when the loader has that process up. */
+	public static final int PROCESS_UP = 14;
+	/** parent -> child: token + status + int result + strong binder (may be null). */
+	public static final int SVC_RESULT = 15;
+
+	/** SVC_RESULT: the forwarded op completed; {@code result} and the binder carry its outcome. */
+	public static final int SVC_STATUS_OK = 0;
+	/** SVC_RESULT: the declared process could not be reached (spawn failure, link loss). */
+	public static final int SVC_STATUS_HOST_UNAVAILABLE = 1;
+	/** SVC_RESULT: the loader's controller refused the request synchronously (never a downgrade). */
+	public static final int SVC_STATUS_REFUSED = 2;
 
 	/** Test-only fault seam, inherited by the child through the spawn environment. */
 	static final String FAULT_ENV = "ATL_SERVICE_PROCESS_FAULT";
@@ -225,6 +288,30 @@ public final class ATLProcessControl {
 		boolean onStopSelf(String componentClass, int startId);
 
 		/**
+		 * True while the loader considers {@code processName} (a manifest process
+		 * name) up. Answered on the transport worker thread from thread-safe state:
+		 * the child is parked in its synchronous PROCESS_UP call, so this must never
+		 * wait on the main looper.
+		 */
+		boolean isProcessUp(String processName);
+
+		/**
+		 * A service child asked the loader to perform SVC_START/SVC_BIND/SVC_UNBIND/
+		 * SVC_REBIND/SVC_DESTROY for a component declared for a process other than the
+		 * child's own. Called on the transport worker thread; the implementation posts
+		 * the controller work and answers the child later with
+		 * {@link #sendServiceResult}.
+		 */
+		void onForwardedServiceOp(int code, int token, String process, ComponentName component,
+		                          Intent intent, int flags, int startId);
+
+		/**
+		 * Sends one SVC_RESULT to the child (status + result + binder). Never throws:
+		 * a child that has gone away has already had its state torn down.
+		 */
+		void sendServiceResult(int token, int status, int result, IBinder binder);
+
+		/**
 		 * A control message of this child was rejected at the decode site: logs it and closes
 		 * that child's channel, so the child sees EOF and winds down and the loss surfaces as
 		 * this child's death instead of as an uncaught exception on a loader thread (which
@@ -296,6 +383,41 @@ public final class ATLProcessControl {
 				boolean stopped = entry.onStopSelf(componentClass, startId);
 				reply.writeNoException();
 				reply.writeInt(stopped ? 1 : 0);
+				return true;
+			}
+			case SVC_START:
+			case SVC_BIND:
+			case SVC_UNBIND:
+			case SVC_REBIND:
+			case SVC_DESTROY: {
+				int caller = Binder.getCallingPid();
+				if (caller != entry.pid())
+					throw new SecurityException("service request " + code + " from pid " + caller + ", expected "
+					                            + entry.pid());
+				int token = data.readInt();
+				String processName = data.readString();
+				ComponentName component = readComponent(data);
+				Intent intent = readIntent(data, component);
+				int opFlags = (code == SVC_START || code == SVC_BIND) ? data.readInt() : 0;
+				int startId = code == SVC_START ? data.readInt() : 0;
+				// Accepted here, performed on the loader's main looper: the child is
+				// released at once and the outcome arrives as SVC_RESULT. The transport
+				// worker that received this must stay free for the child's other
+				// synchronous control calls (READY/STOP_SELF/PROCESS_UP).
+				entry.onForwardedServiceOp(code, token, processName, component, intent, opFlags, startId);
+				reply.writeNoException();
+				return true;
+			}
+			case PROCESS_UP: {
+				String processName = data.readString();
+				int caller = Binder.getCallingPid();
+				if (caller != entry.pid())
+					throw new SecurityException("PROCESS_UP from pid " + caller + ", expected " + entry.pid());
+				// Synchronous by design: ATLServiceController.bindService() asks this
+				// before it may forward a non-auto-create bind (AOSP's process check).
+				// Answered from thread-safe state, never through the main looper.
+				reply.writeNoException();
+				reply.writeInt(entry.isProcessUp(processName) ? 1 : 0);
 				return true;
 			}
 			default:
