@@ -78,15 +78,26 @@ public class ChildHost {
 	private ChildHost() {}
 
 	/**
-	 * Called from native (main.c child branch) after the child's Application was
-	 * constructed, its providers created and Application.onCreate ran. Starts the
-	 * control link, reports READY to the loader and returns; the GLib main loop
-	 * keeps the process alive.
+	 * Called from native (main.c child branch) after the process' Application object
+	 * was created, but BEFORE the process' providers are created and
+	 * Application.onCreate runs. Starts the control link and reports READY to the
+	 * loader; the loader then owns the process while its main thread finishes the
+	 * bind-application sequence.
+	 *
+	 * <p>This is AOSP's ordering: ActivityThread.main attaches the process
+	 * ({@code attach(false)} -> {@code IActivityManager.attachApplication},
+	 * core/java/android/app/ActivityThread.java:9275-9290, pinned
+	 * 94b4c163b7df) before the system server schedules BIND_APPLICATION and the
+	 * app thread runs {@code handleBindApplication}'s providers and
+	 * {@code callApplicationOnCreate} (same file:8308). Reporting READY at attach
+	 * time is what lets Application.onCreate issue AMS-style calls (a
+	 * startService/bindService of a component declared for another process) over
+	 * the already-established link instead of failing with no transport.
 	 *
 	 * @param fd      this process' end of the link (ATL_SERVICE_FD)
 	 * @param process the full manifest process name this child was spawned for
 	 */
-	public static void runChild(int fd, String process) {
+	public static void attachChild(int fd, String process) {
 		try {
 			init(fd, process);
 		} catch (Throwable t) {

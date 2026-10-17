@@ -566,13 +566,16 @@ static JNIEnv *boot_android_vm(const char *apk_classpath, const char *apk_name,
  * GTK and would need an X display for a process that only hosts services and
  * has no window.
  *
- * After the shared VM boot the child follows AOSP's
- * ActivityThread.handleBindApplication ordering: Looper.prepareMainLooper, the
- * Application is attached (createApplication() does not call onCreate), the
- * process' own providers are created, then Application.onCreate runs. Finally
- * android.atl.ChildHost takes over: it opens the control link, reports READY on
- * the main looper and returns. The GLib main loop then dispatches the main
- * looper, and ChildHost's own exit paths end the process.
+ * After the shared VM boot the child follows AOSP's sequence, attach first:
+ * Looper.prepareMainLooper, the Application object is created, and
+ * android.atl.ChildHost attaches the process to its loader (control link +
+ * READY) exactly where ActivityThread.attach() -> IActivityManager.attachApplication
+ * runs before BIND_APPLICATION (core/java/android/app/ActivityThread.java:9275-9290,
+ * pinned 94b4c163b7df). Only then does the app thread create the process' own
+ * providers and run Application.onCreate (handleBindApplication,
+ * same file:8308), so onCreate can issue AMS-style service calls over the live
+ * link. The GLib main loop then dispatches the main looper, and ChildHost's own
+ * exit paths end the process.
  */
 static int run_service_child(int argc, char **argv)
 {
@@ -614,6 +617,30 @@ static int run_service_child(int argc, char **argv)
 		return 11;
 	}
 
+	/* The process is attached to its loader before any app callback runs, as in
+	 * AOSP: ActivityThread.attach() -> IActivityManager.attachApplication
+	 * (core/java/android/app/ActivityThread.java:9275-9290, pinned 94b4c163b7df)
+	 * completes before AMS schedules BIND_APPLICATION, and only then does
+	 * handleBindApplication create providers and call Application.onCreate
+	 * (same file:8308). Opening the control link here is what lets onCreate
+	 * issue AMS-style calls (a startService/bindService of a component declared
+	 * for another process) over an established transport. ChildHost reports
+	 * READY inside this call; the loader may queue work, which the main looper
+	 * dispatches once the GLib loop runs below. */
+	jclass child_host = (*env)->FindClass(env, "android/atl/ChildHost");
+	jmethodID attach_child = child_host ? (*env)->GetStaticMethodID(env, child_host, "attachChild", "(ILjava/lang/String;)V") : NULL;
+	if (attach_child == NULL || (*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: cannot resolve android.atl.ChildHost.attachChild\n");
+		return 11;
+	}
+	(*env)->CallStaticVoidMethod(env, child_host, attach_child, (jint)atoi(fd_text), _JSTRING(process_name));
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionDescribe(env);
+		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: android.atl.ChildHost.attachChild threw\n");
+		return 11;
+	}
+
 	jclass content_provider = (*env)->FindClass(env, "android/content/ContentProvider");
 	if (content_provider == NULL || (*env)->ExceptionCheck(env)) {
 		(*env)->ExceptionDescribe(env);
@@ -635,22 +662,9 @@ static int run_service_child(int argc, char **argv)
 		return 11;
 	}
 
-	jclass child_host = (*env)->FindClass(env, "android/atl/ChildHost");
-	jmethodID run_child = child_host ? (*env)->GetStaticMethodID(env, child_host, "runChild", "(ILjava/lang/String;)V") : NULL;
-	if (run_child == NULL || (*env)->ExceptionCheck(env)) {
-		(*env)->ExceptionDescribe(env);
-		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: cannot resolve android.atl.ChildHost.runChild\n");
-		return 11;
-	}
-	/* ChildHost reports READY from inside this call and then returns; from here
-	 * on the control link and the GLib main loop keep the process alive. */
-	(*env)->CallStaticVoidMethod(env, child_host, run_child, (jint)atoi(fd_text), _JSTRING(process_name));
-	if ((*env)->ExceptionCheck(env)) {
-		(*env)->ExceptionDescribe(env);
-		fprintf(stderr, "ATL_SERVICE_PROCESS_INIT_FAILED: android.atl.ChildHost.runChild threw\n");
-		return 11;
-	}
-
+	/* The control link was attached above and has been serving Application.onCreate;
+	 * from here on the GLib main loop, which dispatches the main looper, keeps the
+	 * process alive. */
 	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 	return 0;
