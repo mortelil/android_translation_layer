@@ -132,8 +132,13 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 				}
 			});
 		}
-		if (!send(ATLProcessControl.SVC_BIND, token, processName, componentClass, intent, 0, 0))
+		if (!send(ATLProcessControl.SVC_BIND, token, processName, componentClass, intent, 0, 0)) {
+			// The loader never saw the bind: release the forwarded identity as
+			// rebindService() does, so a later unbind of the same key is not
+			// forwarded as a release of a binding that never existed.
+			unremember(token);
 			failLocally(token);
+		}
 	}
 
 	@Override
