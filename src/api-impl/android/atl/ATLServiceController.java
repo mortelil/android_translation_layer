@@ -267,6 +267,20 @@ public final class ATLServiceController {
 			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
 		}
 		String process = service.info.processName;
+		if (process == null || process.isEmpty()) {
+			// AOSP: the manifest's process is optional and a component without
+			// one runs in its application's process, i.e. its package.
+			// PackageParser.parseBaseApplication leaves ApplicationInfo.processName
+			// null and ActivityManagerService falls back to info.packageName when it
+			// computes the process (ActiveServices.retrieveServiceLocked), so a null
+			// name must NOT be read as "this process": a service declared by another
+			// app was otherwise brought up in the process that happened to bind it,
+			// where the binder's own app dexes shadow the service app's classes
+			// (observed: microG's GassService died with NoSuchMethodError:
+			// checkNotNullParameter resolved from YouTube ReVanced's pruned
+			// kotlin stdlib in YouTube's process).
+			process = service.info.packageName;
+		}
 		if (process == null || process.equals(ActivityThread.currentProcessName())) {
 			return null;
 		}
