@@ -283,7 +283,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	@Override
 	public void destroyService(String processName, final String componentClass) {
-		requireHostable(processName, componentClass);
+		requireHostable(ATLLoadedAppManager.getManifestAppForProcess(processName), processName, componentClass);
 		Parcel data = Parcel.obtain();
 		data.writeString(componentClass);
 		submit(processName, new Op<Void>(false, null, data) {
@@ -348,9 +348,17 @@ public class ATLProcessHost implements ATLProcessBackend {
 	 * Caller errors, thrown synchronously: unknown component, isolated
 	 * component, a component that belongs to another process, and packages with
 	 * split APKs (never hosted). Not host unavailability.
+	 *
+	 * <p>{@code app} is the application that owns {@code processName}
+	 * ({@link ATLLoadedAppManager#getManifestAppForProcess}): a companion
+	 * package's process is validated against that package's manifest, because a
+	 * declared component of the companion is absent from the launcher's manifest
+	 * (observed: YouTube ReVanced binding microG's
+	 * {@code org.microg.gms.ads.identifier.AdvertisingIdService} declared by
+	 * {@code app.revanced.android.gms} was refused, and the refusal killed the
+	 * app with {@code System.exit(10)}).
 	 */
-	private void requireHostable(String processName, String componentClass) {
-		ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
+	private void requireHostable(ATLLoadedApp app, String processName, String componentClass) {
 		PackageParser.Service service = ATLProcessControl.findService(app, componentClass);
 		if (service == null)
 			throw new IllegalArgumentException("Service " + componentClass + " is not declared in the manifest");
@@ -371,11 +379,12 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	/** Refuses, then encodes the intent; both on the caller's thread so refusals are synchronous. */
 	private Parcel encodeIntent(String processName, String componentClass, Intent intent) {
-		requireHostable(processName, componentClass);
+		ATLLoadedApp app = ATLLoadedAppManager.getManifestAppForProcess(processName);
+		requireHostable(app, processName, componentClass);
 		Parcel data = Parcel.obtain();
 		try {
 			ATLProcessControl.writeIntent(data, intent,
-			    new ComponentName(ATLLoadedApp.getPrimaryApplication().pkg.packageName, componentClass));
+			    new ComponentName(app.pkg.packageName, componentClass));
 		} catch (RuntimeException e) {
 			data.recycle();
 			throw e;

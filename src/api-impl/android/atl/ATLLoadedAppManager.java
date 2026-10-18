@@ -118,6 +118,36 @@ public final class ATLLoadedAppManager {
 		}
 	}
 
+	/**
+	 * The application whose manifest owns {@code processName}: the primary
+	 * application's own process (including its {@code :suffix} processes), or the
+	 * installed, visible companion package the process name is scoped to.
+	 *
+	 * <p>A component is declared by the package that owns its process, so every
+	 * manifest question about a process target has to be asked of that package's
+	 * manifest - the launcher's manifest does not list a companion's services.
+	 * AOSP resolves the request against the target package's
+	 * {@code PackageParser.Package} ({@code ActiveServices.retrieveServiceLocked}
+	 * then {@code findServiceLocked} on the package's own component list,
+	 * services/core/java/com/android/server/am/ActiveServices.java:6228-6266 in the
+	 * pinned tree).
+	 *
+	 * @return the primary application when the process is its own or the package
+	 *         cannot be resolved (the caller then reports the component as
+	 *         undeclared, exactly as before this resolution existed)
+	 */
+	@Nullable
+	public static ATLLoadedApp getManifestAppForProcess(String processName) {
+		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
+		int colon = processName.indexOf(':');
+		String pkg = colon < 0 ? processName : processName.substring(0, colon);
+		if (primary == null || pkg.equals(primary.pkg.packageName)) {
+			return primary;
+		}
+		ATLLoadedApp owner = getPackageOnlyAppFromPackageName(pkg);
+		return owner != null ? owner : primary;
+	}
+
 	private static PackageParser.Package loadPackage(String packageName) {
 		if (!isPackageVisible(ATLLoadedApp.getPrimaryApplication().pkg.packageName, packageName)) {
 			// No right to view this package.

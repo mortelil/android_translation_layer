@@ -331,7 +331,8 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 			data.writeInt(token);
 			data.writeString(processName);
 			ATLProcessControl.writeIntent(data, intent,
-			    new ComponentName(ATLLoadedApp.getPrimaryApplication().pkg.packageName, componentClass));
+			    new ComponentName(ATLLoadedAppManager.getManifestAppForProcess(processName).pkg.packageName,
+			                      componentClass));
 			if (code == ATLProcessControl.SVC_START || code == ATLProcessControl.SVC_BIND)
 				data.writeInt(flags);
 			if (code == ATLProcessControl.SVC_START)
