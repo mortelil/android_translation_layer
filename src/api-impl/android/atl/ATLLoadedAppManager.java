@@ -169,7 +169,6 @@ public final class ATLLoadedAppManager {
 			}
 			Slog.i(TAG, "Attempting to load " + packageName + " into " + ATLLoadedApp.getPrimaryApplication().pkg.packageName);
 			File installed_apk_location = new File(ATLPaths.installed_apks_dir, packageName + ".apk");
-			File installed_lib_location = new File(ATLPaths.app_data_dir_base, packageName + "_/lib");
 			if (!installed_apk_location.isFile()) {
 				if (ATLLoadedApp.play_services.contains(packageName)) {
 					return loadGStub(packageName);
@@ -177,7 +176,7 @@ public final class ATLLoadedAppManager {
 				return null;
 			}
 			String apk_path = installed_apk_location.getPath();
-			String lib_path = installed_lib_location.isDirectory() ? installed_lib_location.getPath() : null;
+			String lib_path = ensureNativeLibraryDir(installed_apk_location);
 			try {
 				app = ATLLoadedApp.loadFromPath(apk_path, lib_path, apk_path);
 				app.pkg.applicationInfo.nativeLibraryDir = lib_path;
@@ -201,6 +200,67 @@ public final class ATLLoadedAppManager {
 		    source.applicationInfo.targetSdkVersion < 30 ||
 		    source.requestedPermissions.contains("android.permission.QUERY_ALL_PACKAGES") ||
 		    source.queriesPackages.contains(targetPackageName));
+	}
+
+	/**
+	 * Install-time native-library extraction for a package that is only loaded
+	 * at runtime.
+	 *
+	 * <p>Android extracts {@code lib/<abi>/} of an installed apk into the
+	 * directory published as {@link android.content.pm.ApplicationInfo#nativeLibraryDir}
+	 * ({@code NativeLibraryHelper.createNativeLibrarySubdir}, called from
+	 * PackageManagerService install; frameworks-base pinned 94b4c163b7df). The
+	 * launcher mirrors that for the package it starts
+	 * ({@code extract_native_libraries}, main.c:435). A companion apk resolved
+	 * later out of {@code _installed_apks_} has no such directory, so
+	 * {@code nativeLibraryDir} would be null - a state no installed app sees.
+	 * microG's {@code DynamiteContextFactory.createClassLoader} dereferences it to
+	 * build the PathClassLoader library path and dies in
+	 * {@code StringBuilder.<init>} on the null, which keeps its conscrypt
+	 * provider out of {@code ProviderInstaller}.
+	 *
+	 * @param apk the installed companion apk
+	 * @return the directory to publish as nativeLibraryDir (never null)
+	 */
+	private static String ensureNativeLibraryDir(File apk) {
+		File lib_dir = new File(new File(ATLPaths.app_data_dir_base, apk.getName() + "_"), "lib");
+		if (!lib_dir.isDirectory() && !lib_dir.mkdirs() && !lib_dir.isDirectory()) {
+			Slog.e(TAG, "Failed to create native library directory " + lib_dir);
+			return lib_dir.getPath();
+		}
+		String abi = ATLNativeAbi.hostAbi();
+		if (abi == null)
+			return lib_dir.getPath();
+		String prefix = "lib/" + abi + "/";
+		try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+			java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+			while (entries.hasMoreElements()) {
+				java.util.zip.ZipEntry entry = entries.nextElement();
+				String name = entry.getName();
+				if (entry.isDirectory() || !name.startsWith(prefix))
+					continue;
+				String file_name = name.substring(prefix.length());
+				if (file_name.isEmpty() || file_name.indexOf('/') != -1)
+					continue;
+				File target = new File(lib_dir, file_name);
+				if (target.isFile() && target.length() == entry.getSize()
+				    && target.lastModified() >= apk.lastModified())
+					continue;
+				try (java.io.InputStream in = zip.getInputStream(entry);
+				     java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+					byte[] buffer = new byte[64 * 1024];
+					int read;
+					while ((read = in.read(buffer)) > 0)
+						out.write(buffer, 0, read);
+				}
+				// NativeLibraryHelper installs the directory and its contents 0755.
+				target.setReadable(true, false);
+				target.setExecutable(true, false);
+			}
+		} catch (IOException e) {
+			Slog.e(TAG, "Failed to extract native libraries from " + apk, e);
+		}
+		return lib_dir.getPath();
 	}
 
 	private static ATLLoadedApp loadGStub(String packageName) {

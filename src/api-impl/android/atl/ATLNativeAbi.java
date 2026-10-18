@@ -105,8 +105,12 @@ public final class ATLNativeAbi {
 	 * The ABI ATL loads native code for. The launcher passes the compile-time
 	 * NATIVE_ARCH, which is exactly the {@code lib/<abi>/} directory it extracts;
 	 * Build.CPU_ABI is the fallback for callers without the property.
+	 *
+	 * <p>Public because {@link ATLLoadedAppManager} extracts a companion apk's
+	 * {@code lib/<abi>/} into its nativeLibraryDir at load time; both must agree
+	 * on the directory name the launcher would have extracted.
 	 */
-	private static String hostAbi() {
+	public static String hostAbi() {
 		String abi = System.getProperty("atl.native.arch");
 		if (abi != null && !abi.isEmpty())
 			return abi;
