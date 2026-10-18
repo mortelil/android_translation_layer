@@ -41,6 +41,17 @@ public interface ATLProcessBackend {
 		void onResult(T result);
 
 		void onHostUnavailable();
+
+		/**
+		 * The host of a binding that ALREADY produced a result went down: the
+		 * binder the caller holds is dead (AOSP would deliver
+		 * {@code onServiceDisconnected()}). A later {@link #onResult} for the same
+		 * request is a reconnect, not a second first-connect; a backend that cannot
+		 * tell the two apart must fall back to {@link #onHostUnavailable()}.
+		 */
+		default void onHostDied() {
+			onHostUnavailable();
+		}
 	}
 
 	/**
@@ -95,6 +106,22 @@ public interface ATLProcessBackend {
 
 	/** Runs child onCreate if needed, then a fresh onBind(intent); reports the binder (may be null). */
 	void bindService(String processName, String componentClass, Intent intent, Callback<IBinder> callback);
+
+	/**
+	 * Flags-carrying form of {@link #bindService(String, String, Intent, Callback)}
+	 * (r4 delta): the caller's {@code Context.BIND_*} flags travel to the host so it
+	 * can honour {@code BIND_AUTO_CREATE}. A host handed flags without
+	 * {@code BIND_AUTO_CREATE} for a component it has no instance of must NOT create
+	 * one; it reports no binder instead (AOSP {@code ActiveServices.bindServiceLocked}
+	 * only calls {@code bringUpServiceLocked} under {@code BIND_AUTO_CREATE}, and
+	 * {@code LoadedApk.ServiceDispatcher} never sees a connect for the suppressed
+	 * creation). Added as a default so the frozen four-argument shape and its
+	 * implementors are unchanged: a host without flags support keeps the old
+	 * always-create behaviour.
+	 */
+	default void bindService(String processName, String componentClass, Intent intent, int flags, Callback<IBinder> callback) {
+		bindService(processName, componentClass, intent, callback);
+	}
 
 	/** Runs child onRebind(intent) for an existing identity binding (same filterEquals identity). */
 	void rebindService(String processName, String componentClass, Intent intent);

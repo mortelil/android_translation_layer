@@ -119,20 +119,17 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 
 	@Override
 	public void bindService(String processName, String componentClass, Intent intent, Callback<IBinder> callback) {
+		// The frozen four-argument shape of the interface: a forwarded bind creates.
+		bindService(processName, componentClass, intent, android.content.Context.BIND_AUTO_CREATE, callback);
+	}
+
+	@Override
+	public void bindService(String processName, String componentClass, Intent intent, int flags,
+	                        Callback<IBinder> callback) {
 		int token = nextToken.getAndIncrement();
-		remember(token, componentClass, intent);
-		if (callback != null) {
-			final Callback<IBinder> cb = callback;
-			register(token, new Pending() {
-				Runnable deliver(int status, int result, IBinder binder) {
-					// A null binder under OK is a successful null-binding, not an error
-					// (AOSP reports it as onNullBinding through the dispatcher).
-					return status == ATLProcessControl.SVC_STATUS_OK
-					    ? resultTask(cb, binder) : unavailableTask(cb);
-				}
-			});
-		}
-		if (!send(ATLProcessControl.SVC_BIND, token, processName, componentClass, intent, 0, 0)) {
+		remember(token, componentClass, intent, callback);
+		registerBinding(token, callback);
+		if (!send(ATLProcessControl.SVC_BIND, token, processName, componentClass, intent, flags, 0)) {
 			// The loader never saw the bind: release the forwarded identity as
 			// rebindService() does, so a later unbind of the same key is not
 			// forwarded as a release of a binding that never existed.
@@ -141,13 +138,40 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 		}
 	}
 
+	private void registerBinding(final int token, final Callback<IBinder> callback) {
+		if (callback == null)
+			return;
+		register(token, new Pending() {
+			Runnable deliver(int status, int result, IBinder binder) {
+				// A null binder under OK is a successful null-binding, not an error
+				// (AOSP reports it as onNullBinding through the dispatcher).
+				if (status == ATLProcessControl.SVC_STATUS_OK)
+					return boundTask(token, callback, binder);
+				return unavailableTask(callback);
+			}
+		});
+	}
+
+	private Runnable boundTask(final int token, final Callback<IBinder> callback, final IBinder binder) {
+		return new Runnable() {
+			public void run() {
+				synchronized (lock) {
+					for (int i = 0; i < bindings.size(); i++)
+						if (bindings.get(i).token == token)
+							bindings.get(i).delivered = true;
+				}
+				callback.onResult(binder);
+			}
+		};
+	}
+
 	@Override
 	public void rebindService(String processName, String componentClass, Intent intent) {
 		// The child already holds the binder for this identity; the loader only has
 		// to run onRebind() on the surviving instance of the declared process.
 		int token = nextToken.getAndIncrement();
 		forgetComponent(componentClass, intent);
-		remember(token, componentClass, intent);
+		remember(token, componentClass, intent, null);
 		if (!send(ATLProcessControl.SVC_REBIND, token, processName, componentClass, intent, 0, 0))
 			unremember(token);
 	}
@@ -231,13 +255,52 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 
 	private void complete(int token, int status, int result, IBinder binder) {
 		Pending op;
+		HostBinding binding = null;
 		synchronized (lock) {
 			op = pending.remove(Integer.valueOf(token));
+			if (op == null) {
+				// No request waits on this token any more. For a binding that
+				// already delivered, the result is not stale: it is the death of a
+				// live binding or its reconnect under the same loader-side client
+				// (AOSP keeps the ServiceConnection across
+				// onServiceDisconnected()). Deliver it through the retained callback.
+				for (int i = bindings.size() - 1; i >= 0; i--)
+					if (bindings.get(i).token == token) {
+						binding = bindings.get(i);
+						break;
+					}
+			}
 		}
 		if (op == null) {
-			// A late result (the requester already gave up, or the op needed none,
-			// e.g. a rebind): dropping it is correct, but never silent.
-			Slog.w(TAG, "service result " + status + " for token " + token + " has no waiting request");
+			if (binding == null || binding.callback == null) {
+				// A late result (the requester already gave up, or the op needed none,
+				// e.g. a rebind): dropping it is correct, but never silent.
+				Slog.w(TAG, "service result " + status + " for token " + token + " has no waiting request");
+				return;
+			}
+			final HostBinding b = binding;
+			final Callback<IBinder> cb = binding.callback;
+			if (status == ATLProcessControl.SVC_STATUS_OK) {
+				post(new Runnable() {
+					public void run() {
+						synchronized (lock) {
+							b.delivered = true;
+						}
+						cb.onResult(binder);
+					}
+				});
+			} else if (status == ATLProcessControl.SVC_STATUS_DIED || b.delivered) {
+				post(new Runnable() {
+					public void run() {
+						synchronized (lock) {
+							b.delivered = false;
+						}
+						cb.onHostDied();
+					}
+				});
+			} else {
+				Slog.w(TAG, "service result " + status + " for token " + token + " never delivered a binder");
+			}
 			return;
 		}
 		post(op.deliver(status, result, binder));
@@ -297,11 +360,21 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 		final int token;
 		final String componentClass;
 		final Intent intent;
+		/**
+		 * The callback of the request that created this binding. Kept after the
+		 * first result: a host death and the reconnect that follows are reported
+		 * through this same request (the loader's client keeps its token), and
+		 * AOSP keeps the client's binding across {@code onServiceDisconnected()}.
+		 */
+		final Callback<IBinder> callback;
+		/** Set once a result reached {@link #callback}; cleared when the host dies. */
+		boolean delivered;
 
-		HostBinding(int token, String componentClass, Intent intent) {
+		HostBinding(int token, String componentClass, Intent intent, Callback<IBinder> callback) {
 			this.token = token;
 			this.componentClass = componentClass;
 			this.intent = intent == null ? null : new Intent(intent);
+			this.callback = callback;
 		}
 
 		boolean matches(String componentClass, Intent intent) {
@@ -313,9 +386,9 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 		}
 	}
 
-	private void remember(int token, String componentClass, Intent intent) {
+	private void remember(int token, String componentClass, Intent intent, Callback<IBinder> callback) {
 		synchronized (lock) {
-			bindings.add(new HostBinding(token, componentClass, intent));
+			bindings.add(new HostBinding(token, componentClass, intent, callback));
 		}
 	}
 

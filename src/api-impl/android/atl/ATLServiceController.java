@@ -522,7 +522,7 @@ public final class ATLServiceController {
 		// find a registered client without one.
 		getServiceDispatcher(bindContext, serviceConnection);
 		final ATLServiceRegistry.BoundClient client =
-		    service_registry.registerBinding(record, serviceConnection, intent, bindContext, autoCreate);
+		    service_registry.registerBinding(record, serviceConnection, intent, bindContext, flags);
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
@@ -1043,12 +1043,14 @@ public final class ATLServiceController {
 					dispatcher.doConnected(record.component, service_registry.binderFor(record, intent), false);
 					continue;
 				}
-				processBackend.bindService(record.remoteProcess, record.className, intent,
+				processBackend.bindService(record.remoteProcess, record.className, intent, client.flags,
 				    new ATLProcessBackend.Callback<IBinder>() {
 					    @Override
 					    public void onResult(IBinder binder) {
 						    if (record.generation != generation || !service_registry.isLive(record))
 							    return;
+						    if (client.delivered)
+							    return; // a second result for a binding already reconnected
 						    service_registry.cacheBinder(record, intent, binder);
 						    record.binderResolved = true;
 						    client.delivered = true;
@@ -1060,6 +1062,14 @@ public final class ATLServiceController {
 					    @Override
 					    public void onHostUnavailable() {
 						    handleRemoteSpawnFailure(record);
+					    }
+
+					    @Override
+					    public void onHostDied() {
+						    // The host of THIS binding went down after it delivered:
+						    // forward the death, keep the binding (and this request's
+						    // generation) so the reconnect result reconnects the client.
+						    handleRemoteBindingDied(record);
 					    }
 				    });
 				continue;
@@ -1088,6 +1098,40 @@ public final class ATLServiceController {
 			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
 			if (dispatcher != null)
 				dispatcher.doSpawnFailure(record.component);
+		}
+	}
+
+	/**
+	 * The host of a binding that had already delivered its binder disconnected
+	 * (the loader's client saw {@code onServiceDisconnected()}/{@code
+	 * onBindingDied()}): the child-side half of AOSP {@code onServiceDisconnected},
+	 * which keeps the binding. Delivered clients are notified with the binder they
+	 * hold and marked undelivered, so the late OK the loader sends when its own
+	 * restart ladder reconnects this binding delivers {@code onServiceConnected()}
+	 * again. The record's binder state is forgotten WITHOUT bumping its
+	 * {@code generation}: the reconnect arrives as a result of the same forwarded
+	 * request, whose generation guard must stay valid. Unlike
+	 * {@link #handleBackendProcessDeath} (the child's own process-death path) no
+	 * restart is scheduled: the loader owns the life of the declared process and
+	 * has already run its restart ladder.
+	 */
+	private void handleRemoteBindingDied(ATLServiceRegistry.ServiceRecord record) {
+		ArrayList<ATLServiceRegistry.BoundClient> clients = service_registry.bindingsOf(record);
+		ArrayList<IBinder> binders = new ArrayList<>();
+		for (ATLServiceRegistry.BoundClient client : clients) {
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			binders.add(dispatcher == null ? null : dispatcher.binderOf(record.component));
+		}
+		service_registry.forgetRemoteBinding(record);
+		for (int i = 0; i < clients.size(); i++) {
+			ATLServiceRegistry.BoundClient client = clients.get(i);
+			if (!client.delivered)
+				continue;
+			client.delivered = false;
+			IBinder binder = binders.get(i);
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			if (dispatcher != null && binder != null)
+				dispatcher.doDeath(record.component, binder);
 		}
 	}
 

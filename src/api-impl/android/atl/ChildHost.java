@@ -304,6 +304,7 @@ public class ChildHost {
 		final Intent intent;
 		final String componentClass;
 		final int startId;
+		int bindFlags = 0;
 		switch (code) {
 		case ATLProcessControl.START: {
 			// The component is on the wire independently of the intent, so a null intent
@@ -320,6 +321,12 @@ public class ChildHost {
 		case ATLProcessControl.REBIND: {
 			ComponentName component = ATLProcessControl.readComponent(data);
 			intent = ATLProcessControl.readIntent(data, component);
+			// r4: the caller's Context.BIND_* flags travel with the request. Only
+			// BIND_AUTO_CREATE may create an instance; a bind without it that finds
+			// no live instance is refused instead of quietly creating one
+			// (AOSP ActiveServices.bindServiceLocked brings the service up only
+			// under BIND_AUTO_CREATE).
+			bindFlags = code == ATLProcessControl.BIND ? data.readInt() : 0;
 			startId = 0;
 			componentClass = component.getClassName();
 			break;
@@ -348,6 +355,15 @@ public class ChildHost {
 				break;
 			}
 			case ATLProcessControl.BIND: {
+				if (!instances.containsKey(componentClass) && (bindFlags & android.content.Context.BIND_AUTO_CREATE) == 0) {
+					// No instance and no permission to create one: report "no
+					// binder", not a fabricated connect. The loader keeps its client
+					// pending; a later start creates the instance and the retry binds.
+					reply.writeNoException();
+					reply.writeInt(0);
+					reply.writeStrongBinder(null);
+					break;
+				}
 				IBinder binder = serviceFor(app, componentClass).service.onBind(intent);
 				if (binder != null) {
 					Integer count = binds.get(componentClass);

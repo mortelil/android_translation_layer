@@ -203,15 +203,35 @@ public class ATLProcessHost implements ATLProcessBackend {
 	@Override
 	public void bindService(String processName, final String componentClass, Intent intent,
 	                        Callback<IBinder> callback) {
+		// The frozen four-argument shape always created (the pre-r4 contract).
+		bindService(processName, componentClass, intent, Context.BIND_AUTO_CREATE, callback);
+	}
+
+	@Override
+	public void bindService(String processName, final String componentClass, Intent intent, final int flags,
+	                        Callback<IBinder> callback) {
 		Parcel data = encodeIntent(processName, componentClass, intent);
-		submit(processName, new Op<IBinder>(true, callback, data) {
+		data.writeInt(flags);
+		// A bind without BIND_AUTO_CREATE may not create the service's process
+		// (AOSP spawns only from bringUpServiceLocked under BIND_AUTO_CREATE).
+		// With the process down, this op fails as a spawn failure instead.
+		submit(processName, new Op<IBinder>((flags & Context.BIND_AUTO_CREATE) != 0, callback, data) {
 			@Override
 			IBinder call(Entry e) {
 				boolean added = e.addHosted(componentClass);
 				try {
 					Parcel reply = transactChild(e, ATLProcessControl.BIND, data);
 					try {
-						reply.readInt();
+						int status = reply.readInt();
+						if (status == 0) {
+							// No instance and the bind may not create one: the child
+							// refused to bring the service up. Nothing was hosted by
+							// this request, so the loader-side bookkeeping it added
+							// must go again and the caller stays pending (no result).
+							unhost(e, componentClass, added);
+							noResult = true;
+							return null;
+						}
 						// A null binder is a successful null-binding, not an error.
 						IBinder binder = reply.readStrongBinder();
 						if (binder != null)
@@ -401,6 +421,12 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	private abstract class Op<T> extends Task {
 		private final Callback<T> callback;
+		/**
+		 * The op completed without a caller-visible outcome (a bind the child
+		 * refused to create for): neither {@code onResult} nor
+		 * {@code onHostUnavailable} may run, the request stays pending.
+		 */
+		protected boolean noResult;
 
 		Op(boolean maySpawn, Callback<T> callback, Parcel data) {
 			super(maySpawn, data);
@@ -412,7 +438,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 		@Override
 		void run(Entry e) {
 			final T value = call(e);
-			if (callback == null)
+			if (callback == null || noResult)
 				return;
 			post(new Runnable() {
 				public void run() {
@@ -818,6 +844,18 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 		@Override
 		public void sendServiceResult(int token, int status, int result, IBinder binder) {
+			ATLBinderConnection transport = this.transport;
+			if (status == ATLProcessControl.SVC_STATUS_OK && binder != null
+			    && transport != null && !transport.canTransmit(binder)) {
+				// The binder is a proxy of another link (a service implemented in a
+				// third process): relaying it is unsupported. Report a refusal - the
+				// child maps that to its documented spawn-failure path - instead of
+				// letting the write fail and close this child's link.
+				Slog.w(TAG, "cannot relay a foreign binder of " + processName + " to its requester");
+				status = ATLProcessControl.SVC_STATUS_REFUSED;
+				result = 0;
+				binder = null;
+			}
 			Parcel data = Parcel.obtain();
 			try {
 				data.writeInt(token);
@@ -855,6 +893,8 @@ public class ATLProcessHost implements ATLProcessBackend {
 			private final int token;
 			/** False for a rebind: the requester already holds its binder and awaits nothing. */
 			private final boolean report;
+			/** Whether this client's binder was already reported to the child. */
+			private boolean delivered;
 
 			ForwardedConnection(int token, boolean report) {
 				this.token = token;
@@ -863,31 +903,38 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 			@Override
 			public void onServiceConnected(ComponentName name, IBinder service) {
-				if (report)
-					sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK, 1, service);
+				if (!report)
+					return;
+				delivered = true;
+				sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK, 1, service);
 			}
 
 			@Override
 			public void onNullBinding(ComponentName name) {
 				// The binding machinery worked; onBind() returned no binder. Forwarded as
-				// a successful null result: the child reports onNullBinding().
+				// a successful null result: the child reports onNullBinding(). Delivery
+				// of a null binder cannot die later, so it is not counted as delivered.
 				if (report)
 					sendServiceResult(token, ATLProcessControl.SVC_STATUS_OK, 0, null);
 			}
 
 			@Override
 			public void onServiceDisconnected(ComponentName name) {
-				// An undelivered client whose declared process could not be reached: the
-				// approved DO_SPAWN_FAILURE mapping. A later disconnect is dropped by the
-				// child (its request has no pending token any more).
-				if (report)
-					sendServiceResult(token, ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
+				// Before a result: the approved DO_SPAWN_FAILURE mapping. After one:
+				// the host of a live binding went down, AOSP's onServiceDisconnected()
+				// for a client that keeps its binding - reported as a death so the
+				// child forwards the disconnect instead of dropping it.
+				if (!report)
+					return;
+				sendServiceResult(token, delivered ? ATLProcessControl.SVC_STATUS_DIED
+				                                   : ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
 			}
 
 			@Override
 			public void onBindingDied(ComponentName name) {
 				if (report)
-					sendServiceResult(token, ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
+					sendServiceResult(token, delivered ? ATLProcessControl.SVC_STATUS_DIED
+					                                   : ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
 			}
 		}
 

@@ -81,12 +81,24 @@ import java.util.Set;
  * success.
  *
  * <p>SVC_RESULT's {@code status} is one of {@link #SVC_STATUS_OK},
- * {@link #SVC_STATUS_HOST_UNAVAILABLE} or {@link #SVC_STATUS_REFUSED}. A
+ * {@link #SVC_STATUS_HOST_UNAVAILABLE}, {@link #SVC_STATUS_REFUSED} or
+ * {@link #SVC_STATUS_DIED}. A
  * refusal is a synchronous check of the loader's controller (an unknown or
  * unhostable component, a split APK, a non-auto-create bind of a process that
  * is not running) and is reported to the child as a loud failure, never
  * retried and never downgraded to an in-process service: the service always
  * runs in the process its manifest declares.
+ *
+ * <p>SVC_STATUS_DIED reports that a binding which had already delivered a
+ * binder lost its host (the loader's client saw
+ * {@code onServiceDisconnected}/{@code onBindingDied}): AOSP delivers
+ * {@code onServiceDisconnected()} to the client and keeps the binding, so the
+ * child forwards the death, forgets its cached binder and keeps the request
+ * pending. A later SVC_STATUS_OK under the same token is therefore a
+ * <em>reconnect</em> (the loader's restart ladder re-spawned the process and its
+ * own client reconnected), not a second first connect; a SVC_STATUS_REFUSED
+ * that arrives after a delivered binder means the relay of a third process'
+ * binder is unsupported and is reported as a death.
  *
  * <p>STOP_SELF is the one child-initiated message whose reply carries a payload: the sender is
  * {@code Service.stopSelfResult(int)}, which must return the authority's decision synchronously
@@ -147,6 +159,12 @@ public final class ATLProcessControl {
 	public static final int SVC_STATUS_HOST_UNAVAILABLE = 1;
 	/** SVC_RESULT: the loader's controller refused the request synchronously (never a downgrade). */
 	public static final int SVC_STATUS_REFUSED = 2;
+	/**
+	 * SVC_RESULT: a binding that had delivered a binder lost its host (AOSP
+	 * {@code onServiceDisconnected()}); the binding survives and a later OK
+	 * reconnects it.
+	 */
+	public static final int SVC_STATUS_DIED = 3;
 
 	/** Test-only fault seam, inherited by the child through the spawn environment. */
 	static final String FAULT_ENV = "ATL_SERVICE_PROCESS_FAULT";
