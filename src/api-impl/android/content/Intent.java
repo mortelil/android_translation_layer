@@ -693,15 +693,34 @@ public class Intent implements Parcelable {
 		return this;
 	}
 
+	/**
+	 * Merge the extras of {@code src} into this intent's, creating the bundle on
+	 * first use. AOSP {@code core/java/android/content/Intent.java:11479-11492}
+	 * (android-17.0.0_r1, 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d) merges rather
+	 * than replaces; only {@link #replaceExtras(Bundle)} replaces. AOSP also tracks
+	 * whether the source came from a parcel to mark the extras unfiltered
+	 * ({@code LOCAL_FLAG_UNFILTERED_EXTRAS}); ATL has no extras filter, so that
+	 * bookkeeping has nothing to feed.
+	 */
 	public Intent putExtras(Intent src) {
-		// FIXME HACK
-		this.extras = src.getExtras();
+		if (src.extras != null) {
+			if (this.extras == null)
+				this.extras = new Bundle(src.extras);
+			else
+				this.extras.putAll(src.extras);
+		}
 		return this;
 	}
 
+	/**
+	 * Merge {@code extras} into this intent's, creating the bundle on first use
+	 * (AOSP {@code Intent.java:11511-11521}); the caller's bundle is copied by
+	 * {@link Bundle#putAll}, never stored by reference.
+	 */
 	public Intent putExtras(Bundle extras) {
-		// FIXME HACK
-		this.extras = extras;
+		if (this.extras == null)
+			this.extras = new Bundle();
+		this.extras.putAll(extras);
 		return this;
 	}
 
