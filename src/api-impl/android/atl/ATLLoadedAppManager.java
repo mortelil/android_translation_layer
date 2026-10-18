@@ -176,7 +176,17 @@ public final class ATLLoadedAppManager {
 				return null;
 			}
 			String apk_path = installed_apk_location.getPath();
-			String lib_path = ensureNativeLibraryDir(installed_apk_location);
+			String lib_path;
+			try {
+				lib_path = ensureNativeLibraryDir(installed_apk_location);
+			} catch (IOException e) {
+				/* The installed package's libraries could not be published: fail the
+				 * load. Continuing here with a null nativeLibraryDir would hand the
+				 * package a state no installed application ever sees (Android creates
+				 * and publishes lib/<abi> at install time). */
+				Slog.e(TAG, "Failed to load " + packageName + ": " + e.getMessage(), e);
+				return null;
+			}
 			try {
 				app = ATLLoadedApp.loadFromPath(apk_path, lib_path, apk_path);
 				app.pkg.applicationInfo.nativeLibraryDir = lib_path;
@@ -220,46 +230,21 @@ public final class ATLLoadedAppManager {
 	 * provider out of {@code ProviderInstaller}.
 	 *
 	 * @param apk the installed companion apk
-	 * @return the directory to publish as nativeLibraryDir (never null)
+	 * @return the directory to publish as nativeLibraryDir, holding this apk's
+	 *         complete library set for the host ABI (empty when it has none)
+	 * @throws IOException when the libraries could not be published; the caller
+	 *         fails the package load instead of publishing a directory that is
+	 *         partial, mixed or absent
 	 */
-	private static String ensureNativeLibraryDir(File apk) {
+	private static String ensureNativeLibraryDir(File apk) throws IOException {
 		File lib_dir = new File(new File(ATLPaths.app_data_dir_base, apk.getName() + "_"), "lib");
-		if (!lib_dir.isDirectory() && !lib_dir.mkdirs() && !lib_dir.isDirectory()) {
-			Slog.e(TAG, "Failed to create native library directory " + lib_dir);
-			return lib_dir.getPath();
-		}
 		String abi = ATLNativeAbi.hostAbi();
-		if (abi == null)
-			return lib_dir.getPath();
-		String prefix = "lib/" + abi + "/";
-		try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
-			java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-			while (entries.hasMoreElements()) {
-				java.util.zip.ZipEntry entry = entries.nextElement();
-				String name = entry.getName();
-				if (entry.isDirectory() || !name.startsWith(prefix))
-					continue;
-				String file_name = name.substring(prefix.length());
-				if (file_name.isEmpty() || file_name.indexOf('/') != -1)
-					continue;
-				File target = new File(lib_dir, file_name);
-				if (target.isFile() && target.length() == entry.getSize()
-				    && target.lastModified() >= apk.lastModified())
-					continue;
-				try (java.io.InputStream in = zip.getInputStream(entry);
-				     java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
-					byte[] buffer = new byte[64 * 1024];
-					int read;
-					while ((read = in.read(buffer)) > 0)
-						out.write(buffer, 0, read);
-				}
-				// NativeLibraryHelper installs the directory and its contents 0755.
-				target.setReadable(true, false);
-				target.setExecutable(true, false);
-			}
-		} catch (IOException e) {
-			Slog.e(TAG, "Failed to extract native libraries from " + apk, e);
+		if (abi == null) {
+			// ATL refuses to start without a host ABI, so this is unreachable in a
+			// running process; fail the load rather than guess a library directory.
+			throw new IOException("no host ABI to extract the native libraries of " + apk);
 		}
+		ATLNativeLibs.publishOrFail(apk, lib_dir, abi);
 		return lib_dir.getPath();
 	}
 
