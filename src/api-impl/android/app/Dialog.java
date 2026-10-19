@@ -143,21 +143,21 @@ public class Dialog implements Window.Callback, DialogInterface {
 	}
 
 	public void dismiss() {
+		if (Looper.myLooper() != Looper.getMainLooper()) {
+			new Handler(Looper.getMainLooper()).post(new Runnable() {
+				@Override public void run() { dismiss(); }
+			});
+			return;
+		}
 		if (!showing) return;
 		showing = false;
+		// Remove now; only listener delivery is posted, like AOSP dismissDialog.
+		// A delayed removal could otherwise close a subsequent show().
+		nativeClose(nativePtr);
 		final OnDismissListener listener = onDismissListener;
-		System.out.println("dismissing the Dialog " + Dialog.this);
-		// HACK: dismissing the Dialog takes some time in AOSP, as the request goes back and forth between the application
-		// and the system server. We replicate this behavior by adding 10 ms delay.
-		// This Hack is required for NewPipe RouterActivity which has a race condition. It subscribes an rxJava observable
-		// and immediately calls Dialog.dismiss(). The OnDismissListener would unsubscribes the observable again.
-		new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-			@Override
-			public void run() {
-				nativeClose(nativePtr);
-				if (listener != null) listener.onDismiss(Dialog.this);
-			}
-		}, 10);
+		if (listener != null) new Handler(Looper.getMainLooper()).post(new Runnable() {
+			@Override public void run() { listener.onDismiss(Dialog.this); }
+		});
 	}
 
 	public Window getWindow() {
@@ -213,9 +213,11 @@ public class Dialog implements Window.Callback, DialogInterface {
 		System.out.println("- onCreate - Dialog!");
 	}
 
+	private native void nativeHide(long ptr);
+
 	public void hide() {
 		System.out.println("hiding the Dialog " + this);
-		nativeClose(nativePtr);
+		nativeHide(nativePtr);
 	}
 
 	@Override

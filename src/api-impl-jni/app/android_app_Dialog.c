@@ -1,9 +1,11 @@
+#include "../jni_exceptions.h"
 #include <gtk/gtk.h>
 #include "../android_view_Window.h"
 #include <jni.h>
 
 #include "../defines.h"
 #include "../util.h"
+#include "../widgets/WrapperWidget.h" /* atl_widget_present_tree(): attach before present */
 #include "../generated_headers/android_app_Dialog.h"
 
 /* main app window */
@@ -80,16 +82,79 @@ JNIEXPORT void JNICALL Java_android_app_Dialog_nativeSetContentView(JNIEnv *env,
 	atl_window_set_content(env, dialog, gtk_widget_get_parent(widget));
 }
 
+struct pending_present {
+	GtkWindow *dialog;
+};
+
+static gboolean present_dialog(gpointer data)
+{
+	struct pending_present *pending = data;
+	GtkWindow *dialog = pending->dialog;
+
+	if (dialog) {
+		g_object_ref(dialog);
+		g_object_remove_weak_pointer(G_OBJECT(dialog), (gpointer *)&pending->dialog);
+		g_object_set_data(G_OBJECT(dialog), "atl-present-scheduled", NULL);
+		/* a hide/close before the deferred present wins over the pending show */
+		if (g_object_get_data(G_OBJECT(dialog), "atl-wants-present")) {
+
+			/* Attach before presenting: GTK can allocate (and therefore
+			 * measure) a window's content before it notifies about the
+			 * visibility change, which would measure a ComposeView that
+			 * is still unattached (r12-probe/atl-ui-stderr.log:390 -> :403).
+			 * AOSP's traversal attaches first and measures after
+			 * (android/view/ViewRootImpl.java:4017, then :4099). */
+			atl_widget_present_tree(GTK_WIDGET(dialog));
+			atl_jni_handle_uncaught_exception(get_jni_env(), "Dialog attach");
+			if (g_object_get_data(G_OBJECT(dialog), "atl-wants-present")) gtk_window_present(dialog);
+			g_object_set_data(G_OBJECT(dialog), "atl-wants-present", NULL);
+		}
+		g_object_unref(dialog);
+	}
+	g_free(pending);
+	return G_SOURCE_REMOVE;
+}
+
+/* AOSP's addView() only schedules the first traversal for the next frame
+ * (ViewRootImpl.setView -> requestLayout -> scheduleTraversals,
+ * core/java/android/view/ViewRootImpl.java:4010-4017), so the views see
+ * onAttachedToWindow() - and are measured - after Dialog.show() returned.
+ * androidx' DialogFragment sets ViewTreeLifecycleOwner on the decor view right
+ * after mDialog.show() returns, and both the ComposeView lookup of the window
+ * recomposer and the ViewTreeLifecycleOwner observer fail if that happens after
+ * the view was attached or measured. gtk_window_present() allocates the window,
+ * which measures the whole Java view tree immediately, so present on the next
+ * main loop iteration instead. */
 JNIEXPORT void JNICALL Java_android_app_Dialog_nativeShow(JNIEnv *env, jobject this, jlong ptr)
 {
 	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
-	gtk_window_present(dialog);
+	struct pending_present *pending;
+
+	g_object_set_data(G_OBJECT(dialog), "atl-wants-present", GINT_TO_POINTER(1));
+	if (g_object_get_data(G_OBJECT(dialog), "atl-present-scheduled"))
+		return;
+
+	pending = g_new0(struct pending_present, 1);
+	pending->dialog = dialog;
+	g_object_add_weak_pointer(G_OBJECT(dialog), (gpointer *)&pending->dialog);
+	g_object_set_data(G_OBJECT(dialog), "atl-present-scheduled", GINT_TO_POINTER(1));
+	/* Run before GTK measurement and the Android message source (priority 120). */
+	g_idle_add_full(G_PRIORITY_HIGH_IDLE, present_dialog, pending, NULL);
 }
 
 JNIEXPORT void JNICALL Java_android_app_Dialog_nativeClose(JNIEnv *env, jobject this, jlong ptr)
 {
 	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
 	remove_touch_outside(dialog);
+	g_object_set_data(G_OBJECT(dialog), "atl-wants-present", NULL);
+	atl_widget_dismiss_tree(GTK_WIDGET(dialog));
+	gtk_widget_set_visible(GTK_WIDGET(dialog), FALSE);
+}
+
+JNIEXPORT void JNICALL Java_android_app_Dialog_nativeHide(JNIEnv *env, jobject this, jlong ptr)
+{
+	GtkWindow *dialog = GTK_WINDOW(_PTR(ptr));
+	g_object_set_data(G_OBJECT(dialog), "atl-wants-present", NULL);
 	gtk_widget_set_visible(GTK_WIDGET(dialog), FALSE);
 }
 

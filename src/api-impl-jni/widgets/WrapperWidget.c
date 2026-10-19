@@ -468,11 +468,141 @@ static gboolean on_key_released(GtkEventControllerKey *controller, guint keyval,
 	return ret;
 }
 
-GtkWidget *currently_unmapping = NULL;
+/* --- Java attach/detach dispatch ------------------------------------------
+ * AOSP attaches a view tree when the window it belongs to is added to the window
+ * manager, never when the tree is built: Dialog.setContentView() stops at
+ * PhoneWindow.setContentView() (core/java/android/app/Dialog.java:616) and the
+ * first traversal is triggered by Dialog.show() -> onStart() (Dialog.java:333)
+ * -> mWindowManager.addView(mDecor, l) (Dialog.java:352), on the next frame
+ * (ViewRootImpl.performTraversals -> host.dispatchAttachedToWindow,
+ * core/java/android/view/ViewRootImpl.java:4017), i.e. after show() returned.
+ * androidx' DialogFragment sets ViewTreeLifecycleOwner on the decor view after
+ * mDialog.show() returns, so the attach must not run inside the present call.
+ * ViewGroup.dispatchAttachedToWindow attaches the group before its children
+ * (ViewGroup.java:3625-3643), a child added to an attached group attaches right
+ * away (ViewGroup.addViewInner, ViewGroup.java:5463-5467) and detaching runs
+ * children-first (ViewGroup.dispatchDetachedFromWindow, ViewGroup.java:4117-4129).
+ * `attached` mirrors View.mAttachInfo / View.isAttachedToWindow()
+ * (View.java:14495-14497): it is still set while onDetachedFromWindow() runs
+ * (View.java:23597) and cleared afterwards (View.java:23625).
+ * ATL's equivalent of "in the window manager" is a presented toplevel, so
+ * rooting a view in a GtkWindow that has not been shown yet is not an attach.
+ */
+static GtkWidget *widget_toplevel(GtkWidget *widget)
+{
+	GtkWidget *toplevel = widget;
+	while (gtk_widget_get_parent(toplevel))
+		toplevel = gtk_widget_get_parent(toplevel);
+	return toplevel;
+}
+
+/* A toplevel is presented (its views are in the window manager) while it is
+ * shown. Views inside a popover resolve to the window the popover lives in. */
+static gboolean widget_is_presented(GtkWidget *widget)
+{
+	GtkWidget *toplevel = widget_toplevel(widget);
+	gpointer state = g_object_get_data(G_OBJECT(toplevel), "atl-presented");
+	return GTK_IS_WINDOW(toplevel) && (state ? state == GINT_TO_POINTER(1) : gtk_widget_get_visible(toplevel));
+}
+
+static GPtrArray *snapshot_children(GtkWidget *widget)
+{
+	GPtrArray *children = g_ptr_array_new_with_free_func(g_object_unref);
+	for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
+		g_ptr_array_add(children, g_object_ref(child));
+	return children;
+}
+
+static void dispatch_attach(GtkWidget *widget)
+{
+	JNIEnv *env = get_jni_env();
+	if ((*env)->ExceptionCheck(env)) return;
+	g_object_ref(widget);
+	if (WRAPPER_IS_WIDGET(widget)) {
+		WrapperWidget *wrapper = WRAPPER_WIDGET(widget);
+		if (wrapper->attached || wrapper->detaching) goto out;
+		wrapper->attached = TRUE;
+		if (wrapper->jobj) (*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.view.onAttachedToWindow);
+		if ((*env)->ExceptionCheck(env) || !wrapper->attached) goto out;
+	}
+	GPtrArray *children = snapshot_children(widget);
+	for (guint i = 0; i < children->len && !(*env)->ExceptionCheck(env); i++) {
+		GtkWidget *child = g_ptr_array_index(children, i);
+		if (gtk_widget_get_parent(child) == widget) dispatch_attach(child);
+	}
+	g_ptr_array_unref(children);
+out:
+	g_object_unref(widget);
+}
+
+static void dispatch_detach(GtkWidget *widget)
+{
+	JNIEnv *env = get_jni_env();
+	if ((*env)->ExceptionCheck(env)) return;
+	g_object_ref(widget);
+	WrapperWidget *wrapper = WRAPPER_IS_WIDGET(widget) ? WRAPPER_WIDGET(widget) : NULL;
+	if (wrapper) {
+		if (!wrapper->attached || wrapper->detaching) goto out;
+		wrapper->detaching = TRUE;
+	}
+	GPtrArray *children = snapshot_children(widget);
+	for (guint i = 0; i < children->len && !(*env)->ExceptionCheck(env); i++)
+		dispatch_detach(g_ptr_array_index(children, i));
+	g_ptr_array_unref(children);
+	if (wrapper) {
+		if (!(*env)->ExceptionCheck(env) && wrapper->jobj)
+			(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.view.onDetachedFromWindow);
+		wrapper->attached = FALSE;
+		wrapper->detaching = FALSE;
+	}
+out:
+	g_object_unref(widget);
+}
+
+void atl_widget_dismiss_tree(GtkWidget *toplevel)
+{
+	g_object_set_data(G_OBJECT(toplevel), "atl-presented", GINT_TO_POINTER(2));
+	dispatch_detach(toplevel);
+}
+
+/* Attach the Java views of a toplevel's tree before the toplevel is presented.
+ * Measured on the Firefox crash dialog (r12-probe/atl-ui-stderr.log:390,402):
+ * GTK measured the window's content (AndroidLayout -> View.measure) while the
+ * Java views were still unattached and emitted notify::visible only afterwards
+ * (:403), so the visibility notification does not reliably precede the first
+ * allocation of a GtkWindow. AOSP's traversal has the opposite order and makes
+ * it a contract: ViewRootImpl.performTraversals() dispatches the attach first
+ * (host.dispatchAttachedToWindow, android/view/ViewRootImpl.java:4017) and only
+ * measures afterwards (measureHierarchy, same file :4099,:4139). Callers that
+ * present a window therefore go through this entry point. */
+void atl_widget_present_tree(GtkWidget *toplevel)
+{
+	if (!GTK_IS_WINDOW(toplevel))
+		return;
+	g_object_set_data(G_OBJECT(toplevel), "atl-presented", GINT_TO_POINTER(1));
+	dispatch_attach(toplevel);
+}
+
+static void toplevel_visible_changed(GtkWidget *toplevel, GParamSpec *pspec, gpointer user_data)
+{
+	if (gtk_widget_get_visible(toplevel)) atl_widget_present_tree(toplevel);
+	// Hiding a window does not remove it from the window manager.
+}
+
+static void ensure_toplevel_hook(GtkWidget *widget)
+{
+	GtkWidget *toplevel = widget_toplevel(widget);
+
+	if (!GTK_IS_WINDOW(toplevel) || g_object_get_data(G_OBJECT(toplevel), "atl-attach-hook"))
+		return;
+
+	g_object_set_data(G_OBJECT(toplevel), "atl-attach-hook", GINT_TO_POINTER(1));
+	g_signal_connect(toplevel, "notify::visible", G_CALLBACK(toplevel_visible_changed), NULL);
+}
 
 static void root_changed_cb(WrapperWidget *wrapper, GParamSpec *pspec, gpointer user_data)
 {
-	GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(wrapper));
+	GtkWidget *widget = GTK_WIDGET(wrapper);
 	JNIEnv *env = get_jni_env();
 	/* A lifecycle callback that threw leaves its exception pending. Any further
 	 * JNI call from this native method would abort the VM ("JNI CallVoidMethod
@@ -481,16 +611,18 @@ static void root_changed_cb(WrapperWidget *wrapper, GParamSpec *pspec, gpointer 
 	 * the pending Java exception propagate to the removeView() caller: the error
 	 * is still reported and thrown, never cleared or swallowed. */
 	if ((*env)->ExceptionCheck(env)) {
-		(*env)->ExceptionDescribe(env);
 		return;
 	}
-	if (!root)
-		currently_unmapping = wrapper->child;
-	(*env)->CallVoidMethod(env, wrapper->jobj, root ? handle_cache.view.onAttachedToWindow : handle_cache.view.onDetachedFromWindow);
-	if ((*env)->ExceptionCheck(env))
-		(*env)->ExceptionDescribe(env);
-	if (!root)
-		currently_unmapping = NULL;
+
+	if (!gtk_widget_get_root(widget)) {
+		/* the view left the widget tree (e.g. ViewGroup.removeView) */
+		dispatch_detach(widget);
+		return;
+	}
+
+	ensure_toplevel_hook(widget);
+	if (widget_is_presented(widget))
+		dispatch_attach(widget); /* ViewGroup.addViewInner: attach immediately */
 }
 
 GtkEventControllerKey *wrapper_widget_ensure_key_controller(GtkWidget *wrapper)

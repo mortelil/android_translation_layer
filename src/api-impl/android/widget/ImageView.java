@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2006 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.widget;
 
 import android.content.Context;
@@ -34,7 +50,9 @@ public class ImageView extends View {
 	public ImageView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
 		super(context, attrs, defStyleAttr, defStyleRes);
 
-		haveCustomMeasure = false;
+		/* ImageView sizes itself in onMeasure() (AOSP ImageView.onMeasure) instead of
+		   letting View.onMeasure hand the job to the GTK widget's native_measure. */
+		haveCustomMeasure = true;
 		TypedArray a = context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.ImageView, defStyleAttr, defStyleRes);
 		if (a.hasValue(com.android.internal.R.styleable.ImageView_tint))
 			colorFilter = new PorterDuffColorFilter(a.getColor(com.android.internal.R.styleable.ImageView_tint, 0),
@@ -48,13 +66,167 @@ public class ImageView extends View {
 		}
 		if (a.hasValue(com.android.internal.R.styleable.ImageView_scaleType))
 			setScaleType(scaletype_from_int[a.getInt(com.android.internal.R.styleable.ImageView_scaleType, 3 /*CENTER*/)]);
+		maxWidth = a.getDimensionPixelSize(com.android.internal.R.styleable.ImageView_maxWidth, Integer.MAX_VALUE);
+		maxHeight = a.getDimensionPixelSize(com.android.internal.R.styleable.ImageView_maxHeight, Integer.MAX_VALUE);
+		setAdjustViewBounds(a.getBoolean(com.android.internal.R.styleable.ImageView_adjustViewBounds, false));
 		a.recycle();
 	}
 
 	public void setImageResource(final int resid) {
 		setImageDrawable(resid == 0 ? null : getContext().getDrawable(resid));
 	}
-	public void setAdjustViewBounds(boolean adjustViewBounds) {}
+	public void setAdjustViewBounds(boolean adjustViewBounds) {
+		this.adjustViewBounds = adjustViewBounds;
+		if (adjustViewBounds) setScaleType(ScaleType.FIT_CENTER);
+		requestLayout();
+	}
+
+	/* AOSP android/widget/ImageView.java onMeasure()/resolveAdjustedSize()
+	 * (SDK sources android-37.0, ImageView.java:1129-1273; the pinned reference
+	 * tree carries only core/java, so android/widget is not there).
+	 *
+	 * Without this override ATL delegated ImageView sizing to the GTK
+	 * GtkPicture of the view (View.onMeasure's haveCustomMeasure == false
+	 * path -> native_measure): GtkPicture answers GTK's *height-for-width*
+	 * with the aspect-preserving natural height, so a 40x40 drawable in a
+	 * wrap_content ImageView measured 438x438 (the full available width) and
+	 * pushed the rest of the layout out of its window. AOSP measures
+	 * wrap_content from the drawable's intrinsic size instead; only
+	 * adjustViewBounds preserves the aspect ratio. */
+	private boolean adjustViewBounds = false;
+	private int maxWidth = Integer.MAX_VALUE;
+	private int maxHeight = Integer.MAX_VALUE;
+
+	@Override
+	protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+		int w;
+		int h;
+
+		// Desired aspect ratio of the view's contents (not including padding)
+		float desiredAspect = 0.0f;
+
+		// We are allowed to change the view's width
+		boolean resizeWidth = false;
+
+		// We are allowed to change the view's height
+		boolean resizeHeight = false;
+
+		final int widthSpecMode = MeasureSpec.getMode(widthMeasureSpec);
+		final int heightSpecMode = MeasureSpec.getMode(heightMeasureSpec);
+
+		if (drawable == null) {
+			// If no drawable, its intrinsic size is 0.
+			w = h = 0;
+		} else {
+			w = drawable.getIntrinsicWidth();
+			h = drawable.getIntrinsicHeight();
+			if (w <= 0) w = 1;
+			if (h <= 0) h = 1;
+
+			// We are supposed to adjust view bounds to match the aspect
+			// ratio of our drawable. See if that is possible.
+			if (adjustViewBounds) {
+				resizeWidth = widthSpecMode != MeasureSpec.EXACTLY;
+				resizeHeight = heightSpecMode != MeasureSpec.EXACTLY;
+
+				desiredAspect = (float) w / (float) h;
+			}
+		}
+
+		final int pleft = getPaddingLeft();
+		final int pright = getPaddingRight();
+		final int ptop = getPaddingTop();
+		final int pbottom = getPaddingBottom();
+
+		int widthSize;
+		int heightSize;
+
+		if (resizeWidth || resizeHeight) {
+			// Get the max possible width given our constraints
+			widthSize = resolveAdjustedSize(w + pleft + pright, maxWidth, widthMeasureSpec);
+
+			// Get the max possible height given our constraints
+			heightSize = resolveAdjustedSize(h + ptop + pbottom, maxHeight, heightMeasureSpec);
+
+			if (desiredAspect != 0.0f) {
+				// See what our actual aspect ratio is
+				final float actualAspect = (float) (widthSize - pleft - pright)
+				                          / (heightSize - ptop - pbottom);
+
+				if (Math.abs(actualAspect - desiredAspect) > 0.0000001) {
+					boolean done = false;
+
+					// Try adjusting width to be proportional to height
+					if (resizeWidth) {
+						int newWidth = (int) (desiredAspect * (heightSize - ptop - pbottom)) + pleft + pright;
+
+						// Allow the width to outgrow its original estimate if height is fixed.
+						if (!resizeHeight)
+							widthSize = resolveAdjustedSize(newWidth, maxWidth, widthMeasureSpec);
+
+						if (newWidth <= widthSize) {
+							widthSize = newWidth;
+							done = true;
+						}
+					}
+
+					// Try adjusting height to be proportional to width
+					if (!done && resizeHeight) {
+						int newHeight = (int) ((widthSize - pleft - pright) / desiredAspect) + ptop + pbottom;
+
+						// Allow the height to outgrow its original estimate if width is fixed.
+						if (!resizeWidth)
+							heightSize = resolveAdjustedSize(newHeight, maxHeight, heightMeasureSpec);
+
+						if (newHeight <= heightSize)
+							heightSize = newHeight;
+					}
+				}
+			}
+		} else {
+			/* We are either don't want to preserve the drawables aspect ratio,
+			   or we are not allowed to change view dimensions. Just measure in
+			   the normal way. */
+			w += pleft + pright;
+			h += ptop + pbottom;
+
+			w = Math.max(w, getSuggestedMinimumWidth());
+			h = Math.max(h, getSuggestedMinimumHeight());
+
+			widthSize = resolveSizeAndState(w, widthMeasureSpec, 0);
+			heightSize = resolveSizeAndState(h, heightMeasureSpec, 0);
+		}
+
+		setMeasuredDimension(widthSize, heightSize);
+	}
+
+	private int resolveAdjustedSize(int desiredSize, int maxSize, int measureSpec) {
+		int result = desiredSize;
+		final int specMode = MeasureSpec.getMode(measureSpec);
+		final int specSize = MeasureSpec.getSize(measureSpec);
+		switch (specMode) {
+			case MeasureSpec.UNSPECIFIED:
+				/* Parent says we can be as big as we want. Just don't be larger
+				   than max size imposed on ourselves. */
+				result = Math.min(desiredSize, maxSize);
+				break;
+			case MeasureSpec.AT_MOST:
+				/* Parent says we can be as big as we want, up to specSize.
+				   Don't be larger than specSize, and don't be larger than
+				   the max size imposed on ourselves. */
+				result = Math.min(Math.min(desiredSize, specSize), maxSize);
+				break;
+			case MeasureSpec.EXACTLY:
+				// No choice. Do what we are told.
+				result = specSize;
+				break;
+		}
+		return result;
+	}
+
+	public boolean getAdjustViewBounds() { return adjustViewBounds; }
+	public int getMaxWidth() { return maxWidth; }
+	public int getMaxHeight() { return maxHeight; }
 
 	public void setScaleType(ScaleType scaleType) {
 		this.scaleType = scaleType;
@@ -173,9 +345,15 @@ public class ImageView extends View {
 
 	public void setImageAlpha(int alpha) {}
 
-	public void setMaxWidth(int width) {}
+	public void setMaxWidth(int width) {
+		maxWidth = width;
+		requestLayout();
+	}
 
-	public void setMaxHeight(int height) {}
+	public void setMaxHeight(int height) {
+		maxHeight = height;
+		requestLayout();
+	}
 
 	public void setImageState(int[] state, boolean merge) {}
 
