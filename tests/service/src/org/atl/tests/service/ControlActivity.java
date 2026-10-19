@@ -87,6 +87,8 @@ public class ControlActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        try { android.atl.OwnerContracts.run(); }
+        catch (Exception e) { throw new RuntimeException(e); }
         String requested = System.getenv("ATL_SVC_GATE");
         this.gate = requested == null || requested.length() == 0 ? "local" : requested;
         EventLog.line("SVC_GATE " + gate + " begin");

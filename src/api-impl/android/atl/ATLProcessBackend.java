@@ -49,6 +49,9 @@ public interface ATLProcessBackend {
 		 * request is a reconnect, not a second first-connect; a backend that cannot
 		 * tell the two apart must fall back to {@link #onHostUnavailable()}.
 		 */
+		/** Terminal binding loss: clients must explicitly rebind. */
+		default void onBindingDied() { onHostUnavailable(); }
+
 		default void onHostDied() {
 			onHostUnavailable();
 		}

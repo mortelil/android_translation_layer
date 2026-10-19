@@ -165,6 +165,7 @@ public final class ATLProcessControl {
 	 * reconnects it.
 	 */
 	public static final int SVC_STATUS_DIED = 3;
+	public static final int SVC_STATUS_BINDING_DIED = 4;
 
 	/** Test-only fault seam, inherited by the child through the spawn environment. */
 	static final String FAULT_ENV = "ATL_SERVICE_PROCESS_FAULT";

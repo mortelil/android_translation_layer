@@ -69,6 +69,7 @@ import java.util.IdentityHashMap;
  * the main looper, in post order with every other op.
  */
 public final class ATLServiceController {
+	private static final ArrayList<ATLServiceController> controllers = new ArrayList<>();
 	private static final String TAG = "ATLLoadedApp";
 
 	// Restart tuning, defaults from AOSP ActivityManagerConstants 222-230 (carried by
@@ -176,6 +177,7 @@ public final class ATLServiceController {
 	public ATLServiceController(ATLLoadedApp app) {
 		this.app = app;
 		this.processBackend = installProcessBackend();
+		synchronized (controllers) { controllers.add(this); }
 	}
 
 	private static ATLServiceRegistry.RestartConstants restartConstantsFromEnv() {
@@ -216,6 +218,7 @@ public final class ATLServiceController {
 	private Resolved resolveService(Intent intent) {
 		ComponentName component = intent.getComponent();
 		if (component != null) {
+			if (!app.pkg.packageName.equals(component.getPackageName())) return null;
 			for (PackageParser.Service service : app.pkg.services) {
 				if (component.getClassName().equals(service.className)) {
 					return new Resolved(component, resolvePlacement(service));
@@ -266,24 +269,9 @@ public final class ATLServiceController {
 		if ((service.info.flags & android.content.pm.ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
 			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
 		}
-		String process = service.info.processName;
-		if (process == null || process.isEmpty()) {
-			// AOSP: the manifest's process is optional and a component without
-			// one runs in its application's process, i.e. its package.
-			// PackageParser.parseBaseApplication leaves ApplicationInfo.processName
-			// null and ActivityManagerService falls back to info.packageName when it
-			// computes the process (ActiveServices.retrieveServiceLocked), so a null
-			// name must NOT be read as "this process": a service declared by another
-			// app was otherwise brought up in the process that happened to bind it,
-			// where the binder's own app dexes shadow the service app's classes
-			// (observed: microG's GassService died with NoSuchMethodError:
-			// checkNotNullParameter resolved from YouTube ReVanced's pruned
-			// kotlin stdlib in YouTube's process).
-			process = service.info.packageName;
-		}
-		if (process == null || process.equals(ActivityThread.currentProcessName())) {
-			return null;
-		}
+		String process = ATLProcessControl.componentProcess(app, service);
+		if (app.pkg.packageName.equals(ActivityThread.currentPackageName())
+		    && process.equals(ActivityThread.currentProcessName())) return null;
 		return placementRemoteProcess(service, process);
 	}
 
@@ -569,6 +557,19 @@ public final class ATLServiceController {
 		return component;
 	}
 
+	/** Context registrations belong to the caller, even when the target is another APK. */
+	public static void unbindFromContext(Context context, ServiceConnection connection) {
+		ArrayList<ATLServiceController> snapshot;
+		synchronized (controllers) { snapshot = new ArrayList<>(controllers); }
+		boolean found = false;
+		for (ATLServiceController controller : snapshot) {
+			if (controller.peekServiceDispatcher(context, connection) == null) continue;
+			controller.unbindService(context, connection);
+			found = true;
+		}
+		if (!found) throw new IllegalArgumentException("Service not registered: " + connection);
+	}
+
 	/**
 	 * unbindService: removes the client from the registry and posts one
 	 * {@code onUnbind()} per binding identity whose last client it removed, even
@@ -635,10 +636,15 @@ public final class ATLServiceController {
 		final Context context = record.instanceContext;
 		if (context == null)
 			return;
-		ArrayList<ATLServiceRegistry.UnbindResult> results = service_registry.unbindContext(context);
-		forgetContextDispatchers(context);
-		for (ATLServiceRegistry.UnbindResult result : results) {
-			postUnbindWork(result.record, result.intents, result.destroy);
+		ArrayList<ATLServiceController> snapshot;
+		synchronized (controllers) { snapshot = new ArrayList<>(controllers); }
+		for (ATLServiceController controller : snapshot) {
+			ArrayList<ATLServiceRegistry.UnbindResult> results = controller.service_registry.unbindContext(context);
+			controller.forgetContextDispatchers(context);
+			for (ATLServiceRegistry.UnbindResult result : results) {
+				if (result.record.isRemote()) controller.postRemoteUnbindWork(result.record, result.intents, result.destroy);
+				else controller.postUnbindWork(result.record, result.intents, result.destroy);
+			}
 		}
 	}
 
@@ -861,11 +867,11 @@ public final class ATLServiceController {
 			// (ATLProcessControl SVC_*). The backend resolves the control link when
 			// an op runs, not now: this constructor runs during Context's static
 			// initialization, before ChildHost starts the link.
-			return ATLForwardingProcessBackend.get();
+			return ATLForwardingProcessBackend.get(app);
 		}
 		final Object host;
 		try {
-			host = Class.forName(ATL_PROCESS_HOST_CLASS).getMethod("get").invoke(null);
+			host = Class.forName(ATL_PROCESS_HOST_CLASS).getMethod("get", ATLLoadedApp.class).invoke(null, app);
 		} catch (ClassNotFoundException e) {
 			// No lane-D host in this tree: remote services stay refused.
 			return null;
@@ -1062,6 +1068,15 @@ public final class ATLServiceController {
 					    @Override
 					    public void onHostUnavailable() {
 						    handleRemoteSpawnFailure(record);
+					    }
+
+					    @Override
+					    public void onBindingDied() {
+						    if (record.generation != generation || !service_registry.isLive(record)) return;
+						    service_registry.forgetRemoteBinding(record);
+						    client.delivered = false;
+						    ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+						    if (dispatcher != null) dispatcher.doConnected(record.component, null, true);
 					    }
 
 					    @Override

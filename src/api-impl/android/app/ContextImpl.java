@@ -346,7 +346,7 @@ public final class ContextImpl extends Context {
             dispatch = executorConnections.remove(serviceConnection);
             if (dispatch != null) dispatch.active = false;
         }
-        atl_loaded_app.unbindService(this, dispatch != null ? dispatch : serviceConnection);
+        android.atl.ATLServiceController.unbindFromContext(this, dispatch != null ? dispatch : serviceConnection);
 	}
 
     private final java.util.IdentityHashMap<ServiceConnection, ExecutorConnection> executorConnections =

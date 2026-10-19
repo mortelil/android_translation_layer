@@ -64,36 +64,28 @@ public class ATLProcessHost implements ATLProcessBackend {
 	/** Test-only fake split set (colon list); production never sets it. */
 	private static final String EXTRA_APKS_ENV = "ATL_PROBE_EXTRA_APKS";
 
-	private static final class Holder {
-		static final ATLProcessHost INSTANCE = new ATLProcessHost();
+	private static final java.util.IdentityHashMap<ATLLoadedApp, ATLProcessHost> hosts = new java.util.IdentityHashMap<>();
+	private final ATLLoadedApp owner;
+
+	private ATLProcessHost(ATLLoadedApp owner) { this.owner = owner; }
+
+	public static synchronized ATLProcessHost get(ATLLoadedApp owner) {
+		if (owner == null) throw new IllegalArgumentException("Missing service owner");
+		ATLProcessHost host = hosts.get(owner);
+		if (host == null) { host = new ATLProcessHost(owner); hosts.put(owner, host); }
+		return host;
 	}
 
-	public static ATLProcessHost get() {
-		return Holder.INSTANCE;
-	}
+	public static ATLProcessHost get() { return get(ATLLoadedApp.getPrimaryApplication()); }
 
-	/**
-	 * The APK a service child for {@code processName} must be booted from.
-	 *
-	 * <p>A process belongs to the package named before its ':' suffix
-	 * ({@code ActivityManagerService.startProcessLocked} picks the app that owns
-	 * the process), and a child is the app whose component it hosts. Booting
-	 * every child from the loader's own APK put the loader's classes on the
-	 * child's {@code java.class.path} ahead of the service app's: with the app
-	 * dex now on that classpath (main-executable/main.c), YouTube ReVanced's
-	 * r8-pruned {@code kotlin/jvm/internal/Intrinsics} shadowed microG's own
-	 * copy and microG's {@code GassService} died with
-	 * {@code NoSuchMethodError: checkNotNullParameter}. Falling back to the
-	 * primary application keeps the system app and the test fake working.
-	 */
-	private static String spawnApk(String processName) {
-		int colon = processName.indexOf(':');
-		String pkg = colon < 0 ? processName : processName.substring(0, colon);
-		File installed = new File(ATLPaths.installed_apks_dir, pkg + ".apk");
-		if (installed.isFile())
-			return installed.getPath();
-		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
-		return primary == null ? null : primary.pkg.applicationInfo.sourceDir;
+	private String spawnApk(String processName) {
+		// A process name is not a package name. The controller supplies the owner.
+		String path = owner.pkg.applicationInfo.sourceDir;
+		if (path == null) {
+			File installed = new File(ATLPaths.installed_apks_dir, owner.pkg.packageName + ".apk");
+			if (installed.isFile()) path = installed.getPath();
+		}
+		return path;
 	}
 
 	/** Holds the launcher application while a child is live; implemented in main.c. */
@@ -157,14 +149,6 @@ public class ATLProcessHost implements ATLProcessBackend {
 	private volatile ProcessDeathListener deathListener;
 	private volatile ChildEventListener childEventListener;
 
-	private ATLProcessHost() {
-		/*
-		 * Mechanism only. The explicit child-boot gate (architecture.md §8) is applied
-		 * per spawn by nativeSpawnServiceChild(), which adds ATL_SERVICE_HOST to the
-		 * service child's own environment; nothing writes the marker into this
-		 * process' environment, so no other spawn of this process can inherit it.
-		 */
-	}
 
 	@Override
 	public void setProcessDeathListener(ProcessDeathListener listener) {
@@ -283,7 +267,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	@Override
 	public void destroyService(String processName, final String componentClass) {
-		requireHostable(ATLLoadedAppManager.getManifestAppForProcess(processName), processName, componentClass);
+		requireHostable(owner, processName, componentClass);
 		Parcel data = Parcel.obtain();
 		data.writeString(componentClass);
 		submit(processName, new Op<Void>(false, null, data) {
@@ -379,7 +363,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 
 	/** Refuses, then encodes the intent; both on the caller's thread so refusals are synchronous. */
 	private Parcel encodeIntent(String processName, String componentClass, Intent intent) {
-		ATLLoadedApp app = ATLLoadedAppManager.getManifestAppForProcess(processName);
+		ATLLoadedApp app = owner;
 		requireHostable(app, processName, componentClass);
 		Parcel data = Parcel.obtain();
 		try {
@@ -723,7 +707,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 		 */
 		private void forwardOnMain(int code, int token, String process, ComponentName component,
 		                           Intent intent, int flags, int startId) {
-			ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
+			ATLLoadedApp app = owner;
 			PackageParser.Service service = ATLProcessControl.findService(app, component.getClassName());
 			if (service == null || !app.pkg.packageName.equals(component.getPackageName())
 			    || !process.equals(ATLProcessControl.componentProcess(app, service))) {
@@ -841,13 +825,22 @@ public class ATLProcessHost implements ATLProcessBackend {
 				released = new ArrayList<>(forwarded.values());
 				forwarded.clear();
 			}
-			ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
+			ATLLoadedApp app = owner;
 			for (ForwardedBinding binding : released) {
 				try {
 					app.unbindService(binding.context, binding.connection);
 				} catch (RuntimeException x) {
 					Slog.w(TAG, "releasing a forwarded binding of " + processName + " failed", x);
 				}
+			}
+		}
+
+		private void releaseForwardedBinding(ForwardedBinding binding) {
+			if (binding == null) return;
+			try {
+				owner.unbindService(binding.context, binding.connection);
+			} catch (RuntimeException failure) {
+				Slog.w(TAG, "cannot release forwarded binding of " + processName, failure);
 			}
 		}
 
@@ -864,6 +857,8 @@ public class ATLProcessHost implements ATLProcessBackend {
 				status = ATLProcessControl.SVC_STATUS_REFUSED;
 				result = 0;
 				binder = null;
+				ForwardedBinding refused = forgetForwarded(token);
+				releaseForwardedBinding(refused);
 			}
 			Parcel data = Parcel.obtain();
 			try {
@@ -873,8 +868,8 @@ public class ATLProcessHost implements ATLProcessBackend {
 				data.writeStrongBinder(binder);
 				transactChild(Entry.this, ATLProcessControl.SVC_RESULT, data).recycle();
 			} catch (RuntimeException x) {
-				// The child is gone (or its link is): its teardown already released the
-				// bindings this result would have served.
+				ForwardedBinding failed = forgetForwarded(token);
+				releaseForwardedBinding(failed);
 				Slog.w(TAG, "cannot deliver a service result to process " + processName, x);
 			} finally {
 				data.recycle();
@@ -942,8 +937,7 @@ public class ATLProcessHost implements ATLProcessBackend {
 			@Override
 			public void onBindingDied(ComponentName name) {
 				if (report)
-					sendServiceResult(token, delivered ? ATLProcessControl.SVC_STATUS_DIED
-					                                   : ATLProcessControl.SVC_STATUS_HOST_UNAVAILABLE, 0, null);
+					sendServiceResult(token, ATLProcessControl.SVC_STATUS_BINDING_DIED, 0, null);
 			}
 		}
 

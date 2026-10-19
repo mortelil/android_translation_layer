@@ -57,19 +57,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 	private static final String TAG = "ATLChildBackend";
 
-	private static final class Holder {
-		static final ATLForwardingProcessBackend INSTANCE = new ATLForwardingProcessBackend();
-	}
-
-	/** The one backend of this process; installed by ATLServiceController in a service child. */
-	public static ATLForwardingProcessBackend get() {
-		return Holder.INSTANCE;
+	private static final java.util.IdentityHashMap<ATLLoadedApp, ATLForwardingProcessBackend> backends = new java.util.IdentityHashMap<>();
+	private final ATLLoadedApp owner;
+	public static synchronized ATLForwardingProcessBackend get(ATLLoadedApp owner) {
+		ATLForwardingProcessBackend backend = backends.get(owner);
+		if (backend == null) { backend = new ATLForwardingProcessBackend(owner); backends.put(owner, backend); }
+		return backend;
 	}
 
 	/** Guards every field below. */
 	private final Object lock = new Object();
 	/** Per-connection request tokens; monotonic, never reused. */
-	private final AtomicInteger nextToken = new AtomicInteger(1);
+	private static final AtomicInteger nextToken = new AtomicInteger(1);
 	/** Requests whose SVC_RESULT has not arrived yet, by token. */
 	private final HashMap<Integer, Pending> pending = new HashMap<>();
 	/**
@@ -81,7 +80,7 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 	/** Created on first use: this backend is constructed during Context's static initialization. */
 	private Handler main;
 
-	private ATLForwardingProcessBackend() {}
+	private ATLForwardingProcessBackend(ATLLoadedApp owner) { this.owner = owner; }
 
 	@Override
 	public void setProcessDeathListener(ProcessDeathListener listener) {
@@ -147,6 +146,9 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 				// (AOSP reports it as onNullBinding through the dispatcher).
 				if (status == ATLProcessControl.SVC_STATUS_OK)
 					return boundTask(token, callback, binder);
+				if (status == ATLProcessControl.SVC_STATUS_BINDING_DIED)
+					return new Runnable() { public void run() { callback.onBindingDied(); } };
+				unremember(token);
 				return unavailableTask(callback);
 			}
 		});
@@ -248,7 +250,16 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 		int status = data.readInt();
 		int result = data.readInt();
 		IBinder binder = data.readStrongBinder();
-		get().complete(token, status, result, binder);
+		ATLForwardingProcessBackend target = null;
+		synchronized (ATLForwardingProcessBackend.class) {
+			for (ATLForwardingProcessBackend candidate : backends.values()) {
+				synchronized (candidate.lock) {
+					if (candidate.pending.containsKey(token)) target = candidate;
+					for (HostBinding b : candidate.bindings) if (b.token == token) target = candidate;
+				}
+			}
+		}
+		if (target != null) target.complete(token, status, result, binder);
 		reply.writeNoException();
 		return true;
 	}
@@ -280,7 +291,9 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 			}
 			final HostBinding b = binding;
 			final Callback<IBinder> cb = binding.callback;
-			if (status == ATLProcessControl.SVC_STATUS_OK) {
+			if (status == ATLProcessControl.SVC_STATUS_BINDING_DIED) {
+				post(new Runnable() { public void run() { cb.onBindingDied(); } });
+			} else if (status == ATLProcessControl.SVC_STATUS_OK) {
 				post(new Runnable() {
 					public void run() {
 						synchronized (lock) {
@@ -331,7 +344,7 @@ public final class ATLForwardingProcessBackend implements ATLProcessBackend {
 			data.writeInt(token);
 			data.writeString(processName);
 			ATLProcessControl.writeIntent(data, intent,
-			    new ComponentName(ATLLoadedAppManager.getManifestAppForProcess(processName).pkg.packageName,
+			    new ComponentName(owner.pkg.packageName,
 			                      componentClass));
 			if (code == ATLProcessControl.SVC_START || code == ATLProcessControl.SVC_BIND)
 				data.writeInt(flags);
