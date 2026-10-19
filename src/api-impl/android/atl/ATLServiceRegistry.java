@@ -104,12 +104,20 @@ public final class ATLServiceRegistry {
 		 * {@code ConnectionRecord.hasFlag(Context.BIND_AUTO_CREATE)}).
 		 */
 		public final boolean autoCreate;
+		/**
+		 * The full {@code Context.BIND_*} set of the request. A forwarded bind
+		 * carries it to the declared process so only BIND_AUTO_CREATE may create an
+		 * instance there (AOSP keeps {@code flags} on ConnectionRecord and consults
+		 * only that bit for creation).
+		 */
+		public final int flags;
 
-		BoundClient(ServiceConnection connection, Intent intent, Context context, boolean autoCreate) {
+		BoundClient(ServiceConnection connection, Intent intent, Context context, int flags) {
 			this.connection = connection;
 			this.intent = intent;
 			this.context = context;
-			this.autoCreate = autoCreate;
+			this.flags = flags;
+			this.autoCreate = (flags & Context.BIND_AUTO_CREATE) != 0;
 		}
 	}
 
@@ -425,6 +433,30 @@ public final class ATLServiceRegistry {
 		}
 	}
 
+	/**
+	 * Forgets what {@code record} resolved about the binder of the hosting process
+	 * that just disconnected, while keeping the record and its clients: the
+	 * client-side half of an AOSP {@code onServiceDisconnected()} (the binding
+	 * survives; the binder is dead). Unlike
+	 * {@link #forgetRemoteProcessState(ServiceRecord)} this does NOT bump
+	 * {@code generation}: the request that delivered the binder is still the one
+	 * that will report a reconnect under the same token, so its generation guard
+	 * must stay valid. The identities are cleared so a later bind of the same
+	 * identity runs {@code onBind()} again in a fresh instance (AOSP resolves a
+	 * new {@code ServiceRecord} binder for a re-created process).
+	 */
+	public void forgetRemoteBinding(ServiceRecord record) {
+		synchronized (lock) {
+			record.remoteUp = false;
+			record.binderResolved = false;
+			record.binder = null;
+			record.binderIntents.clear();
+			record.identityBinders.clear();
+			record.boundIdentities.clear();
+			record.rebindPending.clear();
+		}
+	}
+
 	/** True while {@code record} is still the registered, not-yet-stopped state. */
 	public boolean isLive(ServiceRecord record) {
 		synchronized (lock) {
@@ -476,19 +508,19 @@ public final class ATLServiceRegistry {
 	 * action is a new binding identity and returns a fresh entry. The identity is
 	 * NOT recorded here: the caller records it through
 	 * {@link #addBindingIdentity} once {@code onBind()} has actually run, so a bind
-	 * never suppresses its own {@code onBind()}. {@code autoCreate} records whether
-	 * the bind carried {@code BIND_AUTO_CREATE} (see {@link #hasAutoCreateConnections});
-	 * a deduplicated bind keeps the flag of the first registration.
+	 * never suppresses its own {@code onBind()}. {@code flags} records the full
+	 * bind request (see {@link BoundClient#autoCreate}); a deduplicated bind keeps
+	 * the flags of the first registration.
 	 */
 	public BoundClient registerBinding(ServiceRecord record, ServiceConnection connection, Intent intent,
-	                                   Context context, boolean autoCreate) {
+	                                   Context context, int flags) {
 		synchronized (lock) {
 			for (BoundClient client : record.bindings) {
 				if (client.context == context && client.connection == connection && sameIdentity(client.intent, intent)) {
 					return client;
 				}
 			}
-			BoundClient client = new BoundClient(connection, intent, context, autoCreate);
+			BoundClient client = new BoundClient(connection, intent, context, flags);
 			record.bindings.add(client);
 			return client;
 		}

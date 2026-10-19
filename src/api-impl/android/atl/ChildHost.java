@@ -78,15 +78,26 @@ public class ChildHost {
 	private ChildHost() {}
 
 	/**
-	 * Called from native (main.c child branch) after the child's Application was
-	 * constructed, its providers created and Application.onCreate ran. Starts the
-	 * control link, reports READY to the loader and returns; the GLib main loop
-	 * keeps the process alive.
+	 * Called from native (main.c child branch) after the process' Application object
+	 * was created, but BEFORE the process' providers are created and
+	 * Application.onCreate runs. Starts the control link and reports READY to the
+	 * loader; the loader then owns the process while its main thread finishes the
+	 * bind-application sequence.
+	 *
+	 * <p>This is AOSP's ordering: ActivityThread.main attaches the process
+	 * ({@code attach(false)} -> {@code IActivityManager.attachApplication},
+	 * core/java/android/app/ActivityThread.java:9275-9290, pinned
+	 * 94b4c163b7df) before the system server schedules BIND_APPLICATION and the
+	 * app thread runs {@code handleBindApplication}'s providers and
+	 * {@code callApplicationOnCreate} (same file:8308). Reporting READY at attach
+	 * time is what lets Application.onCreate issue AMS-style calls (a
+	 * startService/bindService of a component declared for another process) over
+	 * the already-established link instead of failing with no transport.
 	 *
 	 * @param fd      this process' end of the link (ATL_SERVICE_FD)
 	 * @param process the full manifest process name this child was spawned for
 	 */
-	public static void runChild(int fd, String process) {
+	public static void attachChild(int fd, String process) {
 		try {
 			init(fd, process);
 		} catch (Throwable t) {
@@ -167,6 +178,25 @@ public class ChildHost {
 		    System.getenv("ATL_SERVICE_PARENT_PROCESS"), pid, new String[] {pkg});
 	}
 
+	/**
+	 * One synchronous transaction to the loader's control binder (this child's
+	 * {@code remote(1)}): the parent's {@link ATLProcessControl.ParentControl}.
+	 * Returns false when there is no live link or the transport did not deliver;
+	 * the caller decides how to report that (the service backend reports a host
+	 * that could not be reached, never a synthetic success). Safe on any thread:
+	 * the link is read under the class lock, and the transport does its own
+	 * synchronisation.
+	 */
+	static boolean transactParent(int code, Parcel data, Parcel reply) {
+		ATLBinderConnection connection;
+		synchronized (lock) {
+			connection = link;
+		}
+		if (connection == null)
+			return false;
+		return connection.remote(1).transact(code, data, reply, 0);
+	}
+
 	private static void die(String marker, int status) {
 		System.out.println(marker);
 		System.out.flush();
@@ -232,6 +262,12 @@ public class ChildHost {
 			protected boolean onTransact(final int code, final Parcel data, final Parcel reply, int flags) {
 				if (code == ATLProviderBridge.ACQUIRE || code == ATLProviderBridge.CALL || code == ATLProviderBridge.QUERY)
 					return ATLProviderBridge.dispatch(app, process, code, data, reply);
+				// The loader's answer to a forwarded service op. Handled inline on the
+				// transport worker, never posted to the main looper: the loader may be
+				// waiting for this reply while the main looper is blocked in a
+				// synchronous call of its own (a nested wait would deadlock both).
+				if (code == ATLProcessControl.SVC_RESULT)
+					return ATLForwardingProcessBackend.dispatchResult(data, reply);
 				if (code < ATLProcessControl.START || code > ATLProcessControl.STATUS)
 					return super.onTransact(code, data, reply, flags);
 				final FutureTask<Boolean> task = new FutureTask<Boolean>(new Callable<Boolean>() {
@@ -268,6 +304,7 @@ public class ChildHost {
 		final Intent intent;
 		final String componentClass;
 		final int startId;
+		int bindFlags = 0;
 		switch (code) {
 		case ATLProcessControl.START: {
 			// The component is on the wire independently of the intent, so a null intent
@@ -284,6 +321,12 @@ public class ChildHost {
 		case ATLProcessControl.REBIND: {
 			ComponentName component = ATLProcessControl.readComponent(data);
 			intent = ATLProcessControl.readIntent(data, component);
+			// r4: the caller's Context.BIND_* flags travel with the request. Only
+			// BIND_AUTO_CREATE may create an instance; a bind without it that finds
+			// no live instance is refused instead of quietly creating one
+			// (AOSP ActiveServices.bindServiceLocked brings the service up only
+			// under BIND_AUTO_CREATE).
+			bindFlags = code == ATLProcessControl.BIND ? data.readInt() : 0;
 			startId = 0;
 			componentClass = component.getClassName();
 			break;
@@ -312,6 +355,15 @@ public class ChildHost {
 				break;
 			}
 			case ATLProcessControl.BIND: {
+				if (!instances.containsKey(componentClass) && (bindFlags & android.content.Context.BIND_AUTO_CREATE) == 0) {
+					// No instance and no permission to create one: report "no
+					// binder", not a fabricated connect. The loader keeps its client
+					// pending; a later start creates the instance and the retry binds.
+					reply.writeNoException();
+					reply.writeInt(0);
+					reply.writeStrongBinder(null);
+					break;
+				}
 				IBinder binder = serviceFor(app, componentClass).service.onBind(intent);
 				if (binder != null) {
 					Integer count = binds.get(componentClass);
