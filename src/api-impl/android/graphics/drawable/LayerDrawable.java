@@ -297,22 +297,31 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 
 		for (int i = mLayerState.mNum - 1; i >= 0; i--) {
 			if (layers[i].mId == id) {
-				if (layers[i].mDrawable != null) {
-					if (drawable != null) {
-						Rect bounds = layers[i].mDrawable.getBounds();
-						drawable.setBounds(bounds);
-					}
-					layers[i].mDrawable.setCallback(null);
-				}
-				if (drawable != null) {
-					drawable.setCallback(this);
-				}
-				layers[i].mDrawable = drawable;
+				setDrawable(i, drawable);
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	/** Replace a layer while retaining its identity and existing bounds. */
+	// Adapted from AOSP frameworks/base 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d,
+	// graphics/java/android/graphics/drawable/LayerDrawable.java (Apache-2.0).
+	public void setDrawable(int index, Drawable drawable) {
+		if (index < 0 || index >= mLayerState.mNum) throw new IndexOutOfBoundsException();
+		ChildDrawable child = mLayerState.mChildren[index];
+		if (child.mDrawable != null) {
+			if (drawable != null) drawable.setBounds(child.mDrawable.getBounds());
+			child.mDrawable.setCallback(null);
+		}
+		if (drawable != null) drawable.setCallback(this);
+		child.mDrawable = drawable;
+		mLayerState.mHaveOpacity = false;
+		mLayerState.mHaveStateful = false;
+		mLayerState.mCheckedConstantState = false;
+		ensurePadding();
+		reapplyPadding(index, child);
 	}
 
 	/**
@@ -360,7 +369,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		final ChildDrawable[] array = mLayerState.mChildren;
 		final int N = mLayerState.mNum;
 		for (int i = 0; i < N; i++) {
-			array[i].mDrawable.draw(canvas);
+			if (array[i].mDrawable != null) array[i].mDrawable.draw(canvas);
 		}
 	}
 
@@ -396,7 +405,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		final ChildDrawable[] array = mLayerState.mChildren;
 		final int N = mLayerState.mNum;
 		for (int i = 0; i < N; i++) {
-			array[i].mDrawable.setVisible(visible, restart);
+			if (array[i].mDrawable != null) array[i].mDrawable.setVisible(visible, restart);
 		}
 		return changed;
 	}
@@ -548,7 +557,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		int padL = 0, padT = 0, padR = 0, padB = 0;
 		for (int i = 0; i < N; i++) {
 			final ChildDrawable r = array[i];
-			r.mDrawable.setBounds(bounds.left + r.mInsetL + padL,
+			if (r.mDrawable != null) r.mDrawable.setBounds(bounds.left + r.mInsetL + padL,
 			                      bounds.top + r.mInsetT + padT,
 			                      bounds.right - r.mInsetR - padR,
 			                      bounds.bottom - r.mInsetB - padB);
@@ -567,6 +576,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		int padL = 0, padR = 0;
 		for (int i = 0; i < N; i++) {
 			final ChildDrawable r = array[i];
+			if (r.mDrawable == null) continue;
 			int w = r.mDrawable.getIntrinsicWidth() + r.mInsetL + r.mInsetR + padL + padR;
 			if (w > width) {
 				width = w;
@@ -585,6 +595,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 		int padT = 0, padB = 0;
 		for (int i = 0; i < N; i++) {
 			final ChildDrawable r = array[i];
+			if (r.mDrawable == null) continue;
 			int h = r.mDrawable.getIntrinsicHeight() + r.mInsetT + r.mInsetB + +padT + padB;
 			if (h > height) {
 				height = h;
@@ -597,6 +608,8 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 
 	private boolean reapplyPadding(int i, ChildDrawable r) {
 		final Rect rect = mTmpRect;
+		// AOSP preserves the cached padding when a layer is cleared.
+		if (r.mDrawable == null) return false;
 		r.mDrawable.getPadding(rect);
 		if (rect.left != mPaddingL[i] || rect.top != mPaddingT[i]
 		    || rect.right != mPaddingR[i] || rect.bottom != mPaddingB[i]) {
@@ -637,7 +650,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 			final ChildDrawable[] array = mLayerState.mChildren;
 			final int N = mLayerState.mNum;
 			for (int i = 0; i < N; i++) {
-				array[i].mDrawable.mutate();
+				if (array[i].mDrawable != null) array[i].mDrawable.mutate();
 			}
 			onStateChange(getState());
 			onBoundsChange(getBounds());
@@ -705,12 +718,14 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 				for (int i = 0; i < N; i++) {
 					final ChildDrawable r = mChildren[i] = new ChildDrawable();
 					final ChildDrawable or = origChildDrawable[i];
-					if (res != null) {
+					if (or.mDrawable == null) {
+						r.mDrawable = null;
+					} else if (res != null) {
 						r.mDrawable = or.mDrawable.getConstantState().newDrawable(res);
 					} else {
 						r.mDrawable = or.mDrawable.getConstantState().newDrawable();
 					}
-					r.mDrawable.setCallback(owner);
+					if (r.mDrawable != null) r.mDrawable.setCallback(owner);
 					//r.mDrawable.setLayoutDirection(or.mDrawable.getLayoutDirection());
 					r.mInsetL = or.mInsetL;
 					r.mInsetT = or.mInsetT;
