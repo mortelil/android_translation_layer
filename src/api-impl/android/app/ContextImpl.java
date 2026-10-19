@@ -5,6 +5,7 @@ import android.annotation.Nullable;
 import android.annotation.UnsupportedAppUsage;
 import android.app.SearchManager;
 import android.app.job.JobScheduler;
+import android.app.usage.NetworkStatsManager;
 import android.atl.ATLLoadedApp;
 import android.atl.ATLLoadedAppManager;
 import android.bluetooth.BluetoothManager;
@@ -113,6 +114,20 @@ public final class ContextImpl extends Context {
 		return atl_loaded_app.pkg.applicationInfo;
 	}
 
+	// AOSP ContextImpl.getBasePackageName() (core/java/android/app/ContextImpl.java:563-567,
+	// android-17.0.0_r1, 94b4c163) returns mBasePackageName when set, else getPackageName().
+	// ContextImpl.getOpPackageName() (:570-573) returns mAttributionSource.getPackageName(),
+	// which for an application context is the same package the context was created for.
+	@Override
+	public String getBasePackageName() {
+		return getPackageName();
+	}
+
+	@Override
+	public String getOpPackageName() {
+		return getPackageName();
+	}
+
 	@Override
 	public void setTheme(int resId) {
 		mThemeResource = resId;
@@ -157,6 +172,8 @@ public final class ContextImpl extends Context {
 				return new SensorManager();
 			case "connectivity":
 				return new ConnectivityManager();
+			case "netstats":
+				return new NetworkStatsManager(this);
 			case "servicediscovery":
 				return (nsd_manager != null) ? nsd_manager : (nsd_manager = new NsdManager());
 			case "keyguard":

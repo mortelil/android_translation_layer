@@ -99,6 +99,23 @@ public class ContextWrapper extends Context {
 		return this.baseContext.getClassLoader();
 	}
 
+	// AOSP ContextWrapper.getPackageName() / getBasePackageName() / getOpPackageName()
+	// (core/java/android/content/ContextWrapper.java) all delegate to the base context.
+	@Override
+	public String getPackageName() {
+		return this.baseContext.getPackageName();
+	}
+
+	@Override
+	public String getBasePackageName() {
+		return this.baseContext.getBasePackageName();
+	}
+
+	@Override
+	public String getOpPackageName() {
+		return this.baseContext.getOpPackageName();
+	}
+
 	@Override
 	public ComponentName startService(Intent intent) {
 		return this.baseContext.startService(intent);

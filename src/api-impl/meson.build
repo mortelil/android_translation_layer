@@ -1,4 +1,7 @@
 srcs = [
+	'android/view/FrameMetrics.java',
+	'android/app/usage/NetworkStats.java',
+	'android/app/usage/NetworkStatsManager.java',
 	'android/atl/ATLIntentResolver.java',
 	'android/atl/ATLApkSignatures.java',
 	'android/atl/ATLFontFiles.java',
@@ -515,6 +518,7 @@ srcs = [
 	'android/security/keystore/KeyGenerator.java',
 	'android/security/keystore/KeyGenParameterSpec.java',
 	'android/service/media/MediaBrowserService.java',
+	'android/service/notification/NotificationListenerService.java',
 	'android/service/notification/StatusBarNotification.java',
 	'android/speech/tts/TextToSpeech.java',
 	'android/speech/tts/UtteranceProgressListener.java',
