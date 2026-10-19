@@ -512,6 +512,7 @@ srcs = [
 	'android/provider/DocumentsContract.java',
 	'android/provider/MediaStore.java',
 	'android/provider/Settings.java',
+	'android/provider/SearchRecentSuggestions.java',
 	'android/provider/Telephony.java',
 	'android/provider/UserDictionary.java',
 	'android/security/keystore/AndroidKeyStore.java',
