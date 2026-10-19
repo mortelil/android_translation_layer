@@ -37,7 +37,7 @@ public class AlarmManager {
 			@Override
 			public void run() {
 				Slog.i(TAG, "delivering repeating alarm: " + operation);
-				operation.send();
+				try { operation.send(); } catch (PendingIntent.CanceledException canceled) { return; }
 				handler.postDelayed(this, interval);
 			}
 		}, delay);
@@ -51,7 +51,7 @@ public class AlarmManager {
 			@Override
 			public void run() {
 				Slog.i(TAG, "delivering alarm: " + operation);
-				operation.send();
+				try { operation.send(); } catch (PendingIntent.CanceledException canceled) { return; }
 			}
 		}, delay);
 	}

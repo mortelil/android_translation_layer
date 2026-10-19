@@ -956,6 +956,8 @@ public class Intent implements Parcelable {
 		return component != null ? type : resolveType(resolver);
 	}
 
+	public void removeCategory(String category) { categories.remove(category); }
+
 	public Set<String> getCategories() {
 		return categories;
 	}

@@ -3,6 +3,7 @@
 
 #include "../defines.h"
 #include "../util.h"
+#include "../jni_exceptions.h"
 
 #include "mpris-dbus.h"
 
@@ -87,25 +88,69 @@ static void queue_notification(int id, GNotification *notification)
 		g_source_set_ready_time(send_notifcation_timer, 0); // immediately
 }
 
+/* Keep the capability itself alive; never reconstruct a creator's operation
+ * from a desktop-supplied Intent. Actions expire on replacement/cancellation. */
+static GHashTable *notification_actions;
+static void pending_action_free(gpointer data, GClosure *closure)
+{
+	JNIEnv *env = get_jni_env();
+	(*env)->DeleteGlobalRef(env, data);
+}
+static void pending_action_activate(GSimpleAction *action, GVariant *parameter, gpointer data)
+{
+	JNIEnv *env = get_jni_env();
+	(*env)->CallVoidMethod(env, data, _METHOD(_CLASS(data), "atlSendFromNotification", "()V"));
+	atl_jni_handle_uncaught_exception(env, "notification action");
+}
+static void remove_pending_actions(gpointer data)
+{
+	GPtrArray *names = data;
+	GApplication *app = g_application_get_default();
+	if (app) for (guint i = 0; i < names->len; i++)
+		g_action_map_remove_action(G_ACTION_MAP(app), g_ptr_array_index(names, i));
+	g_ptr_array_unref(names);
+}
+static char *pending_action(JNIEnv *env, GNotification *notification, jobject intent)
+{
+	if (!intent) return NULL;
+	GApplication *app = g_application_get_default();
+	if (!app) { (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), "No desktop application for notification actions"); return NULL; }
+	char *uuid = g_uuid_string_random();
+	char *name = g_strconcat("pending-", uuid, NULL);
+	g_free(uuid);
+	GSimpleAction *action = g_simple_action_new(name, NULL);
+	g_signal_connect_data(action, "activate", G_CALLBACK(pending_action_activate), (*env)->NewGlobalRef(env, intent), pending_action_free, 0);
+	g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(action));
+	g_object_unref(action);
+	GPtrArray *names = g_object_get_data(G_OBJECT(notification), "pending-actions");
+	if (!names) {
+		names = g_ptr_array_new_with_free_func(g_free);
+		g_object_set_data_full(G_OBJECT(notification), "pending-actions", names, remove_pending_actions);
+	}
+	g_ptr_array_add(names, name);
+	return g_strconcat("app.", name, NULL);
+}
+
 JNIEXPORT jlong JNICALL Java_android_app_NotificationManager_nativeInitBuilder(JNIEnv *env, jobject this)
 {
 	return _INTPTR(g_notification_new(""));
 }
 
-JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeAddAction(JNIEnv *env, jobject this, jlong builder_ptr, jstring name_jstr, jint type, jobject intent)
+JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeAddAction(JNIEnv *env, jobject this, jlong builder_ptr, jstring name_jstr, jobject intent)
 {
 	GNotification *notification = _PTR(builder_ptr);
 	const char *name = "";
 	if (name_jstr)
 		name = (*env)->GetStringUTFChars(env, name_jstr, NULL);
-	const char *action = intent_actionname_from_type(type);
+	char *action = pending_action(env, notification, intent);
 	if (action)
-		g_notification_add_button_with_target_value(notification, name, action, intent_serialize(env, intent));
+		g_notification_add_button(notification, name, action);
+	g_free(action);
 	if (name_jstr)
 		(*env)->ReleaseStringUTFChars(env, name_jstr, name);
 }
 
-JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeShowNotification(JNIEnv *env, jobject this, jlong builder_ptr, jint id, jstring title_jstr, jstring text_jstr, jstring icon_jstr, jboolean ongoing, jint type, jobject intent)
+JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeShowNotification(JNIEnv *env, jobject this, jlong builder_ptr, jint id, jstring title_jstr, jstring text_jstr, jstring icon_jstr, jboolean ongoing, jobject intent)
 {
 	GNotification *notification = _PTR(builder_ptr);
 
@@ -135,9 +180,15 @@ JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeShowNotificati
 		g_free(icon_path_full);
 		(*env)->ReleaseStringUTFChars(env, icon_jstr, icon_path);
 	}
-	const char *action = intent_actionname_from_type(type);
+	char *action = pending_action(env, notification, intent);
 	if (action)
-		g_notification_set_default_action_and_target_value(notification, action, intent_serialize(env, intent));
+		g_notification_set_default_action(notification, action);
+	g_free(action);
+	if (!notification_actions) notification_actions = g_hash_table_new_full(NULL, NULL, NULL, remove_pending_actions);
+	g_hash_table_remove(notification_actions, GINT_TO_POINTER(id));
+	GPtrArray *names = g_object_steal_data(G_OBJECT(notification), "pending-actions");
+	if (!names) names = g_ptr_array_new_with_free_func(g_free);
+	g_hash_table_insert(notification_actions, GINT_TO_POINTER(id), names);
 	queue_notification(id, notification);
 	if (ongoing)
 		g_hash_table_add(ongoing_notifications, GINT_TO_POINTER(id));
@@ -145,7 +196,17 @@ JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeShowNotificati
 
 JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeCancel(JNIEnv *env, jobject this, jint id)
 {
+	if (notification_actions) g_hash_table_remove(notification_actions, GINT_TO_POINTER(id));
 	queue_notification(id, NULL);
+}
+
+JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeCancelAll(JNIEnv *env, jobject this)
+{
+	if (!notification_actions) return;
+	GHashTableIter iter; gpointer id;
+	g_hash_table_iter_init(&iter, notification_actions);
+	while (g_hash_table_iter_next(&iter, &id, NULL)) queue_notification(GPOINTER_TO_INT(id), NULL);
+	g_hash_table_remove_all(notification_actions);
 }
 
 static void remove_ongoing_notification(gpointer key, gpointer value, gpointer user_data)
