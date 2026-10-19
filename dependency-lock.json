@@ -9,7 +9,7 @@
       "fork": "https://github.com/mortelil/bionic_translation.git"
     },
     "art_standalone": {
-      "commit": "c1d9bb84235ee179a5abdeba9f3b6a6b14bf731f",
+      "commit": "3093c7bdbb90c4b93b69f2328078918c6b632943",
       "upstream_base": "66a5d9079b159e9c5819bfeef4a6fff6a5f32719",
       "upstream": "https://gitlab.com/android_translation_layer/art_standalone.git",
       "fork": "https://github.com/mortelil/art_standalone.git"

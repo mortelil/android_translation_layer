@@ -12,6 +12,11 @@ public class InputDevice {
 	public static final int SOURCE_KEYBOARD = 0x00000100 | SOURCE_CLASS_BUTTON;
 	public static final int SOURCE_TOUCHSCREEN = 0x00001000 | SOURCE_CLASS_POINTER;
 
+	/** Keyboard types, AOSP InputDevice constants (same values). */
+	public static final int KEYBOARD_TYPE_NONE = 0;
+	public static final int KEYBOARD_TYPE_NON_ALPHABETIC = 1;
+	public static final int KEYBOARD_TYPE_ALPHABETIC = 2;
+
 	public static int[] getDeviceIds() {
 		return new int[] {0}; // might work?
 	}
@@ -44,8 +49,19 @@ public class InputDevice {
 		return false;
 	}
 
+	/**
+	 * AOSP core/java/android/view/InputDevice.java getKeyboardType(): the device's
+	 * keyboard type. ATL's input backend is the host X11 keyboard, which is a
+	 * real, alphabetic keyboard (round-tripped from GDK key events), so report
+	 * KEYBOARD_TYPE_ALPHABETIC. Compose's TextFieldKeyEventHandler asks for it on
+	 * every key event (isFromHardwareSource); a missing method aborted the app.
+	 */
+	public int getKeyboardType() {
+		return KEYBOARD_TYPE_ALPHABETIC;
+	}
+
 	public int getSources() {
-		return 2 | 4098 /* SOURCE_CLASS_POINTER | SOURCE_TOUCHSCREEN */; // FIXME
+		return SOURCE_KEYBOARD | SOURCE_TOUCHSCREEN; // ATL exposes one aggregate host-input device.
 	}
 
 	/*
@@ -68,7 +84,7 @@ public class InputDevice {
 	}
 
 	public boolean supportsSource(int source) {
-		return true;
+		return (getSources() & source) == source;
 	}
 
 	public MotionRange getMotionRange(int axis, int source) {

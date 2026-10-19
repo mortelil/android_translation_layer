@@ -124,6 +124,17 @@ public final class MessageQueue {
 		}
 	}
 
+	/**
+	 * Whether no message is due, following AOSP's legacy single-list queue.
+	 * A due synchronization barrier also makes this queue non-idle.
+	 */
+	public boolean isIdle() {
+		synchronized (this) {
+			final long now = SystemClock.uptimeMillis();
+			return mMessages == null || now < mMessages.when;
+		}
+	}
+
 	Message next() {
 		// Return here if the message loop has already quit and been disposed.
 		// This can happen if the application tries to restart a looper after quit

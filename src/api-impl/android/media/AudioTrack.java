@@ -97,7 +97,31 @@ public class AudioTrack implements AudioRouting {
 	}
 
 	public AudioTrack(AudioAttributes attributes, AudioFormat format, int bufferSizeInBytes, int mode, int sessionId) {
-		this(attributes.streamType, format.sampleRate, format.channelMask, format.encoding, bufferSizeInBytes, mode, sessionId);
+		this(attributes.streamType, format.getSampleRate(), channelConfigForNative(format),
+		     format.getEncoding(), bufferSizeInBytes, mode, sessionId);
+	}
+
+	/**
+	 * The channel config ATL's sink understands.
+	 * <p>
+	 * AOSP hands the framework both the position and the index mask and the HAL
+	 * picks (AudioTrack.java:899-905); the ATL sink
+	 * (api-impl-jni/audio/audio.c helper_track_params_valid) decodes one position
+	 * config into a mono/stereo ALSA layout, so a format that only carries an
+	 * index mask is mapped to the equivalent position mask for the two layouts
+	 * the sink supports, and unsupported index masks are rejected before their bits can be
+	 * confused with a valid position mask.
+	 */
+	private static int channelConfigForNative(AudioFormat format) {
+		int positionMask = format.getChannelMask();
+		if (positionMask != AudioFormat.CHANNEL_INVALID)
+			return positionMask;
+		int indexMask = format.getChannelIndexMask();
+		if (indexMask == 0x3)
+			return AudioFormat.CHANNEL_OUT_STEREO;
+		if (indexMask == 0x1)
+			return AudioFormat.CHANNEL_OUT_MONO;
+		throw new IllegalArgumentException("ATL supports only contiguous mono/stereo channel index masks");
 	}
 
 	public static native int getMinBufferSize(int sampleRateInHz, int channelConfig, int audioFormat);

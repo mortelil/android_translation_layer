@@ -1830,6 +1830,38 @@ public class View implements Drawable.Callback {
 
 	public void setWillNotDraw(boolean value) {}
 
+	/* AOSP View.java keeps WILL_NOT_CACHE_DRAWING (0x000020000) in mViewFlags; ATL
+	 * stores view flags in individual fields, so the flag lives in this field.
+	 *
+	 * AOSP View.java:14561  public void setWillNotCacheDrawing(boolean willNotCacheDrawing) {
+	 *                           setFlags(willNotCacheDrawing ? WILL_NOT_CACHE_DRAWING : 0, WILL_NOT_CACHE_DRAWING);
+	 *                       }
+	 * AOSP View.java:14585  public boolean willNotCacheDrawing() {
+	 *                           return (mViewFlags & WILL_NOT_CACHE_DRAWING) == WILL_NOT_CACHE_DRAWING;
+	 *                       }
+	 * AOSP View.java:19043  void setFlags(...):  if ((changed & WILL_NOT_CACHE_DRAWING) != 0) {
+	 *                                               destroyDrawingCache();
+	 *                                           }
+	 * AOSP View.java:24471  public Bitmap getDrawingCache(boolean autoScale) {
+	 *                           if ((mViewFlags & WILL_NOT_CACHE_DRAWING) == WILL_NOT_CACHE_DRAWING) return null;
+	 *                           ...
+	 *                       }
+	 * Firefox' browser view inflation calls the setter; without the method the click that
+	 * lazily creates the browser view dies with NoSuchMethodError. */
+	private boolean mWillNotCacheDrawing = false;
+
+	@Deprecated
+	public void setWillNotCacheDrawing(boolean willNotCacheDrawing) {
+		if (mWillNotCacheDrawing != willNotCacheDrawing) {
+			mWillNotCacheDrawing = willNotCacheDrawing;
+			// AOSP setFlags(): a change of WILL_NOT_CACHE_DRAWING destroys the drawing cache.
+			destroyDrawingCache();
+		}
+	}
+
+	@Deprecated
+	public boolean willNotCacheDrawing() { return mWillNotCacheDrawing; }
+
 	public void setScrollContainer(boolean isScrollContainer) {}
 
 	public boolean removeCallbacks(Runnable action) {
@@ -2786,7 +2818,18 @@ public class View implements Drawable.Callback {
 
 	public void buildDrawingCache(boolean autoScale) {}
 
-	public Bitmap getDrawingCache() { return null; }
+	/* AOSP View.java:24471 getDrawingCache(boolean) returns null outright once
+	 * WILL_NOT_CACHE_DRAWING is set. ATL never builds a drawing cache, so the
+	 * result is null either way; the flag check keeps the AOSP contract visible. */
+	@Deprecated
+	public Bitmap getDrawingCache(boolean autoScale) {
+		if (mWillNotCacheDrawing) // AOSP View.java:24472
+			return null;
+		return null; // ATL builds no drawing cache to hand back.
+	}
+
+	@Deprecated
+	public Bitmap getDrawingCache() { return getDrawingCache(false); }
 
 	public void announceForAccessibility(CharSequence text) {}
 
@@ -2924,7 +2967,26 @@ public class View implements Drawable.Callback {
 		return insets;
 	}
 
-	public void setAccessibilityTraversalBefore(int id) {}
+	/* AOSP View.java (mAccessibilityTraversalBeforeId / mAccessibilityTraversalAfterId) stores the
+	 * requested traversal id and returns it from the getters; onInitializeAccessibilityNodeInfo()
+	 * maps it to AccessibilityNodeInfo.setTraversalBefore/After (ATL has no node-info plumbing, so
+	 * only the state is kept). AOSP fields default to View.NO_ID. */
+	private int accessibilityTraversalBeforeId = NO_ID;
+	private int accessibilityTraversalAfterId = NO_ID;
+
+	public void setAccessibilityTraversalBefore(int beforeId) {
+		if (accessibilityTraversalBeforeId == beforeId) return;
+		accessibilityTraversalBeforeId = beforeId;
+	}
+
+	public int getAccessibilityTraversalBefore() { return accessibilityTraversalBeforeId; }
+
+	public void setAccessibilityTraversalAfter(int afterId) {
+		if (accessibilityTraversalAfterId == afterId) return;
+		accessibilityTraversalAfterId = afterId;
+	}
+
+	public int getAccessibilityTraversalAfter() { return accessibilityTraversalAfterId; }
 
 	public int getLayerType() { return 0; /* LAYER_TYPE_NONE */ }
 

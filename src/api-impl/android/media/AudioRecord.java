@@ -79,8 +79,17 @@ public class AudioRecord {
 			return this;
 		}
 
+		private static int channelConfig(AudioFormat format) {
+			if (format.getChannelMask() != AudioFormat.CHANNEL_INVALID) return format.getChannelMask();
+			if (format.getChannelIndexMask() == 1) return AudioFormat.CHANNEL_IN_MONO;
+			if (format.getChannelIndexMask() == 3) return AudioFormat.CHANNEL_IN_STEREO;
+			throw new IllegalArgumentException("ATL supports only contiguous mono/stereo channel index masks");
+		}
+
 		public AudioRecord build() {
-			return new AudioRecord(audioSource, audioFormat.sampleRate, audioFormat.channelMask, audioFormat.encoding, 32768);
+			return new AudioRecord(audioSource, audioFormat.getSampleRate(),
+			                       channelConfig(audioFormat),
+			                       audioFormat.getEncoding(), 32768);
 		}
 	}
 }
