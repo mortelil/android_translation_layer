@@ -36,8 +36,8 @@ import java.util.zip.ZipFile;
  * <li>Extraction writes into a private staging directory inside the library
  *     directory, so two processes never write or delete the same temporary path.
  * <li>Every staged copy is validated against its zip entry (length and CRC32)
- *     <em>before</em> the first published file is replaced, so a failure can
- *     never publish a mix of two apks' libraries.
+ *     <em>before</em> the first published file is replaced, before publication starts. This staging API is used only for private
+ *     directories; the loader uses publishOrFail for generation-level publication.
  * <li>The stamp naming the apk's library identities is written last, so a
  *     directory is only ever handed out after its whole content is the requested
  *     apk's.
@@ -106,14 +106,51 @@ public final class ATLNativeLibs {
 	}
 
 	/**
-	 * {@link #publish} for the package loader: returns the directory to publish as
-	 * {@code nativeLibraryDir}, or throws so the load fails. Never returns null,
-	 * and never returns a directory whose content is not this apk's complete
-	 * library set.
+	 * Return an immutable generation, never a directory being updated in place.
+	 * Existing class loaders retain their old generation until process exit.
+	 * Generations are deliberately not garbage-collected here: other processes
+	 * may still lazily load a library from a previously returned directory.
 	 */
 	public static File publishOrFail(File apk, File libDir, String abi) throws IOException {
-		publish(apk, libDir, abi);
-		return libDir;
+		if (abi == null || !abi.matches("[A-Za-z0-9_-]+"))
+			throw new IOException("Invalid native ABI");
+		File root = new File(libDir.getPath() + ".generations");
+		synchronized (monitor(root)) {
+			try (FileChannel channel = openLock(root); FileLock lock = channel.lock()) {
+				String digest = sha256(apk);
+				File generation = new File(root, abi + "-" + digest);
+				if (generation.exists()) {
+					try (ZipFile zip = new ZipFile(apk)) {
+						if (!isCurrent(generation, new File(generation, STAMP_NAME), abi, select(zip, abi)))
+							throw new IOException("Published native generation was modified: " + generation);
+					}
+					if (!digest.equals(sha256(apk))) throw new IOException("APK changed during extraction");
+					return generation;
+				}
+				removeLeftovers(root);
+				File stage = new File(root, STAGE_PREFIX + RUN_ID + "-" + sequence.incrementAndGet());
+				try {
+					publish(apk, stage, abi);
+					if (!digest.equals(sha256(apk))) throw new IOException("APK changed during extraction");
+					// Same filesystem, absent destination: rename publishes the whole set.
+					if (!stage.renameTo(generation)) throw new IOException("Cannot publish " + generation);
+					return generation;
+				} finally { deleteRecursively(stage); }
+			}
+		}
+	}
+
+	private static String sha256(File file) throws IOException {
+		try {
+			java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+			try (InputStream in = new FileInputStream(file)) {
+				byte[] bytes = new byte[65536]; int count;
+				while ((count = in.read(bytes)) != -1) digest.update(bytes, 0, count);
+			}
+			StringBuilder hex = new StringBuilder();
+			for (byte value : digest.digest()) hex.append(String.format("%02x", value & 255));
+			return hex.toString();
+		} catch (java.security.NoSuchAlgorithmException e) { throw new IOException(e); }
 	}
 
 	private static Result publishLocked(File apk, File libDir, String abi) throws IOException {

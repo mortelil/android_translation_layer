@@ -160,7 +160,7 @@ public final class TestNativeLibs {
 		check(probe.canExecute(), "extracted library is executable (NativeLibraryHelper installs 0755)");
 		check(!new File(lib, "libother.so").exists(), "a foreign ABI's library is not extracted");
 		check(!new File(lib, "classes.dex").exists(), "non-library entries are not extracted");
-		check(ATLNativeLibs.publishOrFail(apk, lib, ABI).equals(lib), "publishOrFail returns the directory");
+		check(ATLNativeLibs.publishOrFail(apk, lib, ABI).isDirectory(), "publishOrFail returns the directory");
 		caseDone("fresh-extraction");
 	}
 
@@ -512,11 +512,48 @@ public final class TestNativeLibs {
 		}
 	}
 
+	private static void immutableGenerations() throws Exception {
+		File dir = tempDir(), lib = new File(dir, "lib");
+		String first = "lib/" + ABI + "/libfirst.so", second = "lib/" + ABI + "/libsecond.so";
+		File a = apk(dir, "a.apk", new String[]{first});
+		File b = apk(dir, "b.apk", new String[]{second});
+		File old = ATLNativeLibs.publishOrFail(a, lib, ABI);
+		check(old.equals(ATLNativeLibs.publishOrFail(a, lib, ABI)), "stable generation reuse");
+		File next = ATLNativeLibs.publishOrFail(b, lib, ABI);
+		check(!old.equals(next), "different APK gets new generation");
+		sameBytes(new File(old, "libfirst.so"), first, "old reader preserved");
+		check(!new File(next, "libfirst.so").exists(), "no stale library in new generation");
+		sameBytes(new File(next, "libsecond.so"), second, "new reader complete");
+		File bad = new File(dir, "bad.apk"); Files.write(bad.toPath(), new byte[]{1,2,3});
+		try { ATLNativeLibs.publishOrFail(bad, lib, ABI); throw new AssertionError("bad APK accepted"); }
+		catch (IOException expected) { checks++; }
+		sameBytes(new File(old, "libfirst.so"), first, "failed update leaves old reader intact");
+		Files.write(new File(next, "libsecond.so").toPath(), new byte[]{0});
+		try { ATLNativeLibs.publishOrFail(b, lib, ABI); throw new AssertionError("corrupt generation reused"); }
+		catch (IOException expected) { checks++; }
+		check(new File(next, "libsecond.so").length() == 1, "live generation never overwritten");
+		final File concurrentLib = new File(dir, "parallel");
+		final CyclicBarrier barrier = new CyclicBarrier(4);
+		java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+		ArrayList<java.util.concurrent.Future<File>> results = new ArrayList<>();
+		try {
+			for (int i=0;i<4;i++) results.add(pool.submit(() -> {
+				barrier.await(); return ATLNativeLibs.publishOrFail(a, concurrentLib, ABI);
+			}));
+			File winner = results.get(0).get(20, java.util.concurrent.TimeUnit.SECONDS);
+			for (java.util.concurrent.Future<File> result : results)
+				check(winner.equals(result.get(20, java.util.concurrent.TimeUnit.SECONDS)), "concurrent generation reuse");
+			sameBytes(new File(winner,"libfirst.so"), first, "concurrent complete generation");
+		} finally { pool.shutdownNow(); }
+		caseDone("immutableGenerations");
+	}
+
 	public static void main(String[] args) throws Exception {
 		if (args.length > 0 && args[0].equals("--concurrent-publish")) {
 			concurrentPublisher(args);
 			return;
 		}
+		immutableGenerations();
 		sourceIsThisCheckout();
 		freshExtraction();
 		abiSelectionIsExplicit();
