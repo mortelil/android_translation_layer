@@ -998,7 +998,10 @@ public class Intent implements Parcelable {
 	}
 
 	public ComponentName resolveActivity(PackageManager pm) {
-		return component;
+		if (component != null) return component;
+		android.content.pm.ResolveInfo resolved = pm.resolveActivity(this, PackageManager.MATCH_DEFAULT_ONLY);
+		return resolved == null ? null : new ComponentName(
+			resolved.activityInfo.packageName, resolved.activityInfo.name);
 	}
 
 	public void setSourceBounds(Rect sourceBounds) {

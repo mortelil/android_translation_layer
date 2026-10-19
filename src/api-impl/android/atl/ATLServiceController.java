@@ -216,31 +216,15 @@ public final class ATLServiceController {
 
 	/** {@link #resolveServiceComponent} together with the placement of the resolved service. */
 	private Resolved resolveService(Intent intent) {
-		ComponentName component = intent.getComponent();
-		if (component != null) {
-			if (!app.pkg.packageName.equals(component.getPackageName())) return null;
-			for (PackageParser.Service service : app.pkg.services) {
-				if (component.getClassName().equals(service.className)) {
-					return new Resolved(component, resolvePlacement(service));
-				}
-			}
-			return null;
-		}
-		String remoteProcess = null;
-		int priority = Integer.MIN_VALUE;
+		java.util.List<android.content.pm.ResolveInfo> matches =
+			ATLIntentResolver.queryPackage(app.pkg, intent, 0, true);
+		if (matches.isEmpty()) return null;
+		String name = matches.get(0).serviceInfo.name;
 		for (PackageParser.Service service : app.pkg.services) {
-			if (service.intents == null)
-				continue;
-			for (PackageParser.IntentInfo intentInfo : service.intents) {
-				if (intentInfo.matchAction(intent.getAction()) && intentInfo.priority > priority) {
-					remoteProcess = resolvePlacement(service);
-					component = new ComponentName(app.pkg.packageName, service.className);
-					priority = intentInfo.priority;
-					break;
-				}
-			}
+			if (name.equals(service.className))
+				return new Resolved(service.getComponentName(), resolvePlacement(service));
 		}
-		return component == null ? null : new Resolved(component, remoteProcess);
+		return null;
 	}
 
 	/**
