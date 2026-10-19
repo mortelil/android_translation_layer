@@ -1,6 +1,6 @@
 The following environment variables are recognized by the main executable:
 
-`JDWP_LISTEN=<port>` - if set, art will listen for a jdb connection at `<port>`
+`JDWP_LISTEN=<port>` - if set, ART listens for a jdb connection at `<port>` in the application launcher process. Spawned service processes ignore this inherited setting so they do not compete for the same port or wait for a second debugger.
 
 ---
 
