@@ -169,7 +169,6 @@ public final class ATLLoadedAppManager {
 			}
 			Slog.i(TAG, "Attempting to load " + packageName + " into " + ATLLoadedApp.getPrimaryApplication().pkg.packageName);
 			File installed_apk_location = new File(ATLPaths.installed_apks_dir, packageName + ".apk");
-			File installed_lib_location = new File(ATLPaths.app_data_dir_base, packageName + "_/lib");
 			if (!installed_apk_location.isFile()) {
 				if (ATLLoadedApp.play_services.contains(packageName)) {
 					return loadGStub(packageName);
@@ -177,7 +176,17 @@ public final class ATLLoadedAppManager {
 				return null;
 			}
 			String apk_path = installed_apk_location.getPath();
-			String lib_path = installed_lib_location.isDirectory() ? installed_lib_location.getPath() : null;
+			String lib_path;
+			try {
+				lib_path = ensureNativeLibraryDir(installed_apk_location);
+			} catch (IOException e) {
+				/* The installed package's libraries could not be published: fail the
+				 * load. Continuing here with a null nativeLibraryDir would hand the
+				 * package a state no installed application ever sees (Android creates
+				 * and publishes lib/<abi> at install time). */
+				Slog.e(TAG, "Failed to load " + packageName + ": " + e.getMessage(), e);
+				return null;
+			}
 			try {
 				app = ATLLoadedApp.loadFromPath(apk_path, lib_path, apk_path);
 				app.pkg.applicationInfo.nativeLibraryDir = lib_path;
@@ -201,6 +210,42 @@ public final class ATLLoadedAppManager {
 		    source.applicationInfo.targetSdkVersion < 30 ||
 		    source.requestedPermissions.contains("android.permission.QUERY_ALL_PACKAGES") ||
 		    source.queriesPackages.contains(targetPackageName));
+	}
+
+	/**
+	 * Install-time native-library extraction for a package that is only loaded
+	 * at runtime.
+	 *
+	 * <p>Android extracts {@code lib/<abi>/} of an installed apk into the
+	 * directory published as {@link android.content.pm.ApplicationInfo#nativeLibraryDir}
+	 * ({@code NativeLibraryHelper.createNativeLibrarySubdir}, called from
+	 * PackageManagerService install; frameworks-base pinned 94b4c163b7df). The
+	 * launcher mirrors that for the package it starts
+	 * ({@code extract_native_libraries}, main.c:435). A companion apk resolved
+	 * later out of {@code _installed_apks_} has no such directory, so
+	 * {@code nativeLibraryDir} would be null - a state no installed app sees.
+	 * microG's {@code DynamiteContextFactory.createClassLoader} dereferences it to
+	 * build the PathClassLoader library path and dies in
+	 * {@code StringBuilder.<init>} on the null, which keeps its conscrypt
+	 * provider out of {@code ProviderInstaller}.
+	 *
+	 * @param apk the installed companion apk
+	 * @return the directory to publish as nativeLibraryDir, holding this apk's
+	 *         complete library set for the host ABI (empty when it has none)
+	 * @throws IOException when the libraries could not be published; the caller
+	 *         fails the package load instead of publishing a directory that is
+	 *         partial, mixed or absent
+	 */
+	private static String ensureNativeLibraryDir(File apk) throws IOException {
+		File lib_dir = new File(new File(ATLPaths.app_data_dir_base, apk.getName() + "_"), "lib");
+		String abi = ATLNativeAbi.hostAbi();
+		if (abi == null) {
+			// ATL refuses to start without a host ABI, so this is unreachable in a
+			// running process; fail the load rather than guess a library directory.
+			throw new IOException("no host ABI to extract the native libraries of " + apk);
+		}
+		ATLNativeLibs.publishOrFail(apk, lib_dir, abi);
+		return lib_dir.getPath();
 	}
 
 	private static ATLLoadedApp loadGStub(String packageName) {
