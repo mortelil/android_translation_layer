@@ -697,6 +697,8 @@ public class Handler {
 
 	private final class MessengerImpl implements IMessenger {
 		public void send(Message msg) {
+			// AOSP: stamp at receipt, never trust the sender-supplied field.
+			msg.sendingUid = Binder.getCallingUid();
 			Handler.this.sendMessage(msg);
 		}
 	}

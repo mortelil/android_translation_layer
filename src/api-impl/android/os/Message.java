@@ -72,6 +72,9 @@ public final class Message implements Parcelable {
 	 */
 	public Messenger replyTo;
 
+	/** UID of the Messenger sender, or -1 for an ordinary message. */
+	public int sendingUid = -1;
+
 	/**
 	 * If set message is in use
 	 */
@@ -136,6 +139,7 @@ public final class Message implements Parcelable {
 		m.arg2 = orig.arg2;
 		m.obj = orig.obj;
 		m.replyTo = orig.replyTo;
+		m.sendingUid = orig.sendingUid;
 		if (orig.data != null) {
 			m.data = new Bundle(orig.data);
 		}
@@ -276,6 +280,7 @@ public final class Message implements Parcelable {
 		this.arg2 = o.arg2;
 		this.obj = o.obj;
 		this.replyTo = o.replyTo;
+		this.sendingUid = o.sendingUid;
 
 		if (o.data != null) {
 			this.data = (Bundle)o.data.clone();
@@ -416,6 +421,7 @@ public final class Message implements Parcelable {
 		arg2 = 0;
 		obj = null;
 		replyTo = null;
+		sendingUid = -1;
 		when = 0;
 		target = null;
 		callback = null;
@@ -508,6 +514,7 @@ public final class Message implements Parcelable {
 		dest.writeLong(when);
 		dest.writeBundle(data);
 		Messenger.writeMessengerOrNullToParcel(replyTo, dest);
+		dest.writeInt(sendingUid);
 	}
 
 	private void readFromParcel(Parcel source) {
@@ -523,6 +530,7 @@ public final class Message implements Parcelable {
 		} catch (ReflectiveOperationException e) {
 		}
 		replyTo = Messenger.readMessengerOrNullFromParcel(source);
+		sendingUid = source.readInt();
 	}
 
 	public static final Parcelable.Creator<Message> CREATOR = new Parcelable.Creator<Message>() {
