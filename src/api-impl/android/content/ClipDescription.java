@@ -19,13 +19,20 @@ public class ClipDescription /*implements Parcelable*/ {
 	public static final int CLASSIFICATION_NOT_PERFORMED = 2;
 	public static final int CLASSIFICATION_COMPLETE = 3;
 
-	public ClipDescription(CharSequence label, String[] mimeTypes) {}
+	private final CharSequence label;
+	private final String[] mimeTypes;
+	public ClipDescription(CharSequence label, String[] mimeTypes) {
+		if (mimeTypes == null) throw new NullPointerException("mimeTypes");
+		this.label = label;
+		this.mimeTypes = mimeTypes.clone();
+	}
+	public CharSequence getLabel() { return label; }
 
 	public int getMimeTypeCount() {
-		return 0;
+		return mimeTypes.length;
 	}
 
 	public String getMimeType(int index) {
-		return "FIXME";
+		return mimeTypes[index];
 	}
 }
