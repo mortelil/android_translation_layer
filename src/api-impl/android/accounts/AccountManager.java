@@ -4,9 +4,37 @@ import android.content.Context;
 import android.os.Bundle;
 
 public class AccountManager {
+	private static final AccountManager INSTANCE = new AccountManager();
+	private final java.util.Map<OnAccountsUpdateListener, android.os.Handler> listeners = new java.util.HashMap<>();
+
+	/** Listener support for ATL's currently empty account store. No login or
+	 * account persistence is implied. Callbacks are delivered on the handler. */
+	public void addOnAccountsUpdatedListener(OnAccountsUpdateListener listener,
+	        android.os.Handler handler, boolean updateImmediately) {
+		addOnAccountsUpdatedListener(listener, handler, updateImmediately, null);
+	}
+
+	public void addOnAccountsUpdatedListener(OnAccountsUpdateListener listener,
+	        android.os.Handler handler, boolean updateImmediately, String[] accountTypes) {
+		if (listener == null) throw new IllegalArgumentException("listener is null");
+		android.os.Handler target = handler != null ? handler : new android.os.Handler(android.os.Looper.getMainLooper());
+		synchronized (listeners) {
+			if (listeners.containsKey(listener)) throw new IllegalStateException("listener already registered");
+			listeners.put(listener, target);
+		}
+		if (updateImmediately) target.post(new Runnable() {
+			@Override public void run() { listener.onAccountsUpdated(getAccounts()); }
+		});
+	}
+
+	public void removeOnAccountsUpdatedListener(OnAccountsUpdateListener listener) {
+		if (listener == null) throw new IllegalArgumentException("listener is null");
+		synchronized (listeners) { listeners.remove(listener); }
+	}
+
 
 	public static AccountManager get(Context context) {
-		return new AccountManager();
+		return INSTANCE;
 	}
 
 	public Account[] getAccountsByType(String type) {
