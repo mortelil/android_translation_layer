@@ -53,11 +53,22 @@ public class ActivityManager {
 	 * Reports this process and, during a child-host Binder transaction, its
 	 * authenticated parent caller. This is a limited process snapshot, not a
 	 * machine-wide list of Android applications.
+	 *
+	 * Each entry carries the process' <em>own</em> name, exactly as AOSP's
+	 * {@code ActivityManagerService.getRunningAppProcesses()} copies
+	 * {@code ProcessRecord.processName} (the name the process was forked for, from
+	 * the component's {@code android:process}, or the package name for the app's
+	 * default process). Reporting the package name for whatever pid calls in makes
+	 * a child process answer "yes" to app code that asks whether it is the main
+	 * process - the check AC's {@code Context.isMainProcess()} performs on the
+	 * entry whose pid equals {@code Process.myPid()} for SDK &lt; 28 - which makes
+	 * Fenix run its main-process-only initialization (and start a second Gecko
+	 * with the loader's profile) inside the crash-helper child.
 	 */
 	public List<RunningAppProcessInfo> getRunningAppProcesses() {
 		String packageName = ATLLoadedApp.getPrimaryApplication().pkg.packageName;
 		ArrayList<RunningAppProcessInfo> result = new ArrayList<>();
-		result.add(new RunningAppProcessInfo(Process.myPid(), packageName, new String[] {packageName}));
+		result.add(new RunningAppProcessInfo(Application.getProcessName(), Process.myPid(), new String[] {packageName}));
 		RunningAppProcessInfo caller = android.atl.ChildHost.callingProcess();
 		if (caller != null) result.add(caller);
 		return result;

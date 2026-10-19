@@ -15,6 +15,7 @@
  */
 package android.atl;
 
+import android.app.ActivityThread;
 import android.app.ContextImpl;
 import android.app.Service;
 import android.content.ComponentName;
@@ -59,14 +60,16 @@ import java.util.IdentityHashMap;
  * never unbound lives as long as the registry's own client entry does.
  *
  * <p>Placement: {@link #resolvePlacement} decides per manifest service whether it
- * runs in the loader's own process (null) or in a process of its own. A remote
- * placement needs a process backend: with none installed (the production
- * default) {@link #placementRemoteProcess} refuses it exactly as before, and
+ * runs in the process this controller runs in -- the loader's, or a service
+ * child's own ({@code ATL_SERVICE_PROCESS}) -- (null) or in a process of its own. A remote
+ * placement needs a process backend: with none installed (a tree without the
+ * lane-D host) {@link #placementRemoteProcess} refuses it exactly as before, and
  * with the fake backend installed (env {@code ATL_PROCESS_BACKEND=fake}) the
  * child-side lifecycle runs through {@link ATLProcessBackend} operations on
  * the main looper, in post order with every other op.
  */
 public final class ATLServiceController {
+	private static final ArrayList<ATLServiceController> controllers = new ArrayList<>();
 	private static final String TAG = "ATLLoadedApp";
 
 	// Restart tuning, defaults from AOSP ActivityManagerConstants 222-230 (carried by
@@ -174,6 +177,7 @@ public final class ATLServiceController {
 	public ATLServiceController(ATLLoadedApp app) {
 		this.app = app;
 		this.processBackend = installProcessBackend();
+		synchronized (controllers) { controllers.add(this); }
 	}
 
 	private static ATLServiceRegistry.RestartConstants restartConstantsFromEnv() {
@@ -214,6 +218,7 @@ public final class ATLServiceController {
 	private Resolved resolveService(Intent intent) {
 		ComponentName component = intent.getComponent();
 		if (component != null) {
+			if (!app.pkg.packageName.equals(component.getPackageName())) return null;
 			for (PackageParser.Service service : app.pkg.services) {
 				if (component.getClassName().equals(service.className)) {
 					return new Resolved(component, resolvePlacement(service));
@@ -239,37 +244,62 @@ public final class ATLServiceController {
 	}
 
 	/**
-	 * Where {@code service} runs: null for the loader's own process, otherwise the
-	 * manifest-declared process. An isolated service is refused, and so is a
-	 * service in another process until {@link #placementRemoteProcess} accepts it.
-	 * The refusals keep the message the local-service probe's unsupported-remote
-	 * check (SVC-014) expects.
+	 * Where {@code service} runs: null for the process this controller runs in,
+	 * otherwise the manifest-declared process. An isolated service is refused, and
+	 * so is a service in another process until {@link #placementRemoteProcess}
+	 * accepts it. The refusals keep the message the local-service probe's
+	 * unsupported-remote check (SVC-014) expects.
+	 *
+	 * <p>The comparison is against the process that is RUNNING, not against the
+	 * application's default process: a service child ({@code ATL_SERVICE_PROCESS},
+	 * see ATLProcessHost/ChildHost) hosts the services declared for its own
+	 * android:process, and a bind it issues to one of them is a bind to itself.
+	 * AOSP resolves a service request to a process by the DECLARED name of the
+	 * service and reuses that process when it is already up
+	 * ({@code ActiveServices.bringUpServiceLocked}: {@code procName = r.processName}
+	 * then {@code mAm.getProcessRecordLocked(procName, uid)},
+	 * services/core/java/com/android/server/am/ActiveServices.java:6228-6266 in the
+	 * pinned tree), so on Android the crash-helper child's own
+	 * {@code bindService(CrashHelper)} lands on itself with no second process;
+	 * comparing with the default process name instead made it look remote and,
+	 * inside a child, refused it. Note the same-process case is decided here and
+	 * not by {@link #placementRemoteProcess}: it is not a remote placement at all.
 	 */
 	private String resolvePlacement(PackageParser.Service service) {
 		if ((service.info.flags & android.content.pm.ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
 			throw new UnsupportedOperationException("ATL does not support remote or isolated services: " + service.className);
 		}
-		String process = service.info.processName;
-		String appProcess = app.pkg.applicationInfo.processName;
-		if (appProcess == null) appProcess = app.pkg.packageName;
-		if (process == null || process.equals(appProcess)) {
-			return null;
-		}
+		String process = ATLProcessControl.componentProcess(app, service);
+		if (app.pkg.packageName.equals(ActivityThread.currentPackageName())
+		    && process.equals(ActivityThread.currentProcessName())) return null;
 		return placementRemoteProcess(service, process);
 	}
 
 	/**
 	 * SEAM for the process backend wiring: the single place that decides whether a
-	 * service placed in {@code process} (not the loader's own) may run there. It
-	 * returns the process name to place the record in, or throws when it may
-	 * not. Split APKs and service children are refused with the PR31 wording;
-	 * with no backend installed (the production default) a remote service stays
-	 * explicitly unsupported with the message the SVC-014 check grew up with.
+	 * service placed in {@code process} (neither the running process nor a null
+	 * process) may run there. It returns the process name to place the record in,
+	 * or throws when it may not. Split APKs are refused with the PR31 wording.
+	 *
+	 * <p>In a service child there are two cases. A real spawned child
+	 * ({@code ATL_SERVICE_HOST}, set by the loader's spawn) reaches other
+	 * processes through the loader: the request is forwarded over the control
+	 * link and the loader performs it with its own backend, so the placement is
+	 * allowed only when that forwarding backend is installed; without one the
+	 * child stays explicitly unable to establish the process. A probe launch that
+	 * merely claims {@code ATL_SERVICE_PROCESS} (the S14c gate) has no host and
+	 * is refused with exactly the message the SVC-014 check grew up with, and a
+	 * tree without the lane-D host keeps the generic unsupported-remote wording.
 	 */
 	private String placementRemoteProcess(PackageParser.Service service, String process) {
 		String[] splits = app.pkg.applicationInfo.splitSourceDirs;
 		if (splits != null && splits.length > 0)
 			throw new UnsupportedOperationException("Remote services in split APKs are not implemented");
+		if (System.getenv(ENV_SERVICE_HOST) != null) {
+			if (processBackend == null)
+				throw new UnsupportedOperationException("Service-to-other-process bindings are not implemented");
+			return process;
+		}
 		if (System.getenv(ENV_SERVICE_PROCESS) != null)
 			throw new UnsupportedOperationException("Service-to-other-process bindings are not implemented");
 		if (processBackend == null)
@@ -480,7 +510,7 @@ public final class ATLServiceController {
 		// find a registered client without one.
 		getServiceDispatcher(bindContext, serviceConnection);
 		final ATLServiceRegistry.BoundClient client =
-		    service_registry.registerBinding(record, serviceConnection, intent, bindContext, autoCreate);
+		    service_registry.registerBinding(record, serviceConnection, intent, bindContext, flags);
 
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
@@ -525,6 +555,19 @@ public final class ATLServiceController {
 		});
 
 		return component;
+	}
+
+	/** Context registrations belong to the caller, even when the target is another APK. */
+	public static void unbindFromContext(Context context, ServiceConnection connection) {
+		ArrayList<ATLServiceController> snapshot;
+		synchronized (controllers) { snapshot = new ArrayList<>(controllers); }
+		boolean found = false;
+		for (ATLServiceController controller : snapshot) {
+			if (controller.peekServiceDispatcher(context, connection) == null) continue;
+			controller.unbindService(context, connection);
+			found = true;
+		}
+		if (!found) throw new IllegalArgumentException("Service not registered: " + connection);
 	}
 
 	/**
@@ -593,10 +636,15 @@ public final class ATLServiceController {
 		final Context context = record.instanceContext;
 		if (context == null)
 			return;
-		ArrayList<ATLServiceRegistry.UnbindResult> results = service_registry.unbindContext(context);
-		forgetContextDispatchers(context);
-		for (ATLServiceRegistry.UnbindResult result : results) {
-			postUnbindWork(result.record, result.intents, result.destroy);
+		ArrayList<ATLServiceController> snapshot;
+		synchronized (controllers) { snapshot = new ArrayList<>(controllers); }
+		for (ATLServiceController controller : snapshot) {
+			ArrayList<ATLServiceRegistry.UnbindResult> results = controller.service_registry.unbindContext(context);
+			controller.forgetContextDispatchers(context);
+			for (ATLServiceRegistry.UnbindResult result : results) {
+				if (result.record.isRemote()) controller.postRemoteUnbindWork(result.record, result.intents, result.destroy);
+				else controller.postUnbindWork(result.record, result.intents, result.destroy);
+			}
 		}
 	}
 
@@ -798,10 +846,12 @@ public final class ATLServiceController {
 	}
 
 	/**
-	 * The backend to install: the test fake, the lane-D transport host, or null.
+	 * The backend to install: the test fake, the service-child forwarding backend,
+	 * the lane-D transport host, or null.
 	 * Order: {@code ATL_PROCESS_BACKEND=fake} first (lane-B test seam), then the
-	 * {@code ATL_SERVICE_HOST} child guard (this process IS a service child, so it
-	 * hosts nothing itself), then the reflective host lookup: a
+	 * {@code ATL_SERVICE_HOST} marker (this process IS a service child: it hosts
+	 * its own process's services but forwards every other declared process to the
+	 * loader), then the reflective host lookup: a
 	 * {@link ClassNotFoundException} means a tree without the lane-D host and
 	 * leaves remote placements refused, any other reflective failure is loud
 	 * (never a silent degradation), and a {@link LinkageError} from loading the
@@ -810,11 +860,18 @@ public final class ATLServiceController {
 	private ATLProcessBackend selectProcessBackend() {
 		if ("fake".equals(System.getenv(ENV_PROCESS_BACKEND)))
 			return new ATLFakeProcessBackend(app);
-		if (System.getenv(ENV_SERVICE_HOST) != null)
-			return null;
+		if (System.getenv(ENV_SERVICE_HOST) != null) {
+			// This process IS a service child (spawned by the loader's transport):
+			// it hosts services of its own process but cannot spawn another one, so
+			// a component of another declared process is forwarded to the loader
+			// (ATLProcessControl SVC_*). The backend resolves the control link when
+			// an op runs, not now: this constructor runs during Context's static
+			// initialization, before ChildHost starts the link.
+			return ATLForwardingProcessBackend.get(app);
+		}
 		final Object host;
 		try {
-			host = Class.forName(ATL_PROCESS_HOST_CLASS).getMethod("get").invoke(null);
+			host = Class.forName(ATL_PROCESS_HOST_CLASS).getMethod("get", ATLLoadedApp.class).invoke(null, app);
 		} catch (ClassNotFoundException e) {
 			// No lane-D host in this tree: remote services stay refused.
 			return null;
@@ -992,12 +1049,14 @@ public final class ATLServiceController {
 					dispatcher.doConnected(record.component, service_registry.binderFor(record, intent), false);
 					continue;
 				}
-				processBackend.bindService(record.remoteProcess, record.className, intent,
+				processBackend.bindService(record.remoteProcess, record.className, intent, client.flags,
 				    new ATLProcessBackend.Callback<IBinder>() {
 					    @Override
 					    public void onResult(IBinder binder) {
 						    if (record.generation != generation || !service_registry.isLive(record))
 							    return;
+						    if (client.delivered)
+							    return; // a second result for a binding already reconnected
 						    service_registry.cacheBinder(record, intent, binder);
 						    record.binderResolved = true;
 						    client.delivered = true;
@@ -1009,6 +1068,23 @@ public final class ATLServiceController {
 					    @Override
 					    public void onHostUnavailable() {
 						    handleRemoteSpawnFailure(record);
+					    }
+
+					    @Override
+					    public void onBindingDied() {
+						    if (record.generation != generation || !service_registry.isLive(record)) return;
+						    service_registry.forgetRemoteBinding(record);
+						    client.delivered = false;
+						    ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+						    if (dispatcher != null) dispatcher.doConnected(record.component, null, true);
+					    }
+
+					    @Override
+					    public void onHostDied() {
+						    // The host of THIS binding went down after it delivered:
+						    // forward the death, keep the binding (and this request's
+						    // generation) so the reconnect result reconnects the client.
+						    handleRemoteBindingDied(record);
 					    }
 				    });
 				continue;
@@ -1037,6 +1113,40 @@ public final class ATLServiceController {
 			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
 			if (dispatcher != null)
 				dispatcher.doSpawnFailure(record.component);
+		}
+	}
+
+	/**
+	 * The host of a binding that had already delivered its binder disconnected
+	 * (the loader's client saw {@code onServiceDisconnected()}/{@code
+	 * onBindingDied()}): the child-side half of AOSP {@code onServiceDisconnected},
+	 * which keeps the binding. Delivered clients are notified with the binder they
+	 * hold and marked undelivered, so the late OK the loader sends when its own
+	 * restart ladder reconnects this binding delivers {@code onServiceConnected()}
+	 * again. The record's binder state is forgotten WITHOUT bumping its
+	 * {@code generation}: the reconnect arrives as a result of the same forwarded
+	 * request, whose generation guard must stay valid. Unlike
+	 * {@link #handleBackendProcessDeath} (the child's own process-death path) no
+	 * restart is scheduled: the loader owns the life of the declared process and
+	 * has already run its restart ladder.
+	 */
+	private void handleRemoteBindingDied(ATLServiceRegistry.ServiceRecord record) {
+		ArrayList<ATLServiceRegistry.BoundClient> clients = service_registry.bindingsOf(record);
+		ArrayList<IBinder> binders = new ArrayList<>();
+		for (ATLServiceRegistry.BoundClient client : clients) {
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			binders.add(dispatcher == null ? null : dispatcher.binderOf(record.component));
+		}
+		service_registry.forgetRemoteBinding(record);
+		for (int i = 0; i < clients.size(); i++) {
+			ATLServiceRegistry.BoundClient client = clients.get(i);
+			if (!client.delivered)
+				continue;
+			client.delivered = false;
+			IBinder binder = binders.get(i);
+			ATLServiceDispatcher dispatcher = peekServiceDispatcher(client.context, client.connection);
+			if (dispatcher != null && binder != null)
+				dispatcher.doDeath(record.component, binder);
 		}
 	}
 

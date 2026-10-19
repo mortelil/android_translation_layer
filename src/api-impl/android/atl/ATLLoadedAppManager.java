@@ -118,6 +118,7 @@ public final class ATLLoadedAppManager {
 		}
 	}
 
+
 	private static PackageParser.Package loadPackage(String packageName) {
 		if (!isPackageVisible(ATLLoadedApp.getPrimaryApplication().pkg.packageName, packageName)) {
 			// No right to view this package.

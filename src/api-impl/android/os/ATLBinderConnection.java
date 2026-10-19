@@ -293,6 +293,23 @@ public final class ATLBinderConnection {
 		}
 		return id;
 	}
+	/**
+	 * True when {@code binder} can be written to this connection: a local object
+	 * (any connection can export it) or a proxy of THIS connection. A proxy of
+	 * another link cannot cross: the handle numbering is per connection.
+	 *
+	 * <p>Public because the service-process host must pre-check a binder it is
+	 * about to return to a child (see {@code ATLProcessHost.sendServiceResult}):
+	 * asking first turns an unsupported relay into a reported refusal instead of
+	 * a link failure.
+	 */
+	public boolean canTransmit(IBinder binder) {
+		if (binder == null || !(binder instanceof RemoteBinder))
+			return true;
+		RemoteBinder remote = (RemoteBinder)binder;
+		return !remote.released && remote.connection() == this;
+	}
+
 	private int reference(IBinder binder) {
 		if (binder instanceof RemoteBinder) {
 			RemoteBinder remote = (RemoteBinder)binder;
@@ -386,6 +403,17 @@ public final class ATLBinderConnection {
 	private void sendMessage(int id, int kind, int target, int code, int flags, long callChain, int status, Parcel parcel) throws IOException {
 		if (!alive)
 			throw new IOException("ATL IPC peer is dead");
+		IBinder[] binders = parcel == null ? new IBinder[0] : parcel.atlBinders();
+		/* A proxy belongs to exactly one link. Refuse a foreign proxy BEFORE any
+		 * transfer credit is reserved: the refusal is deterministic, the caller
+		 * sees UnsupportedOperationException, and (unlike a failure inside the
+		 * guarded block below) the link is left alive. Closing here used to kill a
+		 * live child when the loader relayed a third process' binder. */
+		for (IBinder binder : binders) {
+			if (!canTransmit(binder))
+				throw new UnsupportedOperationException(
+				    "Binder forwarding between ATL connections is not supported");
+		}
 		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 		DataOutputStream out = new DataOutputStream(bytes);
 		out.writeInt(MAGIC);
@@ -399,7 +427,6 @@ public final class ATLBinderConnection {
 		byte[] data = parcel == null ? new byte[0] : parcel.marshall();
 		out.writeInt(data.length);
 		out.write(data);
-		IBinder[] binders = parcel == null ? new IBinder[0] : parcel.atlBinders();
 		try {
 			out.writeInt(binders.length);
 			for (IBinder binder : binders)
