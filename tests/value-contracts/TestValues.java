@@ -22,6 +22,8 @@ public class TestValues {
  static void audio() throws Exception {
   AudioFormat a=new AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_DEFAULT).setSampleRate(48000).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build();
   check(a.getEncoding()==AudioFormat.ENCODING_PCM_16BIT&&a.getSampleRate()==48000&&a.getChannelCount()==2,"format fields");
+  android.os.Parcel parcel=android.os.Parcel.obtain();
+  try {a.writeToParcel(parcel,0);parcel.setDataPosition(0);check(a.equals(AudioFormat.CREATOR.createFromParcel(parcel)),"format parcel roundtrip");} finally {parcel.recycle();}
   AudioFormat b=new AudioFormat.Builder(a).build(); check(a.equals(b)&&a.hashCode()==b.hashCode(),"copy equality");
   check(!a.equals(new AudioFormat.Builder(a).setSampleRate(44100).build()),"different rate");
   check(new AudioFormat.Builder().build().getEncoding()==AudioFormat.ENCODING_INVALID,"unspecified encoding");

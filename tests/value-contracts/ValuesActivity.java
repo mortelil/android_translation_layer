@@ -2,8 +2,26 @@
 package org.atl.tests.values;
 import android.os.*;
 public class ValuesActivity extends android.app.Activity {
+ static class CacheView extends android.view.View {
+  int destroyed;
+  CacheView(android.content.Context c){super(c);}
+  public void destroyDrawingCache(){destroyed++;super.destroyDrawingCache();}
+ }
  public void onCreate(Bundle state) {
   super.onCreate(state);
+  CacheView v=new CacheView(this);
+  TestValues.check(v.getAccessibilityTraversalBefore()==android.view.View.NO_ID,"default before");
+  TestValues.check(v.getAccessibilityTraversalAfter()==android.view.View.NO_ID,"default after");
+  v.setAccessibilityTraversalBefore(123); v.setAccessibilityTraversalAfter(456);
+  TestValues.check(v.getAccessibilityTraversalBefore()==123&&v.getAccessibilityTraversalAfter()==456,"independent traversal ids");
+  v.setAccessibilityTraversalBefore(android.view.View.NO_ID);TestValues.check(v.getAccessibilityTraversalBefore()==android.view.View.NO_ID,"clear traversal");
+  TestValues.check(!v.willNotCacheDrawing(),"default cache flag");
+  int destroyed=v.destroyed;v.setWillNotCacheDrawing(true);TestValues.check(v.willNotCacheDrawing()&&v.destroyed==destroyed+1,"flag invalidates cache");
+  v.setWillNotCacheDrawing(true);TestValues.check(v.destroyed==destroyed+1,"unchanged flag preserves cache");
+  TestValues.check(v.getDrawingCache()==null&&v.getDrawingCache(true)==null,"disabled cache");
+  v.setWillNotCacheDrawing(false);TestValues.check(!v.willNotCacheDrawing()&&v.destroyed==destroyed+2,"re-enable invalidates cache");
+  TestValues.check(!new android.view.autofill.AutofillManager().hasEnabledAutofillServices(),"no autofill capability");
+  TestValues.check(!android.appwidget.AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported(),"no widget pinning capability");
   new Thread(new Runnable(){ public void run(){
    try {
     Looper.prepare(); MessageQueue q=Looper.myQueue(); Handler h=new Handler();

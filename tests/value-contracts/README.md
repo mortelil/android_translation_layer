@@ -4,7 +4,7 @@ Run `sh tests/value-contracts/build.sh BUILD_DIR OUTPUT_DIR` inside Alpine.
 Sign OUTPUT_DIR/values.apk with a test key, then launch through
 `scripts/mobile/run.sh` with ATL_BUILD_DIR selecting the candidate build and
 ANDROID_APP_DATA_DIR/XDG_CACHE_HOME pointing to a fresh test directory.
-A successful run prints `PASS values checks=45` and exits zero. Any assertion
+A successful run prints `PASS values checks=57` and exits zero. Any assertion
 fails the run. Halt is used only after all assertions because the old standalone
 ART used by the developer runtime has an unrelated teardown failure.
 
@@ -19,3 +19,7 @@ Keyframe.java is copied byte-for-byte from AOSP frameworks/base
 (android-17.0.0_r1; matches installed Android 37 SDK sources). Apache header kept.
 MessageQueue.isIdle uses that tree's legacy queue semantics. AudioFormat is the
 OMP port from Android 37 SDK sources, with its Apache header retained.
+
+Also covers AudioFormat parcel round-trip, View traversal ID state and cache
+flag invalidation, and truthful absence of autofill/widget pinning services.
+Traversal IDs do not imply screen-reader traversal integration.
