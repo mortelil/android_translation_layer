@@ -125,41 +125,8 @@ public final class MessageQueue {
 	}
 
 	/**
-	 * Returns true if the looper has no pending messages which are due to be
-	 * processed.
-	 *
-	 * <p>Gecko's {@code GeckoLoader.nativeRun} looks this method up through JNI
-	 * (see {@code GeckoThread.run}, firefox 157.0.1) and MOZ_CRASHes when the
-	 * lookup fails (r25: "GetMethodID(0x4c52, isIdle, ()Z) returning NULL" ->
-	 * NoSuchMethodError -> MOZ_CRASH()).
-	 *
-	 * <p>ATL's queue is AOSP's legacy (non-DeliQueue) queue, so this is exactly
-	 * AOSP's {@code isIdle()} for that variant.
-	 * {@code core/java/android/os/LegacyMessageQueue/MessageQueue.java:148-154}
-	 * in the pinned tree (android-17.0.0_r1, 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d),
-	 * identical to the {@code isIdleLegacy()} at {@code android/os/MessageQueue.java:1014-1019}
-	 * of the android-37.0 SDK sources:
-	 *
-	 * <pre>
-	 * public boolean isIdle() {
-	 *     synchronized (this) {
-	 *         final long now = SystemClock.uptimeMillis();
-	 *         return mMessages == null || now < mMessages.when;
-	 *     }
-	 * }
-	 * </pre>
-	 *
-	 * <p>The legacy {@code isIdle()} consults only {@code mMessages} and its
-	 * {@code when}: it does <em>not</em> look at {@code mBlocked} or
-	 * {@code mQuitting} (those are used by {@code next()}/{@code quit()} but do
-	 * not affect idleness in AOSP either). Barriers are messages with a null
-	 * target; in the legacy single-list queue such a barrier stays at the head
-	 * with its own {@code when}, so once it is due ({@code now >= mMessages.when})
-	 * this method correctly reports non-idle - there is no separate barrier
-	 * token list to model. Asynchronous messages are likewise covered by the
-	 * same {@code mMessages} check: only AOSP's concurrent/DeliQueue variants
-	 * keep a separate async priority queue ({@code isIdleConcurrent()} /
-	 * {@code isIdleDeliQueue()}), which ATL's one-list queue does not have.
+	 * Whether no message is due, following AOSP's legacy single-list queue.
+	 * A due synchronization barrier also makes this queue non-idle.
 	 */
 	public boolean isIdle() {
 		synchronized (this) {

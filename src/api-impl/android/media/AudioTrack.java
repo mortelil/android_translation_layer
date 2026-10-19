@@ -109,8 +109,8 @@ public class AudioTrack implements AudioRouting {
 	 * (api-impl-jni/audio/audio.c helper_track_params_valid) decodes one position
 	 * config into a mono/stereo ALSA layout, so a format that only carries an
 	 * index mask is mapped to the equivalent position mask for the two layouts
-	 * the sink supports, and any other index mask is passed through unchanged so
-	 * the sink rejects it rather than guessing.
+	 * the sink supports, and unsupported index masks are rejected before their bits can be
+	 * confused with a valid position mask.
 	 */
 	private static int channelConfigForNative(AudioFormat format) {
 		int positionMask = format.getChannelMask();
@@ -121,7 +121,7 @@ public class AudioTrack implements AudioRouting {
 			return AudioFormat.CHANNEL_OUT_STEREO;
 		if (indexMask == 0x1)
 			return AudioFormat.CHANNEL_OUT_MONO;
-		return indexMask;
+		throw new IllegalArgumentException("ATL supports only contiguous mono/stereo channel index masks");
 	}
 
 	public static native int getMinBufferSize(int sampleRateInHz, int channelConfig, int audioFormat);

@@ -61,7 +61,7 @@ public class InputDevice {
 	}
 
 	public int getSources() {
-		return 2 | 4098 /* SOURCE_CLASS_POINTER | SOURCE_TOUCHSCREEN */; // FIXME
+		return SOURCE_KEYBOARD | SOURCE_TOUCHSCREEN; // ATL exposes one aggregate host-input device.
 	}
 
 	/*
@@ -84,7 +84,7 @@ public class InputDevice {
 	}
 
 	public boolean supportsSource(int source) {
-		return true;
+		return (getSources() & source) == source;
 	}
 
 	public MotionRange getMotionRange(int axis, int source) {

@@ -681,8 +681,7 @@ public class AudioFormat implements Parcelable {
 	 * {@link AudioFormat.Builder} (AOSP marks this @removed and throws).
 	 */
 	public AudioFormat() {
-		this(AUDIO_FORMAT_HAS_PROPERTY_NONE, ENCODING_INVALID, SAMPLE_RATE_UNSPECIFIED,
-			CHANNEL_INVALID, CHANNEL_INVALID, CHANNEL_INVALID);
+		throw new UnsupportedOperationException("There is no valid usage of this constructor");
 	}
 
 	/** Constructor used by the JNI. Parameters are not checked for validity. */
