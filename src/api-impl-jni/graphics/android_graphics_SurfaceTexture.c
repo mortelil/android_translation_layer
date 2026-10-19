@@ -134,3 +134,14 @@ JNIEXPORT jbyteArray JNICALL Java_android_view_Surface_nativePostCanvas(JNIEnv *
 	}
 	return result;
 }
+
+/* Surface owns exactly one reference transferred by ANativeWindow_toSurface. */
+#include "../../libandroid/native_window.h"
+JNIEXPORT void JNICALL Java_android_view_Surface_nativeRelease(JNIEnv *env, jclass cls, jlong handle)
+{
+	ANativeWindow_release((struct ANativeWindow *)(intptr_t)handle);
+}
+JNIEXPORT jboolean JNICALL Java_android_view_Surface_nativeIsValid(JNIEnv *env, jclass cls, jlong handle)
+{
+	return atl_native_window_is_valid(env, (struct ANativeWindow *)(intptr_t)handle);
+}

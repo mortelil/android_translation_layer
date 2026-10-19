@@ -10,13 +10,18 @@ struct ANativeWindow {
 	GtkWidget *surface_view_widget;
 	struct wl_display *wayland_display;
 	struct wl_surface *wayland_surface;
+	struct wl_subsurface *wayland_subsurface;
+	GdkSurface *parent_surface;
+	GdkDisplay *display;
+	gulong unrealize_handler;
+	int abandoned;
 	Display *x11_display;
 	gulong resize_handler;
 	int refcount;
 	int width;
 	int height;
 	JavaVM *jvm;
-	jobject surface_texture;
+	jweak surface_texture; // consumer must not be rooted through its producer
 	jmethodID queue_frame;
 };
 
@@ -32,3 +37,6 @@ EGLBoolean bionic_eglSwapBuffers(EGLDisplay display, EGLSurface surface);
 void bionic_glBindFramebuffer(GLenum target, GLuint framebuffer);
 void ANativeWindow_acquire(struct ANativeWindow *native_window);
 void ANativeWindow_release(struct ANativeWindow *native_window);
+
+jobject ANativeWindow_toSurface(JNIEnv *env, struct ANativeWindow *window);
+gboolean atl_native_window_is_valid(JNIEnv *env, struct ANativeWindow *window);

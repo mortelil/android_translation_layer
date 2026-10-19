@@ -9,7 +9,8 @@ import android.graphics.SurfaceTexture;
 
 public class Surface {
 	public long widget;
-	private SurfaceTexture texture;
+	private java.lang.ref.WeakReference<SurfaceTexture> texture;
+	private long nativeWindow;
 	private boolean released;
 
     // SurfaceView owns this widget-backed surface's creation/destruction cycle.
@@ -23,10 +24,19 @@ public class Surface {
 	public Surface(SurfaceTexture surfaceTexture) {
 		if (surfaceTexture == null)
 			throw new IllegalArgumentException("Null SurfaceTexture");
-		texture = surfaceTexture;
+		texture = new java.lang.ref.WeakReference<>(surfaceTexture);
 	}
+	// Used by ANativeWindow_toSurface. The passed reference is owned by this Surface.
+	private Surface(long handle, SurfaceTexture consumer) {
+		if (consumer != null) texture = new java.lang.ref.WeakReference<>(consumer);
+		nativeWindow = handle;
+	}
+	private SurfaceTexture atlGetTexture() { return texture == null ? null : texture.get(); }
 	public synchronized boolean isValid() {
-		return !released && (texture != null ? !texture.isReleased() : widget != 0);
+		if (released) return false;
+		if (nativeWindow != 0) return nativeIsValid(nativeWindow);
+		SurfaceTexture consumer = atlGetTexture();
+		return texture != null ? consumer != null && !consumer.isReleased() : widget != 0;
 	}
 	public synchronized Canvas lockHardwareCanvas() { return lockCanvas(null); }
 	public synchronized Canvas lockCanvas(Rect dirty) {
@@ -34,9 +44,10 @@ public class Surface {
 			throw new IllegalStateException("Invalid Surface");
 		if (lockedCanvas != null)
 			throw new IllegalStateException("Surface already locked");
-		if (texture == null)
+		SurfaceTexture consumer = atlGetTexture();
+		if (consumer == null)
 			throw new UnsupportedOperationException("Use SurfaceHolder for widget surfaces");
-		int[] size = texture.atlBufferSize();
+		int[] size = consumer.atlBufferSize();
 		lockedCanvas = new SurfaceCanvas(size[0], size[1]);
 		return lockedCanvas;
 	}
@@ -48,10 +59,21 @@ public class Surface {
 		long snapshot = frame.snapshot;
 		frame.snapshot = 0;
 		byte[] rgba = nativePostCanvas(snapshot, frame.width, frame.height);
-		if (!released)
-			texture.atlQueueFrame(rgba, frame.width, frame.height, System.nanoTime());
+		SurfaceTexture consumer = atlGetTexture();
+		if (!released && consumer != null)
+			consumer.atlQueueFrame(rgba, frame.width, frame.height, System.nanoTime());
 	}
-	public synchronized void release() { released = true; }
+	public synchronized void release() {
+		released = true;
+		long handle = nativeWindow;
+		nativeWindow = 0;
+		if (handle != 0) nativeRelease(handle);
+	}
+	@Override protected void finalize() throws Throwable {
+		try { release(); } finally { super.finalize(); }
+	}
+	private static native void nativeRelease(long handle);
+	private static native boolean nativeIsValid(long handle);
 
 	private static class SurfaceCanvas extends GskCanvas {
 		final int width, height;
