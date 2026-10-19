@@ -118,7 +118,7 @@ public class Caller extends Activity {
                    .getBroadcast(this, 3, new Intent(base).setPackage("other"), PendingIntent.FLAG_MUTABLE)
                    .equals(mutable),
               "package in identity");
-        try {
+        if (Build.VERSION.SDK_INT >= 31) try {
             PendingIntent.getBroadcast(this, 99, base,
                                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_MUTABLE);
             throw new AssertionError("conflicting flags accepted");
