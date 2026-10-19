@@ -794,3 +794,371 @@ media_status_t AImage_getTimestamp(const AImage *image, int64_t *timestampNs)
 		return AMEDIA_ERROR_INVALID_PARAMETER;
 	return AMEDIA_ERROR_UNSUPPORTED;
 }
+
+/*
+ * Async acquisition. AOSP's NdkImageReader.cpp implements the synchronous
+ * AImageReader_acquireNextImage as the async one with a null fence, so the same
+ * argument checks apply: a null reader or image is AMEDIA_ERROR_INVALID_PARAMETER
+ * (AOSP NdkImageReader.cpp:968-977) and a reader that exists returns the status
+ * of its own queue. No reader can be created here (see AImageReader_newWithUsage
+ * above), so the only non-null "reader" is a foreign pointer: there is no queue
+ * and therefore no image and no fence, which the documented status
+ * AMEDIA_ERROR_UNSUPPORTED reports. The fence out-parameter is set to -1, the
+ * NDK's "synchronization fence not needed" value (NdkImageReader.h:475-497), so
+ * a caller that ignores the status cannot close a stale descriptor.
+ */
+media_status_t AImageReader_acquireNextImageAsync(
+    AImageReader *reader, AImage **image, int *acquireFenceFd)
+{
+	if (acquireFenceFd)
+		*acquireFenceFd = -1;
+	if (!image)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	*image = NULL;
+	if (!reader)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/*
+ * Delete an image after signalling that the consumer is done with it through a
+ * release fence. AOSP (NdkImage.cpp:722-734) closes and frees a non-null image
+ * and does nothing for a null one; the fence is consumed by the buffer queue as
+ * part of that close. No image can be acquired here, so releasing through the
+ * synchronous path is the whole behaviour, and the fence must not be closed
+ * here: AOSP does not close it either when there is no image to close.
+ */
+void AImage_deleteAsync(AImage *image, int releaseFenceFd)
+{
+	(void)releaseFenceFd;
+	AImage_delete(image);
+}
+
+/*
+ * AMediaCrypto (media/NdkMediaCrypto.h, API 21). AOSP's implementation
+ * (NdkMediaCrypto.cpp:39-44,62-90) builds an ICrypto through DrmUtils::MakeCrypto()
+ * and reports failure whenever that returns null: the scheme query answers false
+ * and AMediaCrypto_new() returns a null object. ATL ships no DRM/crypto plugin
+ * and no ICrypto backend, which is exactly that case, so these are the answers
+ * rather than a fabricated crypto object that would fail on first use.
+ */
+typedef uint8_t AMediaUUID[16];
+
+bool AMediaCrypto_isCryptoSchemeSupported(const AMediaUUID uuid)
+{
+	return false;
+}
+
+/**
+ * Whether the plugin needs a secure decoder for this mime type. With no plugin
+ * there is no component to ask, which AOSP reports as false.
+ */
+bool AMediaCrypto_requiresSecureDecoderComponent(const char *mime)
+{
+	return false;
+}
+
+/**
+ * Create a crypto plugin instance for the scheme in uuid. No plugin exists, so
+ * no instance can be created (AOSP returns NULL when crypto->createPlugin
+ * fails).
+ */
+AMediaCrypto *AMediaCrypto_new(const AMediaUUID uuid, const void *initData, size_t initDataSize)
+{
+	return NULL;
+}
+
+/**
+ * Delete a crypto object. No object can be created (see above), and deleting a
+ * null object is a no-op in AOSP as well.
+ */
+void AMediaCrypto_delete(AMediaCrypto *crypto) {}
+
+/*
+ * AMediaDrm (media/NdkMediaDrm.h, API 21; the async key-request variant is API
+ * 33 under __ANDROID_API_T__). AOSP's implementation (NdkMediaDrm.cpp) builds an
+ * IDrmPlugin from the UUID and every entry point first checks that both the
+ * handle and its plugin exist, answering AMEDIA_ERROR_INVALID_OBJECT otherwise
+ * (NdkMediaDrm.cpp:320-332,335-345,348-365,376-412,428-441,510-518,617-624,
+ * 639-646,748-756,759-770).
+ *
+ * ATL has no DRM plugin and no IDrmPlugin backend, so AMediaDrm_createByUUID()
+ * cannot produce a usable handle and returns NULL, which is the AOSP outcome for
+ * "no plugin supports this scheme" (NdkMediaDrm.cpp:301-307 leaves such a handle
+ * with a null mDrm, and every call on it then fails with
+ * AMEDIA_ERROR_INVALID_OBJECT). The remaining entry points therefore validate
+ * exactly what AOSP validates and then report the root cause: no plugin, meaning
+ * AMEDIA_ERROR_UNSUPPORTED for plugin-level operations and
+ * AMEDIA_DRM_SESSION_NOT_OPENED for session-scoped ones, since no session can
+ * ever have been opened. No session id, key request, provision request or
+ * response is ever fabricated.
+ */
+struct AMediaDrm;
+typedef struct AMediaDrm AMediaDrm;
+
+typedef struct {
+	const uint8_t *ptr;
+	size_t length;
+} AMediaDrmByteArray;
+
+typedef AMediaDrmByteArray AMediaDrmSessionId;
+typedef AMediaDrmByteArray AMediaDrmScope;
+typedef AMediaDrmByteArray AMediaDrmKeySetId;
+typedef AMediaDrmByteArray AMediaDrmKeyId;
+
+typedef enum AMediaDrmEventType {
+	EVENT_PROVISION_REQUIRED = 1,
+	EVENT_KEY_REQUIRED = 2,
+	EVENT_KEY_EXPIRED = 3,
+	EVENT_VENDOR_DEFINED = 4,
+	EVENT_SESSION_RECLAIMED = 5
+} AMediaDrmEventType;
+
+typedef enum AMediaDrmKeyType {
+	KEY_TYPE_STREAMING = 1,
+	KEY_TYPE_OFFLINE = 2,
+	KEY_TYPE_RELEASE = 3
+} AMediaDrmKeyType;
+
+typedef enum AMediaDrmKeyRequestType {
+	KEY_REQUEST_TYPE_INITIAL,
+	KEY_REQUEST_TYPE_RENEWAL,
+	KEY_REQUEST_TYPE_RELEASE,
+	KEY_REQUEST_TYPE_NONE,
+	KEY_REQUEST_TYPE_UPDATE
+} AMediaDrmKeyRequestType;
+
+typedef struct AMediaDrmKeyValuePair {
+	const char *mKey;
+	const char *mValue;
+} AMediaDrmKeyValue;
+
+typedef enum AMediaKeyStatusType {
+	KEY_STATUS_TYPE_USABLE,
+	KEY_STATUS_TYPE_EXPIRED,
+	KEY_STATUS_TYPE_OUTPUTNOTALLOWED,
+	KEY_STATUS_TYPE_STATUSPENDING,
+	KEY_STATUS_TYPE_INTERNALERROR
+} AMediaDrmKeyStatusType;
+
+typedef struct AMediaDrmKeyStatus {
+	AMediaDrmKeyId keyId;
+	AMediaDrmKeyStatusType keyType;
+} AMediaDrmKeyStatus;
+
+typedef void (*AMediaDrmEventListener)(
+    AMediaDrm *, const AMediaDrmSessionId *sessionId, AMediaDrmEventType eventType, int extra,
+    const uint8_t *data, size_t dataSize);
+
+typedef void (*AMediaDrmExpirationUpdateListener)(
+    AMediaDrm *, const AMediaDrmSessionId *sessionId, int64_t expiryTimeInMS);
+
+typedef void (*AMediaDrmKeysChangeListener)(
+    AMediaDrm *, const AMediaDrmSessionId *sessionId, const AMediaDrmKeyStatus *keyStatus,
+    size_t numKeys, bool hasNewUsableKey);
+
+/**
+ * Create a DRM instance for the scheme in uuid. There is no plugin to
+ * instantiate, so AOSP's "no plugin for this scheme" outcome (a handle whose
+ * plugin is null, unusable for every operation) is reported as a null handle
+ * instead of one that pretends to exist.
+ */
+AMediaDrm *AMediaDrm_createByUUID(const uint8_t *uuid)
+{
+	return NULL;
+}
+
+/**
+ * Release a DRM object created by AMediaDrm_createByUUID. No object is ever
+ * created (see above), so only the null case is reachable and releasing it is a
+ * no-op.
+ */
+void AMediaDrm_release(AMediaDrm *drm)
+{
+	free(drm);
+}
+
+/**
+ * Register the event listener. AOSP validates the handle first
+ * (NdkMediaDrm.cpp:320-323), which is the only failure a handle that ATL can
+ * return (null) produces; a non-null handle cannot carry a plugin, so the
+ * listener cannot be registered.
+ */
+media_status_t AMediaDrm_setOnEventListener(AMediaDrm *drm, AMediaDrmEventListener listener)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Register the expiration-update listener. Same contract as
+ * setOnEventListener (AOSP NdkMediaDrm.cpp:335-338).
+ */
+media_status_t AMediaDrm_setOnExpirationUpdateListener(
+    AMediaDrm *drm, AMediaDrmExpirationUpdateListener listener)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Register the keys-change listener. Same contract as setOnEventListener
+ * (AOSP NdkMediaDrm.cpp:348-351).
+ */
+media_status_t AMediaDrm_setOnKeysChangeListener(
+    AMediaDrm *drm, AMediaDrmKeysChangeListener listener)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Open a session. AOSP validates the handle and then the out-parameter
+ * (NdkMediaDrm.cpp:376-382) and clears the returned session id when the plugin
+ * cannot open the session (NdkMediaDrm.cpp:385-389); with no plugin there is no
+ * session to open, so the id is cleared and the documented
+ * AMEDIA_ERROR_UNSUPPORTED is returned rather than a bogus id.
+ */
+media_status_t AMediaDrm_openSession(AMediaDrm *drm, AMediaDrmSessionId *sessionId)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	if (!sessionId)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	sessionId->ptr = NULL;
+	sessionId->length = 0;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Close a session previously opened with AMediaDrm_openSession. AOSP validates
+ * the handle and the session id and then looks the session up, reporting
+ * AMEDIA_DRM_SESSION_NOT_OPENED for an id that is not open
+ * (NdkMediaDrm.cpp:398-409). No session can ever be open here, so that is the
+ * answer; the caller's id is not modified.
+ */
+media_status_t AMediaDrm_closeSession(AMediaDrm *drm, const AMediaDrmSessionId *sessionId)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	if (!sessionId)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_DRM_SESSION_NOT_OPENED;
+}
+
+/**
+ * Obtain an opaque key request for the license server. AOSP validates the handle
+ * and the required pointers (NdkMediaDrm.cpp:436-441) and looks the scope up
+ * before touching the plugin (NdkMediaDrm.cpp:443-446), so an unopened scope is
+ * AMEDIA_DRM_SESSION_NOT_OPENED; no scope can ever be open here. No key request
+ * data is produced: fabricating one would send the caller to a license server
+ * with a request the (absent) plugin never made.
+ */
+media_status_t AMediaDrm_getKeyRequestWithDefaultUrlAndType(
+    AMediaDrm *drm, const AMediaDrmScope *scope, const uint8_t *init, size_t initSize,
+    const char *mimeType, AMediaDrmKeyType keyType, const AMediaDrmKeyValue *optionalParameters,
+    size_t numOptionalParameters, const uint8_t **keyRequest, size_t *keyRequestSize,
+    const char **defaultUrl, AMediaDrmKeyRequestType *keyRequestType)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	if (!mimeType || !scope || !keyRequest || !keyRequestSize)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_DRM_SESSION_NOT_OPENED;
+}
+
+/**
+ * AOSP implements this as the API-33 variant with no default URL and no request
+ * type (NdkMediaDrm.cpp:416-425); the same argument checks and the same result
+ * apply.
+ */
+media_status_t AMediaDrm_getKeyRequest(
+    AMediaDrm *drm, const AMediaDrmScope *scope, const uint8_t *init, size_t initSize,
+    const char *mimeType, AMediaDrmKeyType keyType, const AMediaDrmKeyValue *optionalParameters,
+    size_t numOptionalParameters, const uint8_t **keyRequest, size_t *keyRequestSize)
+{
+	return AMediaDrm_getKeyRequestWithDefaultUrlAndType(
+	    drm, scope, init, initSize, mimeType, keyType, optionalParameters, numOptionalParameters,
+	    keyRequest, keyRequestSize, NULL, NULL);
+}
+
+/**
+ * Obtain a provisioning request for the device certificate. AOSP validates the
+ * handle and requires the caller to pass a non-zero buffer size in
+ * (NdkMediaDrm.cpp:617-624); with no plugin there is no request to fetch, so
+ * AMEDIA_ERROR_UNSUPPORTED is reported instead of an empty request the caller
+ * would post to a provisioning server.
+ */
+media_status_t AMediaDrm_getProvisionRequest(
+    AMediaDrm *drm, const uint8_t **provisionRequest, size_t *provisionRequestSize,
+    const char **serverUrl)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	if (!provisionRequest || !provisionRequestSize || !*provisionRequestSize || !serverUrl)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Deliver a key response to the plugin. AOSP validates the handle and the
+ * pointers (NdkMediaDrm.cpp:513-518) and looks the scope up before the plugin
+ * (NdkMediaDrm.cpp:521-523); no scope can be open here, so
+ * AMEDIA_DRM_SESSION_NOT_OPENED applies and no key set id is produced.
+ */
+media_status_t AMediaDrm_provideKeyResponse(
+    AMediaDrm *drm, const AMediaDrmScope *scope, const uint8_t *response, size_t responseSize,
+    AMediaDrmKeySetId *keySetId)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	if (!scope || !response || !responseSize || !keySetId)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_DRM_SESSION_NOT_OPENED;
+}
+
+/**
+ * Deliver a provisioning response to the plugin. AOSP validates the handle and
+ * the response (NdkMediaDrm.cpp:641-646) before calling the plugin; there is no
+ * plugin, so no device certificate can be installed and
+ * AMEDIA_ERROR_UNSUPPORTED is reported.
+ */
+media_status_t AMediaDrm_provideProvisionResponse(
+    AMediaDrm *drm, const uint8_t *response, size_t responseSize)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	if (!response || !responseSize)
+		return AMEDIA_ERROR_INVALID_PARAMETER;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Set a string property on the plugin. AOSP validates the handle and passes the
+ * property through (NdkMediaDrm.cpp:748-756); no plugin exists to store it, so
+ * AMEDIA_ERROR_UNSUPPORTED is reported instead of pretending the property was
+ * applied.
+ */
+media_status_t AMediaDrm_setPropertyString(
+    AMediaDrm *drm, const char *propertyName, const char *value)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
+
+/**
+ * Set a byte-array property on the plugin. AOSP validates the handle and passes
+ * the array through (NdkMediaDrm.cpp:759-770); no plugin exists to store it, so
+ * AMEDIA_ERROR_UNSUPPORTED is reported.
+ */
+media_status_t AMediaDrm_setPropertyByteArray(
+    AMediaDrm *drm, const char *propertyName, const uint8_t *value, size_t valueSize)
+{
+	if (!drm)
+		return AMEDIA_ERROR_INVALID_OBJECT;
+	return AMEDIA_ERROR_UNSUPPORTED;
+}
