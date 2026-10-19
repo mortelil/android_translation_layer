@@ -25,6 +25,7 @@ import android.app.Application;
 import android.app.ContextImpl;
 import android.app.Service;
 import android.content.ComponentName;
+import android.content.ContentProvider;
 import android.content.Intent;
 import android.content.pm.PackageParser;
 import android.os.ATLBinderConnection;
@@ -113,6 +114,16 @@ public class ChildHost {
 			throw new IllegalStateException("fault injection: crash-before-ready");
 
 		int parentPid = Integer.parseInt(System.getenv("ATL_SERVICE_PARENT_PID"));
+
+		// Manifest-only: register this process' provider records before READY, so a
+		// client that acquires an authority as soon as the process is up finds a
+		// record to wait on instead of "unknown authority" (AOSP creates the records
+		// in the system server before the process is spawned:
+		// ContentProviderHelper.java:430-470, pinned 94b4c163b7df). No application
+		// code runs here; the install still follows attach in main.c, in AOSP's order.
+		// Without this, the loader's ACQUIRE raced the child's boot, was answered
+		// "unavailable", and the loader dropped the host it had just started.
+		ContentProvider.atl_register_providers();
 
 		// Manifest scan: the first service (manifest order) resolved to this process.
 		ATLLoadedApp app = ATLLoadedApp.getPrimaryApplication();
@@ -260,8 +271,35 @@ public class ChildHost {
 		return new Binder() {
 			@Override
 			protected boolean onTransact(final int code, final Parcel data, final Parcel reply, int flags) {
-				if (code == ATLProviderBridge.ACQUIRE || code == ATLProviderBridge.CALL || code == ATLProviderBridge.QUERY)
-					return ATLProviderBridge.dispatch(app, process, code, data, reply);
+				if (code == ATLProviderBridge.ACQUIRE || code == ATLProviderBridge.CALL || code == ATLProviderBridge.QUERY) {
+					// A provider failure belongs to the caller, not to this process:
+					// AOSP's ContentProviderNative.onTransact
+					// (core/java/android/content/ContentProviderNative.java:441-444)
+					// catches Exception and answers with
+					// DatabaseUtils.writeExceptionToParcel(reply, e), so the caller's
+					// readException() raises the same exception. Letting it escape here
+					// reaches Thread's default handler and System.exit(10)s the whole
+					// process for one uninitialised provider (observed: ReVanced +
+					// microG's AccountContentProvider -> "Provider initialization failed").
+					try {
+						return ATLProviderBridge.dispatch(app, process, code, data, reply);
+					} catch (RuntimeException e) {
+						try {
+							reply.recycle();
+							reply.setDataSize(0);
+							reply.setDataPosition(0);
+							reply.writeException(e);
+						} catch (Exception writeFailure) {
+							// writeException only rethrows types it cannot parcel;
+							// return a generic exception instead of an empty success reply.
+							reply.recycle();
+							reply.setDataSize(0);
+							reply.setDataPosition(0);
+							reply.writeSerializable(new IllegalStateException("Provider operation failed: " + e.getClass().getName()));
+						}
+						return true;
+					}
+				}
 				// The loader's answer to a forwarded service op. Handled inline on the
 				// transport worker, never posted to the main looper: the loader may be
 				// waiting for this reply while the main looper is blocked in a

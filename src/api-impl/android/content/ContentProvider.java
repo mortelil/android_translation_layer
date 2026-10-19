@@ -10,14 +10,13 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import java.io.FileNotFoundException;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.function.Predicate;
 
 public abstract class ContentProvider {
 
-	static final HashMap<String, ATLProvider> atl_providers = new HashMap<>();
+	/* Read by every Binder worker and written by the provider-install thread at
+	 * boot; a plain HashMap would tear. AOSP keeps its provider map under the
+	 * ActivityManager lock (ContentProviderHelper.mProviderMap). */
+	static final java.util.concurrent.ConcurrentHashMap<String, ATLProvider> atl_providers = new java.util.concurrent.ConcurrentHashMap<>();
 
 	/**
 	 * Creates the content providers declared for this process. Called on
@@ -25,11 +24,47 @@ public abstract class ContentProvider {
 	 * in its boot sequence, before Application.onCreate.
 	 */
 	public static void createContentProviders() {
-		atl_providers.put(android.atl.ATLDocumentsProvider.AUTHORITY, new ATLProvider(new android.atl.ATLDocumentsProvider()));
-		atl_providers.put("media", new ATLProvider(new ATLMediaContentProvider()));
+		atl_register_providers();
+        ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
+        java.util.ArrayList<PackageParser.Provider> ordered = new java.util.ArrayList<>(primary.pkg.providers);
+        java.util.Collections.sort(ordered, new java.util.Comparator<PackageParser.Provider>() {
+            public int compare(PackageParser.Provider a, PackageParser.Provider b) {
+                return Integer.compare(b.info.initOrder, a.info.initOrder);
+            }
+        });
+        java.util.HashSet<ATLProvider> installed = new java.util.HashSet<>();
+        for (PackageParser.Provider declaration : ordered) {
+            if (declaration.info.authority == null) continue;
+            ATLProvider handle = atl_providers.get(declaration.info.authority.split(";")[0]);
+            if (handle != null && installed.add(handle)) handle.getContentProvider();
+        }
+	}
+
+	/**
+	 * Registers this process' declared provider records without running any
+	 * application code, so a client can always find a record to wait on.
+	 *
+	 * <p>AOSP creates the {@code ContentProviderRecord}s from the manifest in the
+	 * system server before the provider's process is even spawned, and a client
+	 * blocks on that record until {@code publishContentProviders} fills it in
+	 * ({@code ContentProviderHelper.java:630-711, 806-808}, pinned 94b4c163b7df).
+	 * ATL's records live in the provider process, so a child registers them before
+	 * it reports READY (see {@code android.atl.ChildHost.init}); the install -
+	 * constructor, {@code attachInfo}, {@code onCreate} - still happens after
+	 * attach, in the AOSP order.
+	 *
+	 * <p>Idempotent: an existing record (possibly already published) is never
+	 * replaced, so calling this before and inside
+	 * {@link #createContentProviders()} cannot drop a live provider's state.
+	 */
+	public static synchronized void atl_register_providers() {
+		atl_providers.putIfAbsent(android.atl.ATLDocumentsProvider.AUTHORITY, new ATLProvider(new android.atl.ATLDocumentsProvider()));
+		atl_providers.putIfAbsent("media", new ATLProvider(new ATLMediaContentProvider()));
 		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
 		for (PackageParser.Provider provider_parsed : primary.pkg.providers) {
-			String process_name = provider_parsed.info.processName;
+			if (!primary.pkg.applicationInfo.enabled || !provider_parsed.info.enabled
+                || provider_parsed.info.authority == null) continue;
+            String process_name = provider_parsed.info.processName;
 			if (process_name == null)
 				process_name = primary.pkg.applicationInfo.processName != null ? primary.pkg.applicationInfo.processName : primary.pkg.packageName;
 			/* Each process hosts only the providers whose android:process resolves
@@ -40,18 +75,10 @@ public abstract class ContentProvider {
 				System.out.println("not creating provider " + provider_parsed.className + ", it belongs to process " + process_name);
 				continue;
 			}
-			ATLProvider hosted = new ATLProvider(primary, provider_parsed);
+			ATLProvider hosted = new ATLProvider(primary, provider_parsed.info);
 			for (String authority : provider_parsed.info.authority.split(";"))
-				atl_providers.put(authority, hosted);
+				atl_providers.putIfAbsent(authority, hosted);
 		}
-		// getContentProvider() initializes the content providers,
-		// we also opportunistically remove the ones that failed to load
-		atl_providers.values().removeIf(new Predicate<ATLProvider>() {
-			@Override
-			public boolean test(ATLProvider atlProvider) {
-				return atlProvider.getContentProvider() == null;
-			}
-		});
 	}
 
 	/** The android:process name of the running process: ATL_SERVICE_PROCESS in a child, else the application's. */
@@ -61,6 +88,10 @@ public abstract class ContentProvider {
 			return child;
 		return primary.pkg.applicationInfo.processName != null ? primary.pkg.applicationInfo.processName : primary.pkg.packageName;
 	}
+
+    public static boolean atl_has_provider(String authority) {
+        return atl_providers.containsKey(authority);
+    }
 
 	public static ContentProvider atl_get_content_provider(String authority) {
 		ATLProvider atlProvider = atl_providers.get(authority);

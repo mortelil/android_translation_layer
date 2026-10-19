@@ -4,4 +4,13 @@
 <provider android:name="org.atl.providertest.Owner" android:authorities="org.atl.owner;org.atl.owner.alias" android:exported="true" />
 <provider android:name="org.atl.providertest.Owner" android:authorities="org.atl.private" android:exported="false" />
 <provider android:name="org.atl.providertest.Owner" android:authorities="org.atl.protected" android:exported="true" android:readPermission="org.atl.permission.TEST" />
+<provider android:name="org.atl.providertest.LatchOwner" android:authorities="org.atl.latch" android:exported="true" />
+<provider android:name="org.atl.providertest.CtorThrowsOwner" android:authorities="org.atl.latch.ctorthrow" android:exported="true" />
+<provider android:name="org.atl.providertest.AttachThrowsOwner" android:authorities="org.atl.latch.attachthrow" android:exported="true" />
+<provider android:name="org.atl.providertest.OnCreateThrowsOwner" android:authorities="org.atl.latch.oncreatethrow" android:exported="true" />
+<provider android:name="org.atl.providertest.FailTwiceOwner" android:authorities="org.atl.latch.failtwice" android:exported="true" />
+<provider android:name="org.atl.providertest.ReentrantOwner" android:authorities="org.atl.latch.reentrant" android:exported="true" />
+<provider android:name="org.atl.providertest.LowOwner" android:authorities="org.atl.order.low" android:initOrder="100" android:exported="true"/>
+<provider android:name="org.atl.providertest.HighOwner" android:authorities="org.atl.order.high" android:initOrder="900" android:exported="true"/>
+<provider android:name="org.atl.providertest.DisabledOwner" android:authorities="org.atl.order.disabled" android:initOrder="1000" android:enabled="false" android:exported="true"/>
 </application></manifest>
