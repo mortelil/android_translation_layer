@@ -68,12 +68,28 @@ public class Animation {
 	}
 
 	private AnimationListener listener;
+	private boolean started;
+	private boolean ended;
+	private boolean dispatchingCancel;
+	private long generation;
 
 	public void setDuration(long durationMillis) {}
 
 	public void setInterpolator(Interpolator i) {}
 
-	public void cancel() {}
+	public void cancel() {
+		if (dispatchingCancel) return;
+		long cancelledGeneration = ++generation;
+		if (started && !ended) {
+			dispatchingCancel = true;
+			try {
+				if (listener != null) listener.onAnimationEnd(this);
+			} finally {
+				dispatchingCancel = false;
+				if (generation == cancelledGeneration) ended = true;
+			}
+		}
+	}
 
 	public void setFillBefore(boolean dummy) {}
 	public void setFillAfter(boolean dummy) {}
@@ -95,22 +111,34 @@ public class Animation {
 	public void reset() {}
 
 	public void start() {
+		setStartTime(-1);
+		final long runGeneration = generation;
 		new Handler().post(new Runnable() {
 			@Override
 			public void run() {
+				if (generation != runGeneration) return;
 				initialize(0, 0, 0, 0);
+				if (generation != runGeneration) return;
+				started = true;
 				if (listener != null)
 					listener.onAnimationStart(Animation.this);
+				if (generation != runGeneration) return;
 				applyTransformation(1, new Transformation());
+				if (generation != runGeneration) return;
+				ended = true;
 				if (listener != null)
 					listener.onAnimationEnd(Animation.this);
 			}
 		});
 	}
 
-	public boolean hasStarted() {
-		return false;
-	}
+	public boolean hasStarted() { return started; }
+	public boolean hasEnded() { return ended; }
 
-	public void setStartTime(long startTime) {}
+	public void setStartTime(long startTime) {
+		// AOSP resets these flags on setStartTime, not reset(). ATL still uses
+		// the existing single posted transformation, rather than a frame clock.
+		generation++;
+		started = ended = false;
+	}
 }
