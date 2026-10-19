@@ -776,25 +776,74 @@ public class Parcel {
 		}
 	}
 
-	public void writeException(Exception e) throws Exception {
-		if (!(e instanceof BadParcelableException || e instanceof IllegalArgumentException || e instanceof IllegalStateException || e instanceof NullPointerException || e instanceof SecurityException || e instanceof UnsupportedOperationException))
-			throw e;
-		writeSerializable(e);
+	// AOSP Parcel exception-header semantics (android-17.0.0_r1).
+	// Original implementation. ATL's primitive/string encoding remains internal;
+	// this is not full native Android Parcel wire compatibility.
+	public void writeException(Exception e) {
+		int code;
+		if (e instanceof SecurityException) code = -1;
+		else if (e instanceof BadParcelableException) code = -2;
+		else if (e instanceof IllegalArgumentException) code = -3;
+		else if (e instanceof NullPointerException) code = -4;
+		else if (e instanceof IllegalStateException) code = -5;
+		else if (e instanceof NetworkOnMainThreadException) code = -6;
+		else if (e instanceof UnsupportedOperationException) code = -7;
+		else if (e instanceof ServiceSpecificException) code = -8;
+		else {
+			if (e instanceof RuntimeException) throw (RuntimeException)e;
+			throw new RuntimeException(e);
+		}
+		writeInt(code);
+		writeString(e.getMessage());
+		writeInt(0); // No remote stack-trace payload.
+		if (code == -8) writeInt(((ServiceSpecificException)e).errorCode);
 	}
 
-	public void writeNoException() {
-		writeSerializable(null);
+	public void writeNoException() { writeInt(0); }
+
+	public int readExceptionCode() {
+		int code = readInt();
+		if (code == -128) {
+			// Skip bounded StrictMode metadata; it is not an exception.
+			skipReplyHeader();
+			return 0;
+		}
+		if (code == -127) throw new ParcelFormatException("AppOps reply metadata is not supported");
+		return code;
+	}
+
+	private void skipReplyHeader() {
+		int start = dataPosition();
+		int length = readInt();
+		if (length < 4 || length > dataSize() - start)
+			throw new ParcelFormatException("Invalid reply header size");
+		setDataPosition(start + length);
 	}
 
 	public void readException() {
-		RuntimeException e;
-		try {
-			e = (RuntimeException)readSerializable();
-		} catch (ReflectiveOperationException exception) {
-			throw new RuntimeException(exception);
+		int code = readExceptionCode();
+		if (code != 0) readException(code, readString());
+	}
+
+	public void readException(int code, String message) {
+		int start = dataPosition();
+		int stackSize = readInt();
+		if (stackSize != 0) {
+			if (stackSize < 4 || stackSize > dataSize() - start)
+				throw new ParcelFormatException("Invalid remote stack size");
+			setDataPosition(start + stackSize);
 		}
-		if (e != null)
-			throw e;
+		switch (code) {
+		case -1: throw new SecurityException(message);
+		case -2: throw new BadParcelableException(message);
+		case -3: throw new IllegalArgumentException(message);
+		case -4: throw new NullPointerException(message);
+		case -5: throw new IllegalStateException(message);
+		case -6: throw new NetworkOnMainThreadException();
+		case -7: throw new UnsupportedOperationException(message);
+		case -8: throw new ServiceSpecificException(readInt(), message);
+		default: throw new RuntimeException("Unsupported remote exception code " + code + ": " + message);
+		}
 	}
 
 	public void writeFileDescriptor(FileDescriptor fd) {
