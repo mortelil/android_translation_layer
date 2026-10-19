@@ -1,3 +1,21 @@
+/*
+ * Portions Copyright (C) 2006 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * URI parsing adapted from frameworks/base at
+ * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d.
+ */
 package android.content;
 
 import android.content.pm.PackageManager;
@@ -10,6 +28,7 @@ import android.os.Parcelable;
 import android.util.AttributeSet;
 import com.android.internal.R;
 import java.io.Serializable;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Objects;
@@ -19,6 +38,28 @@ import org.xmlpull.v1.XmlPullParser;
 public class Intent implements Parcelable {
 	public static final int FLAG_ACTIVITY_CLEAR_TOP = 1 << 26;
 	public static final int FLAG_ACTIVITY_NEW_TASK = 1 << 28;
+
+	// URI scheme flags used by parseUri()/toUri(). Reference: AOSP
+	// Intent.URI_INTENT_SCHEME / URI_ANDROID_APP_SCHEME / URI_ALLOW_UNSAFE,
+	// frameworks/base core/java/android/content/Intent.java:8036,8107,8121
+	// (android-17.0.0_r1, 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).
+	public static final int URI_INTENT_SCHEME = 1 << 0;
+	public static final int URI_ANDROID_APP_SCHEME = 1 << 1;
+	public static final int URI_ALLOW_UNSAFE = 1 << 2;
+
+	// Grant flags are the components of IMMUTABLE_FLAGS which parseUri() strips
+	// unless URI_ALLOW_UNSAFE is given. Reference: AOSP Intent.java:7415,7424,
+	// 7470,7481,7937.
+	public static final int FLAG_GRANT_READ_URI_PERMISSION = 0x00000001;
+	public static final int FLAG_GRANT_WRITE_URI_PERMISSION = 0x00000002;
+	public static final int FLAG_GRANT_PERSISTABLE_URI_PERMISSION = 0x00000040;
+	public static final int FLAG_GRANT_PREFIX_URI_PERMISSION = 0x00000080;
+
+	/** Flags that can't be changed with PendingIntent. Reference: AOSP
+	 * Intent.IMMUTABLE_FLAGS, Intent.java:7937. */
+	public static final int IMMUTABLE_FLAGS = FLAG_GRANT_READ_URI_PERMISSION
+			| FLAG_GRANT_WRITE_URI_PERMISSION | FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+			| FLAG_GRANT_PREFIX_URI_PERMISSION;
 
 	public static final String ACTION_ACTIVITY_RECOGNIZER = "android.intent.action.ACTIVITY_RECOGNIZER";
 	public static final String ACTION_ADVANCED_SETTINGS_CHANGED = "android.intent.action.ADVANCED_SETTINGS";
@@ -491,6 +532,9 @@ public class Intent implements Parcelable {
 	private String type;
 	private String packageName;
 	private Intent selector;
+	private String identifier;
+	private int extendedFlags;
+	private Rect sourceBounds;
 	private final java.util.LinkedHashSet<String> categories = new java.util.LinkedHashSet<>();
 
 	/** ATL parcel encoding of the supported Intent fields. Reference: AOSP
@@ -506,8 +550,15 @@ public class Intent implements Parcelable {
 		out.writeStringArray(categories.toArray(new String[0]));
 		out.writeParcelable(selector, parcelFlags);
 		out.writeBundle(extras);
+		out.writeString(identifier);
+		out.writeInt(extendedFlags);
+		out.writeInt(sourceBounds == null ? 0 : 1);
+		if (sourceBounds != null) {
+			out.writeInt(sourceBounds.left); out.writeInt(sourceBounds.top);
+			out.writeInt(sourceBounds.right); out.writeInt(sourceBounds.bottom);
+		}
 	}
-	public static final Parcelable.ClassLoaderCreator<Intent> CREATOR = new Parcelable.ClassLoaderCreator<Intent>() {
+	public static final Parcelable.Creator<Intent> CREATOR = new Parcelable.ClassLoaderCreator<Intent>() {
 		public Intent createFromParcel(android.os.Parcel in) { return createFromParcel(in, null); }
 		public Intent createFromParcel(android.os.Parcel in, ClassLoader loader) {
 			Intent intent = new Intent(in.readString());
@@ -522,6 +573,10 @@ public class Intent implements Parcelable {
 			try { intent.extras = in.readBundle(loader); }
 			catch (ReflectiveOperationException e) { throw new android.os.BadParcelableException(e); }
 			if (intent.extras == null) intent.extras = new Bundle();
+			intent.identifier = in.readString();
+			intent.extendedFlags = in.readInt();
+			if (in.readInt() != 0)
+				intent.sourceBounds = new Rect(in.readInt(), in.readInt(), in.readInt(), in.readInt());
 			return intent;
 		}
 		public Intent[] newArray(int size) { return new Intent[size]; }
@@ -531,7 +586,15 @@ public class Intent implements Parcelable {
 	public Intent(Intent o) {
 		this.action = o.action;
 		this.data = o.data;
-		this.extras = o.extras;
+		this.extras = new Bundle(o.extras);
+		this.type = o.type;
+		this.packageName = o.packageName;
+		this.flags = o.flags;
+		this.extendedFlags = o.extendedFlags;
+		this.identifier = o.identifier;
+		this.categories.addAll(o.categories);
+		this.selector = o.selector == null ? null : new Intent(o.selector);
+		this.sourceBounds = o.sourceBounds == null ? null : new Rect(o.sourceBounds);
 		this.component = o.component;
 	}
 	public Intent(String action) {
@@ -564,6 +627,8 @@ public class Intent implements Parcelable {
 	}
 
 	public Intent setPackage(String packageName) {
+		if (packageName != null && selector != null)
+			throw new IllegalArgumentException("Cannot set package with selector");
 		this.packageName = packageName;
 		return this;
 	}
@@ -936,13 +1001,18 @@ public class Intent implements Parcelable {
 		return component;
 	}
 
-	public void setSourceBounds(Rect sourceBounds) {}
+	public void setSourceBounds(Rect sourceBounds) {
+		this.sourceBounds = sourceBounds == null ? null : new Rect(sourceBounds);
+	}
 
 	public Rect getSourceBounds() {
-		return null;
+		return sourceBounds;
 	}
 
 	public void setSelector(Intent selector) {
+		if (selector == this) throw new IllegalArgumentException("Intent cannot select itself");
+		if (selector != null && packageName != null)
+			throw new IllegalArgumentException("Cannot set selector with package");
 		this.selector = selector;
 	}
 
@@ -951,6 +1021,13 @@ public class Intent implements Parcelable {
 	public String resolveType(Context context) {
 		return type;
 	}
+
+	public String getIdentifier() { return identifier; }
+	public Intent setIdentifier(String identifier) {
+		this.identifier = identifier;
+		return this;
+	}
+	public int getExtendedFlags() { return extendedFlags; }
 
 	public Intent getSelector() {
 		return selector;
@@ -989,5 +1066,469 @@ public class Intent implements Parcelable {
 
 	public CharSequence getCharSequenceExtra(String name) {
 		return extras.getCharSequence(name);
+	}
+
+	/**
+	 * Call {@link #parseUri} with 0 flags.
+	 *
+	 * @deprecated Use {@link #parseUri} instead.
+	 */
+	@Deprecated
+	public static Intent getIntent(String uri) throws URISyntaxException {
+		return parseUri(uri, 0);
+	}
+
+	/**
+	 * Create an intent from a URI. This URI may encode the action, category,
+	 * and other intent fields, if it was returned by {@link #toUri}. If the
+	 * Intent was not generated by toUri(), its data will be the entire URI and
+	 * its action will be ACTION_VIEW.
+	 *
+	 * <p>The URI given here must not be relative -- that is, it must include
+	 * the scheme and full path.
+	 *
+	 * @param uri The URI to turn into an Intent.
+	 * @param flags Additional processing flags.
+	 *
+	 * @return Intent The newly created Intent object.
+	 *
+	 * @throws URISyntaxException Throws URISyntaxException if the basic URI
+	 * syntax is bad (as parsed by the Uri class) or the Intent data within the
+	 * URI is invalid.
+	 *
+	 * @see #toUri
+	 *
+	 * Reference: AOSP Intent.parseUri, frameworks/base
+	 * core/java/android/content/Intent.java:8453 (android-17.0.0_r1,
+	 * 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d).
+	 */
+	public static Intent parseUri(String uri, int flags) throws URISyntaxException {
+		// AOSP also records LOCAL_FLAG_FROM_URI on the returned Intent
+		// (Intent.java:8455); ATL's Intent does not model the local-flag bitset.
+		return parseUriInternal(uri, flags);
+	}
+
+	/**
+	 * Reference: AOSP Intent.parseUriInternal, Intent.java:8467. The http(s)
+	 * early-return below is the branch AppLinksUseCases.safeParseUri() takes
+	 * (Intent.java:8476-8488).
+	 */
+	private static Intent parseUriInternal(String uri, int flags) throws URISyntaxException {
+		int i = 0;
+		try {
+			final boolean androidApp = uri.startsWith("android-app:");
+
+			// Validate intent scheme if requested.
+			if ((flags & (URI_INTENT_SCHEME | URI_ANDROID_APP_SCHEME)) != 0) {
+				if (!uri.startsWith("intent:") && !androidApp) {
+					Intent intent = new Intent(ACTION_VIEW);
+					try {
+						intent.setData(Uri.parse(uri));
+					} catch (IllegalArgumentException e) {
+						throw new URISyntaxException(uri, e.getMessage());
+					}
+					return intent;
+				}
+			}
+
+			i = uri.lastIndexOf("#");
+			// simple case
+			if (i == -1) {
+				if (!androidApp) {
+					return new Intent(ACTION_VIEW, Uri.parse(uri));
+				}
+
+			// old format Intent URI
+			} else if (!uri.startsWith("#Intent;", i)) {
+				if (!androidApp) {
+					return getIntentOld(uri, flags);
+				} else {
+					i = -1;
+				}
+			}
+
+			// new format
+			Intent intent = new Intent(ACTION_VIEW);
+			Intent baseIntent = intent;
+			boolean explicitAction = false;
+			boolean inSelector = false;
+
+			// fetch data part, if present
+			String scheme = null;
+			String data;
+			if (i >= 0) {
+				data = uri.substring(0, i);
+				i += 8; // length of "#Intent;"
+			} else {
+				data = uri;
+			}
+
+			// loop over contents of Intent, all name=value;
+			while (i >= 0 && !uri.startsWith("end", i)) {
+				int eq = uri.indexOf('=', i);
+				if (eq < 0) eq = i - 1;
+				int semi = uri.indexOf(';', i);
+				if (semi < 0) {
+					throw new URISyntaxException(uri, "uri end not found");
+				}
+				String value = eq < semi ? Uri.decode(uri.substring(eq + 1, semi)) : "";
+
+				// action
+				if (uri.startsWith("action=", i)) {
+					intent.setAction(value);
+					if (!inSelector) {
+						explicitAction = true;
+					}
+				}
+
+				// categories
+				else if (uri.startsWith("category=", i)) {
+					intent.addCategory(value);
+				}
+
+				// type
+				else if (uri.startsWith("type=", i)) {
+					intent.type = value;
+				}
+
+				// identifier
+				else if (uri.startsWith("identifier=", i)) {
+					intent.identifier = value;
+				}
+
+				// launch flags
+				else if (uri.startsWith("launchFlags=", i)) {
+					intent.flags = decodeInteger(value);
+					if ((flags & URI_ALLOW_UNSAFE) == 0) {
+						intent.flags &= ~IMMUTABLE_FLAGS;
+					}
+				}
+
+				// extended flags
+				else if (uri.startsWith("extendedLaunchFlags=", i)) {
+					intent.extendedFlags = decodeInteger(value);
+				}
+
+				// package
+				else if (uri.startsWith("package=", i)) {
+					intent.packageName = value;
+				}
+
+				// component
+				else if (uri.startsWith("component=", i)) {
+					intent.component = ComponentName.unflattenFromString(value);
+				}
+
+				// scheme
+				else if (uri.startsWith("scheme=", i)) {
+					if (inSelector) {
+						intent.data = Uri.parse(value + ":");
+					} else {
+						scheme = value;
+					}
+				}
+
+				// source bounds
+				else if (uri.startsWith("sourceBounds=", i)) {
+					intent.setSourceBounds(Rect.unflattenFromString(value));
+				}
+
+				// selector
+				else if (semi == (i + 3) && uri.startsWith("SEL", i)) {
+					intent = new Intent();
+					inSelector = true;
+				}
+
+				// extra
+				else {
+					String key = Uri.decode(uri.substring(i + 2, eq));
+					Bundle b = intent.extras;
+					// add EXTRA
+					if      (uri.startsWith("S.", i)) b.putString(key, value);
+					else if (uri.startsWith("B.", i)) b.putBoolean(key, Boolean.parseBoolean(value));
+					else if (uri.startsWith("b.", i)) b.putByte(key, Byte.parseByte(value));
+					else if (uri.startsWith("c.", i)) b.putChar(key, value.charAt(0));
+					else if (uri.startsWith("d.", i)) b.putDouble(key, Double.parseDouble(value));
+					else if (uri.startsWith("f.", i)) b.putFloat(key, Float.parseFloat(value));
+					else if (uri.startsWith("i.", i)) b.putInt(key, Integer.parseInt(value));
+					else if (uri.startsWith("l.", i)) b.putLong(key, Long.parseLong(value));
+					else if (uri.startsWith("s.", i)) b.putShort(key, Short.parseShort(value));
+					else throw new URISyntaxException(uri, "unknown EXTRA type", i);
+				}
+
+				// move to the next item
+				i = semi + 1;
+			}
+
+			if (inSelector) {
+				// The Intent had a selector; fix it up.
+				if (baseIntent.packageName == null) {
+					baseIntent.setSelector(intent);
+				}
+				intent = baseIntent;
+			}
+
+			if (data != null) {
+				if (data.startsWith("intent:")) {
+					data = data.substring(7);
+					if (scheme != null) {
+						data = scheme + ':' + data;
+					}
+				} else if (data.startsWith("android-app:")) {
+					if (data.charAt(12) == '/' && data.charAt(13) == '/') {
+						// Correctly formed android-app, first part is package name.
+						int end = data.indexOf('/', 14);
+						if (end < 0) {
+							// All we have is a package name.
+							intent.packageName = decodeIfNeeded(data.substring(14));
+							if (!explicitAction) {
+								intent.setAction(ACTION_MAIN);
+							}
+							data = "";
+						} else {
+							// Target the Intent at the given package name always.
+							String authority = null;
+							intent.packageName = decodeIfNeeded(data.substring(14, end));
+							int newEnd;
+							if ((end + 1) < data.length()) {
+								if ((newEnd = data.indexOf('/', end + 1)) >= 0) {
+									// Found a scheme, remember it.
+									scheme = decodeIfNeeded(data.substring(end + 1, newEnd));
+									end = newEnd;
+									if (end < data.length() && (newEnd = data.indexOf('/', end + 1)) >= 0) {
+										// Found an authority, remember it.
+										authority = decodeIfNeeded(
+												data.substring(end + 1, newEnd));
+										end = newEnd;
+									}
+								} else {
+									// All we have is a scheme.
+									scheme = decodeIfNeeded(data.substring(end + 1));
+								}
+							}
+							if (scheme == null) {
+								// If there was no scheme, then this just targets the package.
+								if (!explicitAction) {
+									intent.setAction(ACTION_MAIN);
+								}
+								data = "";
+							} else if (authority == null) {
+								data = scheme + ":";
+							} else {
+								data = scheme + "://" + authority + data.substring(end);
+							}
+						}
+					} else {
+						data = "";
+					}
+				}
+
+				if (data.length() > 0) {
+					try {
+						intent.data = Uri.parse(data);
+					} catch (IllegalArgumentException e) {
+						throw new URISyntaxException(uri, e.getMessage());
+					}
+				}
+			}
+
+			return intent;
+
+		} catch (IndexOutOfBoundsException e) {
+			throw new URISyntaxException(uri, "illegal Intent URI format", i);
+		}
+	}
+
+	/**
+	 * Reference: AOSP Intent.getIntentOld, Intent.java:8695.
+	 */
+	private static Intent getIntentOld(String uri, int flags) throws URISyntaxException {
+		Intent intent;
+
+		int i = uri.lastIndexOf('#');
+		if (i >= 0) {
+			String action = null;
+			final int intentFragmentStart = i;
+			boolean isIntentFragment = false;
+
+			i++;
+
+			if (uri.regionMatches(i, "action(", 0, 7)) {
+				isIntentFragment = true;
+				i += 7;
+				int j = uri.indexOf(')', i);
+				action = uri.substring(i, j);
+				i = j + 1;
+			}
+
+			intent = new Intent(action);
+
+			if (uri.regionMatches(i, "categories(", 0, 11)) {
+				isIntentFragment = true;
+				i += 11;
+				int j = uri.indexOf(')', i);
+				while (i < j) {
+					int sep = uri.indexOf('!', i);
+					if (sep < 0 || sep > j) sep = j;
+					if (i < sep) {
+						intent.addCategory(uri.substring(i, sep));
+					}
+					i = sep + 1;
+				}
+				i = j + 1;
+			}
+
+			if (uri.regionMatches(i, "type(", 0, 5)) {
+				isIntentFragment = true;
+				i += 5;
+				int j = uri.indexOf(')', i);
+				intent.type = uri.substring(i, j);
+				i = j + 1;
+			}
+
+			if (uri.regionMatches(i, "launchFlags(", 0, 12)) {
+				isIntentFragment = true;
+				i += 12;
+				int j = uri.indexOf(')', i);
+				intent.flags = decodeInteger(uri.substring(i, j));
+				if ((flags & URI_ALLOW_UNSAFE) == 0) {
+					intent.flags &= ~IMMUTABLE_FLAGS;
+				}
+				i = j + 1;
+			}
+
+			if (uri.regionMatches(i, "component(", 0, 10)) {
+				isIntentFragment = true;
+				i += 10;
+				int j = uri.indexOf(')', i);
+				int sep = uri.indexOf('!', i);
+				if (sep >= 0 && sep < j) {
+					String pkg = uri.substring(i, sep);
+					String cls = uri.substring(sep + 1, j);
+					intent.component = new ComponentName(pkg, cls);
+				}
+				i = j + 1;
+			}
+
+			if (uri.regionMatches(i, "extras(", 0, 7)) {
+				isIntentFragment = true;
+				i += 7;
+
+				final int closeParen = uri.indexOf(')', i);
+				if (closeParen == -1) throw new URISyntaxException(uri,
+						"EXTRA missing trailing ')'", i);
+
+				while (i < closeParen) {
+					// fetch the key value
+					int j = uri.indexOf('=', i);
+					if (j <= i + 1 || i >= closeParen) {
+						throw new URISyntaxException(uri, "EXTRA missing '='", i);
+					}
+					char type = uri.charAt(i);
+					i++;
+					String key = uri.substring(i, j);
+					i = j + 1;
+
+					// get type-value
+					j = uri.indexOf('!', i);
+					if (j == -1 || j >= closeParen) j = closeParen;
+					if (i >= j) throw new URISyntaxException(uri, "EXTRA missing '!'", i);
+					String value = uri.substring(i, j);
+					i = j;
+
+					// create Bundle if it doesn't already exist
+					Bundle b = intent.extras;
+
+					// add item to bundle
+					try {
+						switch (type) {
+							case 'S':
+								b.putString(key, Uri.decode(value));
+								break;
+							case 'B':
+								b.putBoolean(key, Boolean.parseBoolean(value));
+								break;
+							case 'b':
+								b.putByte(key, Byte.parseByte(value));
+								break;
+							case 'c':
+								b.putChar(key, Uri.decode(value).charAt(0));
+								break;
+							case 'd':
+								b.putDouble(key, Double.parseDouble(value));
+								break;
+							case 'f':
+								b.putFloat(key, Float.parseFloat(value));
+								break;
+							case 'i':
+								b.putInt(key, Integer.parseInt(value));
+								break;
+							case 'l':
+								b.putLong(key, Long.parseLong(value));
+								break;
+							case 's':
+								b.putShort(key, Short.parseShort(value));
+								break;
+							default:
+								throw new URISyntaxException(uri, "EXTRA has unknown type", i);
+						}
+					} catch (NumberFormatException e) {
+						throw new URISyntaxException(uri, "EXTRA value can't be parsed", i);
+					}
+
+					char ch = uri.charAt(i);
+					if (ch == ')') break;
+					if (ch != '!') throw new URISyntaxException(uri, "EXTRA missing '!'", i);
+					i++;
+				}
+			}
+
+			if (isIntentFragment) {
+				intent.data = Uri.parse(uri.substring(0, intentFragmentStart));
+			} else {
+				intent.data = Uri.parse(uri);
+			}
+
+			if (intent.action == null) {
+				// By default, if no action is specified, then use VIEW.
+				intent.action = ACTION_VIEW;
+			}
+
+		} else {
+			intent = new Intent(ACTION_VIEW, Uri.parse(uri));
+		}
+
+		return intent;
+	}
+
+	/**
+	 * Reference: AOSP Intent.decodeInteger, Intent.java:8856.
+	 */
+	private static Integer decodeInteger(String value) {
+		try {
+			return Integer.decode(value);
+		} catch (NumberFormatException e) {
+			try {
+				if (value != null && value.startsWith("0x")) {
+					// In toUriInner, we do "0x".append(Integer.toHexString).
+					// Sometimes "decode" fails to parse, e.g. 0x90000000.
+					return Integer.parseUnsignedInt(value.substring(2), 16);
+				}
+			} catch (NumberFormatException ignored) {
+				// ignored, throw the original exception
+			}
+			throw e;
+		}
+	}
+
+	/**
+	 * Reference: AOSP Uri.decodeIfNeeded, frameworks/base
+	 * core/java/android/net/Uri.java (partial tree; SDK sources
+	 * android-37.0 android/net/Uri.java:2037).
+	 */
+	private static String decodeIfNeeded(String value) {
+		if (value == null) return null;
+		if (value.contains("%")) return Uri.decode(value);
+		return value;
 	}
 }
