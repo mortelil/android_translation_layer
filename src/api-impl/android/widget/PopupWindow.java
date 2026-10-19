@@ -15,6 +15,8 @@ public class PopupWindow {
 	private boolean attachedInDecorSet;
 	private boolean overlapAnchor;
 	private int dropDownGravity = Gravity.START;
+	private int requestedWidth;
+	private int requestedHeight;
 
 	public PopupWindow(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
 		popover = native_constructor();
@@ -27,6 +29,11 @@ public class PopupWindow {
 
 	public PopupWindow() {
 		popover = native_constructor();
+	}
+
+	// Matches AOSP android-15.0.0_r1 PopupWindow(View): zero size, no focus.
+	public PopupWindow(View contentView) {
+		this(contentView, 0, 0, false);
 	}
 
 	public PopupWindow(View contentView, int width, int height, boolean focusable) {
@@ -185,6 +192,7 @@ public class PopupWindow {
 
 	/* TODO: handle LayoutParams.WRAP_CONTENT and LayoutParams.MATCH_PARENT */
 	public void setWidth(int width) {
+		requestedWidth = width;
 		if (width < 0)
 			return;
 
@@ -192,6 +200,7 @@ public class PopupWindow {
 	}
 
 	public void setHeight(int height) {
+		requestedHeight = height;
 		if (height < 0)
 			return;
 
@@ -199,11 +208,11 @@ public class PopupWindow {
 	}
 
 	public int getWidth() {
-		return native_getWidth(popover);
+		return requestedWidth;
 	}
 
 	public int getHeight() {
-		return native_getHeight(popover);
+		return requestedHeight;
 	}
 
 	public void update(int x, int y, int width, int height) {}
