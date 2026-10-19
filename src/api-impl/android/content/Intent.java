@@ -953,7 +953,7 @@ public class Intent implements Parcelable {
 	}
 
 	public String resolveTypeIfNeeded(ContentResolver resolver) {
-		return type;
+		return component != null ? type : resolveType(resolver);
 	}
 
 	public Set<String> getCategories() {
@@ -1022,7 +1022,12 @@ public class Intent implements Parcelable {
 	public void setClipData(ClipData clip) {}
 
 	public String resolveType(Context context) {
-		return type;
+		return resolveType(context.getContentResolver());
+	}
+
+	public String resolveType(ContentResolver resolver) {
+		if (type != null) return type;
+		return data != null && "content".equals(data.getScheme()) ? resolver.getType(data) : null;
 	}
 
 	public String getIdentifier() { return identifier; }
