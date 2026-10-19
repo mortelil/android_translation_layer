@@ -105,12 +105,15 @@ public final class PendingIntent implements Parcelable {
                                         Bundle options) {
         if (options != null && !options.isEmpty())
             throw new UnsupportedOperationException("PendingIntent launch options");
-        if ((flags & FLAG_IMMUTABLE) != 0 && (flags & FLAG_MUTABLE) != 0)
+        // ATL can emulate an older OS even for an APK targeting a newer SDK.
+        // Apply compatibility restrictions only once that OS introduced them.
+        if (Build.VERSION.SDK_INT >= 31 && (flags & FLAG_IMMUTABLE) != 0 && (flags & FLAG_MUTABLE) != 0)
             throw new IllegalArgumentException("Conflicting mutability flags");
-        if (context.getApplicationInfo().targetSdkVersion >= 31 &&
+        if (Build.VERSION.SDK_INT >= 31 && context.getApplicationInfo().targetSdkVersion >= 31 &&
             (flags & (FLAG_IMMUTABLE | FLAG_MUTABLE)) == 0)
             throw new IllegalArgumentException("PendingIntent mutability must be explicit");
-        if ((flags & FLAG_MUTABLE) != 0 && context.getApplicationInfo().targetSdkVersion >= 34 &&
+        if (Build.VERSION.SDK_INT >= 34 && (flags & FLAG_MUTABLE) != 0 &&
+            context.getApplicationInfo().targetSdkVersion >= 34 &&
             intent.getComponent() == null && intent.getPackage() == null &&
             (flags & FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT) == 0 && (flags & FLAG_NO_CREATE) == 0)
             throw new IllegalArgumentException("Mutable implicit PendingIntent");
