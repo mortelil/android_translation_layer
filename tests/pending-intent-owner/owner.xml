@@ -1,0 +1,1 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.atl.pendingowner"><uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28"/><application><service android:name=".Owner" android:process=":creator" android:exported="true"/></application></manifest>

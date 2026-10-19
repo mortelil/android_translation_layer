@@ -14,7 +14,7 @@ public class NotificationManager {
 
 	private static int mpris_notification_id = -1;
 
-	public void cancelAll() {}
+	public void cancelAll() { nativeCancelAll(); }
 
 	public void notify(String tag, int id, Notification notification) {
 		if (notification.style instanceof MediaStyle) { // MPRIS content is handled by MediaSession implementation
@@ -28,23 +28,10 @@ public class NotificationManager {
 
 		System.out.println("notify(" + tag + ", " + id + ", " + notification + ") called");
 		long builder = nativeInitBuilder();
-		for (Notification.Action action : notification.actions) {
-			int intentType = -1;
-			Intent intent = null;
-			if (action.intent != null) {
-				intentType = action.intent.type;
-				intent = action.intent.intent;
-			}
-			nativeAddAction(builder, action.title, intentType, intent);
-		}
-		int intentType = -1;
-		Intent intent = null;
-		if (notification.intent != null) {
-			intentType = notification.intent.type;
-			intent = notification.intent.intent;
-		}
+		for (Notification.Action action : notification.actions)
+			nativeAddAction(builder, action.title, action.intent);
 		String iconPath = notification.iconPath == null || notification.iconPath.endsWith(".xml") ? null : notification.iconPath;
-		nativeShowNotification(builder, id, notification.title, notification.text, iconPath, notification.ongoing, intentType, intent);
+		nativeShowNotification(builder, id, notification.title, notification.text, iconPath, notification.ongoing, notification.intent);
 	}
 
 	public void notify(int id, Notification notification) {
@@ -74,10 +61,11 @@ public class NotificationManager {
 	public void createNotificationChannel(NotificationChannel channel) {}
 
 	protected native long nativeInitBuilder();
-	protected native void nativeAddAction(long builder, String title, int intentType, Intent intent);
-	protected native void nativeShowNotification(long builder, int id, String title, String text, String iconPath, boolean ongoing, int intentType, Intent intent);
+	protected native void nativeAddAction(long builder, String title, PendingIntent intent);
+	protected native void nativeShowNotification(long builder, int id, String title, String text, String iconPath, boolean ongoing, PendingIntent intent);
 	protected native void nativeShowMPRIS(String packageName, String identiy);
 	protected native void nativeCancel(int id);
+	protected native void nativeCancelAll();
 	protected native void nativeCancelMPRIS();
 
 	public void createNotificationChannelGroup(NotificationChannelGroup v) {}

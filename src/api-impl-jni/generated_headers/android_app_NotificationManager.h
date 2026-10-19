@@ -18,18 +18,18 @@ JNIEXPORT jlong JNICALL Java_android_app_NotificationManager_nativeInitBuilder
 /*
  * Class:     android_app_NotificationManager
  * Method:    nativeAddAction
- * Signature: (JLjava/lang/String;ILandroid/content/Intent;)V
+ * Signature: (JLjava/lang/String;Landroid/app/PendingIntent;)V
  */
 JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeAddAction
-  (JNIEnv *, jobject, jlong, jstring, jint, jobject);
+  (JNIEnv *, jobject, jlong, jstring, jobject);
 
 /*
  * Class:     android_app_NotificationManager
  * Method:    nativeShowNotification
- * Signature: (JILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZILandroid/content/Intent;)V
+ * Signature: (JILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLandroid/app/PendingIntent;)V
  */
 JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeShowNotification
-  (JNIEnv *, jobject, jlong, jint, jstring, jstring, jstring, jboolean, jint, jobject);
+  (JNIEnv *, jobject, jlong, jint, jstring, jstring, jstring, jboolean, jobject);
 
 /*
  * Class:     android_app_NotificationManager
@@ -46,6 +46,14 @@ JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeShowMPRIS
  */
 JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeCancel
   (JNIEnv *, jobject, jint);
+
+/*
+ * Class:     android_app_NotificationManager
+ * Method:    nativeCancelAll
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_android_app_NotificationManager_nativeCancelAll
+  (JNIEnv *, jobject);
 
 /*
  * Class:     android_app_NotificationManager
