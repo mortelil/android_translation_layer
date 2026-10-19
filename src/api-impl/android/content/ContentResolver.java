@@ -179,9 +179,55 @@ public class ContentResolver {
 		return acquireContentProviderClient(uri.getAuthority());
 	}
 
+	/**
+	 * Call a provider-defined method.
+	 *
+	 * AOSP {@code android/content/ContentResolver.java:2523-2528} (SDK sources
+	 * android-37.0): both arguments are required, and the Uri form delegates to
+	 * the authority form.
+	 */
+	public final Bundle call(Uri uri, String method, String arg, Bundle extras) {
+		if (uri == null)
+			throw new NullPointerException("uri");
+		if (method == null)
+			throw new NullPointerException("method");
+		return call(uri.getAuthority(), method, arg, extras);
+	}
+
+	/**
+	 * Call a provider-defined method.
+	 *
+	 * AOSP {@code android/content/ContentResolver.java:2531-2561}: resolve the
+	 * provider for the authority (IllegalArgumentException "Unknown authority
+	 * ..." when there is none), invoke
+	 * {@code IContentProvider.call(...)}, and return null when the call itself
+	 * fails with a RemoteException. ATL hosts providers in-process or through
+	 * ATLProviderBridge, and {@link ContentProviderClient#call} is the same
+	 * boundary AOSP's IContentProvider.call is, so the failure values match.
+	 */
+	public final Bundle call(String authority, String method, String arg, Bundle extras) {
+		if (authority == null)
+			throw new NullPointerException("authority");
+		if (method == null)
+			throw new NullPointerException("method");
+		ContentProviderClient client = acquireContentProviderClient(authority);
+		if (client == null)
+			throw new IllegalArgumentException("Unknown authority " + authority);
+		try {
+			return client.call(method, arg, extras);
+		} catch (android.os.RemoteException e) {
+			return null;
+		} finally {
+			client.release();
+		}
+	}
+
 	public final ContentProviderClient acquireContentProviderClient(String name) {
 		ContentProvider provider = ContentProvider.atl_get_content_provider(name);
 		if (provider != null) return new ContentProviderClient(provider);
+        // A local record may be initializing or failed. Do not spawn a duplicate
+        // process when a local waiter times out or onCreate resolves itself.
+        if (ContentProvider.atl_has_provider(name)) return null;
 		android.atl.ATLProviderBridge.Endpoint remote = android.atl.ATLProviderBridge.acquire(name);
 		return remote == null ? null : new ContentProviderClient(remote);
 	}
