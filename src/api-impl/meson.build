@@ -776,6 +776,7 @@ srcs = [
 	'android/webkit/WebStorage.java',
 	'android/webkit/WebView.java',
 	'android/webkit/WebViewClient.java',
+	'android/webkit/WebViewDatabase.java',
 	'android/widget/AbsListView.java',
 	'android/widget/AbsoluteLayout.java',
 	'android/widget/AbsSeekBar.java',
