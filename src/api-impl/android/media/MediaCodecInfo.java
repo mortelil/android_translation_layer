@@ -184,9 +184,38 @@ public class MediaCodecInfo {
 
 	public static class VideoCapabilities {
 
+        // Conservative advertised envelope for ATL's FFmpeg video path, not a
+        // claim about hardware throughput or the decoder's absolute maximum.
+        // Keep the coupled pixel budget when querying one dimension at a time.
+        private static final int MAX_DIMENSION = 4096;
+        private static final int MAX_PIXELS = 4096 * 2160;
+        private static final Range<Integer> DIMENSIONS = new Range<>(1, MAX_DIMENSION);
+        private static final Range<Integer> FRAME_RATES = new Range<>(0, 60);
+
+        public Range<Integer> getSupportedWidths() { return DIMENSIONS; }
+        public Range<Integer> getSupportedHeights() { return DIMENSIONS; }
+        public Range<Integer> getSupportedFrameRates() { return FRAME_RATES; }
+
+        public Range<Integer> getSupportedWidthsFor(int height) {
+            if (!DIMENSIONS.contains(height)) throw new IllegalArgumentException("unsupported height");
+            return new Range<>(1, Math.min(MAX_DIMENSION, MAX_PIXELS / height));
+        }
+        public Range<Integer> getSupportedHeightsFor(int width) {
+            if (!DIMENSIONS.contains(width)) throw new IllegalArgumentException("unsupported width");
+            return new Range<>(1, Math.min(MAX_DIMENSION, MAX_PIXELS / width));
+        }
+        public boolean isSizeSupported(int width, int height) {
+            return DIMENSIONS.contains(width) && DIMENSIONS.contains(height)
+                    && (long)width * height <= MAX_PIXELS;
+        }
+        public Range<Double> getSupportedFrameRatesFor(int width, int height) {
+            if (!isSizeSupported(width, height)) throw new IllegalArgumentException("unsupported size");
+            return new Range<>(0.0, 60.0);
+        }
+
 		public Range<Double> getAchievableFrameRatesFor(int width, int height) {
-			if (width <= 0 || height <= 0)
-				throw new IllegalArgumentException("width and height must be positive");
+			if (!isSizeSupported(width, height))
+				throw new IllegalArgumentException("unsupported size");
 			// FFmpeg does not provide device-specific frame-rate measurements.
 			// The Android API uses null to represent unavailable measurements.
 			return null;
@@ -201,7 +230,7 @@ public class MediaCodecInfo {
 		}
 
 		public boolean areSizeAndRateSupported(int width, int height, double frameRate) {
-			return width > 0 && height > 0 && frameRate > 0;
+			return isSizeSupported(width, height) && frameRate >= 0 && frameRate <= 60;
 		}
 	}
 
