@@ -305,19 +305,23 @@ public final class ATLLoadedApp {
 	}
 
 	public void receiveBroadcast(Context context, Intent intent) {
+		if (pkg.receivers == null || !pkg.applicationInfo.enabled) return;
+		ComponentName component = intent.getComponent();
+		String target = component == null ? intent.getPackage() : component.getPackageName();
+		if (target != null && !target.equals(pkg.packageName)) return;
+		String type = intent.resolveTypeIfNeeded(context.getContentResolver());
 		for (PackageParser.Activity receiver : pkg.receivers) {
-			if (receiver.intents == null)
-				continue;
-			for (PackageParser.IntentInfo intentInfo : receiver.intents) {
-				if (intentInfo.matchAction(intent.getAction())) {
-					try {
-						Class<? extends BroadcastReceiver> cls = this.loadClass(receiver.className).asSubclass(BroadcastReceiver.class);
-						BroadcastReceiver receiverInstance = cls.newInstance();
-						receiverInstance.onReceive(context, intent);
-					} catch (ReflectiveOperationException e) {
-						Slog.e(TAG, "startService: failed to receive broadcast " + receiver.className, e);
-					}
-				}
+			if (receiver == null || !receiver.info.enabled) continue;
+			boolean matches = component != null && component.equals(receiver.getComponentName());
+			if (component == null && receiver.intents != null) for (PackageParser.IntentInfo filter : receiver.intents) {
+				if (filter.match(intent.getAction(), type, intent.getScheme(), intent.getData(), intent.getCategories(), TAG) >= 0) { matches = true; break; }
+			}
+			if (!matches) continue;
+			try {
+				Class<? extends BroadcastReceiver> cls = loadClass(receiver.className).asSubclass(BroadcastReceiver.class);
+				cls.newInstance().onReceive(getApplication(), new Intent(intent));
+			} catch (ReflectiveOperationException e) {
+				Slog.e(TAG, "Failed to receive broadcast " + receiver.className, e);
 			}
 		}
 	}

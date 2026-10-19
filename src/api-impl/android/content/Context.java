@@ -110,7 +110,15 @@ public abstract class Context {
 	File cache_dir = null;
 	File nobackup_dir = null;
 
-	private static Map<IntentFilter, BroadcastReceiver> receiverMap = new ConcurrentHashMap<>();
+	private static final class ReceiverRegistration {
+		final Context context;
+		final BroadcastReceiver receiver;
+		final IntentFilter filter;
+		ReceiverRegistration(Context c, BroadcastReceiver r, IntentFilter f) {
+			context = c; receiver = r; filter = new IntentFilter(f);
+		}
+	}
+	private static final java.util.List<ReceiverRegistration> receiverRegistrations = new java.util.ArrayList<>();
 
 	static {
 		sys_config = new Configuration();
@@ -194,8 +202,11 @@ public abstract class Context {
 	public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
 		if (receiver == null)
 			return null;
-		receiverMap.put(filter, receiver);
-		return new Intent();
+		java.util.Objects.requireNonNull(filter, "filter");
+		synchronized (receiverRegistrations) {
+			receiverRegistrations.add(new ReceiverRegistration(this, receiver, filter));
+		}
+		return null; // No sticky broadcast store.
 	}
 
 	public Looper getMainLooper() {
@@ -564,10 +575,16 @@ public abstract class Context {
 		if ("org.unifiedpush.android.distributor.REGISTER".equals(intent.getAction())) {
 			nativeRegisterUnifiedPush(intent.getStringExtra("token"), intent.getStringExtra("application"));
 		}
-		for (IntentFilter filter : receiverMap.keySet()) {
-			if (filter.matchAction(intent.getAction())) {
-				receiverMap.get(filter).onReceive(this, intent);
-			}
+		String type = intent.resolveTypeIfNeeded(getContentResolver());
+		java.util.List<ReceiverRegistration> snapshot;
+		synchronized (receiverRegistrations) { snapshot = new java.util.ArrayList<>(receiverRegistrations); }
+		java.util.Set<BroadcastReceiver> delivered = java.util.Collections.newSetFromMap(
+			new java.util.IdentityHashMap<BroadcastReceiver, Boolean>());
+		if (intent.getComponent() == null) for (ReceiverRegistration registration : snapshot) {
+			if (intent.getPackage() != null && !intent.getPackage().equals(registration.context.getPackageName())) continue;
+			if (registration.filter.match(intent.getAction(), type, intent.getScheme(), intent.getData(), intent.getCategories(), TAG) < 0) continue;
+			synchronized (receiverRegistrations) { if (!receiverRegistrations.contains(registration)) continue; }
+			if (delivered.add(registration.receiver)) registration.receiver.onReceive(registration.context, new Intent(intent));
 		}
 		ATLLoadedApp.getPrimaryApplication().receiveBroadcast(this, intent);
 	}
@@ -581,8 +598,10 @@ public abstract class Context {
 	public void unbindService(ServiceConnection serviceConnection) {}
 
 	public void unregisterReceiver(BroadcastReceiver receiver) {
-		while (receiverMap.values().remove(receiver))
-			;
+		synchronized (receiverRegistrations) {
+			java.util.Iterator<ReceiverRegistration> iterator = receiverRegistrations.iterator();
+			while (iterator.hasNext()) if (iterator.next().receiver == receiver) iterator.remove();
+		}
 	}
 
 	public static final int CONTEXT_INCLUDE_CODE = 0x00000001;
