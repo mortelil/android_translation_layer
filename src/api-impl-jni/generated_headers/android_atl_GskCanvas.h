@@ -36,18 +36,18 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawBitmap__JJIIIIIIII
 /*
  * Class:     android_atl_GskCanvas
  * Method:    native_drawRect
- * Signature: (JFFFFJLandroid/graphics/Shader;Z)V
+ * Signature: (JFFFFJLandroid/graphics/Shader;ZZ)V
  */
 JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect
-  (JNIEnv *, jobject, jlong, jfloat, jfloat, jfloat, jfloat, jlong, jobject, jboolean);
+  (JNIEnv *, jobject, jlong, jfloat, jfloat, jfloat, jfloat, jlong, jobject, jboolean, jboolean);
 
 /*
  * Class:     android_atl_GskCanvas
  * Method:    native_drawPath
- * Signature: (JJJ)V
+ * Signature: (JJJLandroid/graphics/Shader;Z)V
  */
 JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawPath
-  (JNIEnv *, jobject, jlong, jlong, jlong);
+  (JNIEnv *, jobject, jlong, jlong, jlong, jobject, jboolean);
 
 /*
  * Class:     android_atl_GskCanvas
@@ -108,10 +108,10 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawText
 /*
  * Class:     android_atl_GskCanvas
  * Method:    native_drawRoundRect
- * Signature: (JFFFFFFJ)V
+ * Signature: (JFFFFFFJLandroid/graphics/Shader;Z)V
  */
 JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRoundRect
-  (JNIEnv *, jobject, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jlong);
+  (JNIEnv *, jobject, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jlong, jobject, jboolean);
 
 /*
  * Class:     android_atl_GskCanvas

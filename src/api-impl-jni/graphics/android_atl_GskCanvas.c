@@ -67,9 +67,96 @@ static gboolean atl_linear_gradient_init(JNIEnv *env)
 	return linear_gradient_class != NULL && linear_gradient_colors != NULL;
 }
 
-/* Returns FALSE if the paint carries no shader GSK can express. */
-static gboolean atl_snapshot_append_shader(JNIEnv *env, GtkSnapshot *snapshot, jobject shader, gboolean repeating, const GdkRGBA *paint_color, const graphene_rect_t *bounds)
+/* Cairo provides PAD/REPEAT/REFLECT with affine sampling. Retaining the
+ * surface in the Cairo node owns its pixels until GSK has finished drawing. */
+static gboolean atl_snapshot_bitmap_shader(JNIEnv *env, GtkSnapshot *snapshot,
+        jobject shader, gboolean filter, const GdkRGBA *color, const graphene_rect_t *bounds)
 {
+    jclass cls = (*env)->FindClass(env, "android/graphics/BitmapShader");
+    if (cls == NULL) return FALSE;
+    if (!(*env)->IsInstanceOf(env, shader, cls)) {
+        (*env)->DeleteLocalRef(env, cls);
+        return FALSE;
+    }
+    jmethodID texture_method = (*env)->GetMethodID(env, cls, "texture", "()J");
+    jmethodID matrix_method = (*env)->GetMethodID(env, cls, "matrixValues", "()[F");
+    jmethodID tile_method = (*env)->GetMethodID(env, cls, "tileMode", "()I");
+    (*env)->DeleteLocalRef(env, cls);
+    if (!texture_method || !matrix_method || !tile_method) return TRUE;
+    jint mode = (*env)->CallIntMethod(env, shader, tile_method);
+    if ((*env)->ExceptionCheck(env)) return TRUE;
+    jfloatArray values = (*env)->CallObjectMethod(env, shader, matrix_method);
+    if ((*env)->ExceptionCheck(env) || !values) return TRUE;
+    jfloat m[9];
+    (*env)->GetFloatArrayRegion(env, values, 0, 9, m);
+    (*env)->DeleteLocalRef(env, values);
+    if ((*env)->ExceptionCheck(env)) return TRUE;
+    if (mode < 0 || m[6] != 0 || m[7] != 0 || m[8] != 1) {
+        g_warning("BitmapShader: mixed tile modes and perspective are not yet supported");
+        return TRUE;
+    }
+    for (int i = 0; i < 9; i++) if (!isfinite(m[i])) return TRUE;
+    cairo_matrix_t matrix;
+    cairo_matrix_init(&matrix, m[0], m[3], m[1], m[4], m[2], m[5]);
+    if (cairo_matrix_invert(&matrix) != CAIRO_STATUS_SUCCESS) return TRUE;
+    jlong ptr = (*env)->CallLongMethod(env, shader, texture_method);
+    if ((*env)->ExceptionCheck(env) || !ptr) return TRUE;
+    GdkTexture *texture = GDK_TEXTURE(_PTR(ptr));
+    int width = gdk_texture_get_width(texture), height = gdk_texture_get_height(texture);
+    /* Most image drawables sample entirely inside the bitmap. Keep that path
+     * on the GPU instead of downloading the image for every animation frame. */
+#if GTK_CHECK_VERSION(4, 20, 0)
+    gboolean inside = TRUE;
+    for (int corner = 0; corner < 4; corner++) {
+        double x = bounds->origin.x + ((corner & 1) ? bounds->size.width : 0);
+        double y = bounds->origin.y + ((corner & 2) ? bounds->size.height : 0);
+        cairo_matrix_transform_point(&matrix, &x, &y);
+        if (x < 0 || y < 0 || x > width || y > height) inside = FALSE;
+    }
+    if (inside) {
+        gtk_snapshot_push_clip(snapshot, bounds);
+        gtk_snapshot_push_opacity(snapshot, color->alpha);
+        gtk_snapshot_save(snapshot);
+        GskTransform *transform = gsk_transform_matrix_2d(NULL,
+                m[0], m[3], m[1], m[4], m[2], m[5]);
+        gtk_snapshot_transform(snapshot, transform);
+        gsk_transform_unref(transform);
+        gtk_snapshot_append_scaled_texture(snapshot, texture,
+                filter ? GSK_SCALING_FILTER_LINEAR : GSK_SCALING_FILTER_NEAREST,
+                &GRAPHENE_RECT_INIT(0, 0, width, height));
+        gtk_snapshot_restore(snapshot);
+        gtk_snapshot_pop(snapshot);
+        gtk_snapshot_pop(snapshot);
+        return TRUE;
+    }
+#endif
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(surface);
+        return TRUE;
+    }
+    gdk_texture_download(texture, cairo_image_surface_get_data(surface),
+                         cairo_image_surface_get_stride(surface));
+    cairo_surface_mark_dirty(surface);
+    cairo_pattern_t *pattern = cairo_pattern_create_for_surface(surface);
+    cairo_surface_destroy(surface);
+    cairo_pattern_set_matrix(pattern, &matrix);
+    cairo_pattern_set_extend(pattern, mode == 0 ? CAIRO_EXTEND_PAD :
+                                     mode == 1 ? CAIRO_EXTEND_REFLECT : CAIRO_EXTEND_REPEAT);
+    cairo_pattern_set_filter(pattern, filter ? CAIRO_FILTER_BILINEAR : CAIRO_FILTER_NEAREST);
+    cairo_t *cr = gtk_snapshot_append_cairo(snapshot, bounds);
+    cairo_set_source(cr, pattern);
+    cairo_paint_with_alpha(cr, color->alpha);
+    cairo_destroy(cr);
+    cairo_pattern_destroy(pattern);
+    return TRUE;
+}
+
+/* Returns FALSE if the paint carries no shader GSK can express. */
+static gboolean atl_snapshot_append_shader(JNIEnv *env, GtkSnapshot *snapshot, jobject shader, gboolean repeating, gboolean filter, const GdkRGBA *paint_color, const graphene_rect_t *bounds)
+{
+	if (shader != NULL && atl_snapshot_bitmap_shader(env, snapshot, shader, filter, paint_color, bounds))
+        return TRUE;
 	if (shader == NULL || !atl_linear_gradient_init(env))
 		return FALSE;
 	if (!(*env)->IsInstanceOf(env, shader, linear_gradient_class))
@@ -138,7 +225,7 @@ static void atl_snapshot_push_shape_mask(GtkSnapshot *snapshot, GskPath *path,
 	graphene_rect_union(bounds, &stroke_bounds, bounds);
 }
 
-JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jlong paint_ptr, jobject shader, jboolean repeating)
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jlong paint_ptr, jobject shader, jboolean repeating, jboolean filter)
 {
 	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	struct AndroidPaint *paint = _PTR(paint_ptr);
@@ -155,7 +242,7 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, 
 		atl_snapshot_push_shape_mask(snapshot, path, paint, &bounds);
 		gsk_path_unref(path);
 	}
-	if (!atl_snapshot_append_shader(env, snapshot, shader, repeating, &paint->color, &bounds))
+	if (!atl_snapshot_append_shader(env, snapshot, shader, repeating, filter, &paint->color, &bounds))
 		gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
 	if (paint->is_stroke)
 		gtk_snapshot_pop(snapshot);
@@ -163,19 +250,30 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRect(JNIEnv *env, 
 		gtk_snapshot_pop(snapshot);
 }
 
-JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawPath(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jlong path_ptr, jlong paint_ptr)
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawPath(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jlong path_ptr, jlong paint_ptr, jobject shader, jboolean filter)
 {
 	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	GskPath *path = _PTR(path_ptr);
 	struct AndroidPaint *paint = _PTR(paint_ptr);
 	if (paint->use_color_filter)
 		gtk_snapshot_push_color_matrix(snapshot, &paint->color_matrix, &paint->color_offset);
-	if (paint->is_stroke) {
-		gtk_snapshot_append_stroke(snapshot, path, paint->gsk_stroke, &paint->color);
-	}
-	if (paint->is_fill) {
-		gtk_snapshot_append_fill(snapshot, path, GSK_FILL_RULE_WINDING, &paint->color);
-	}
+    graphene_rect_t bounds;
+    gsk_path_get_bounds(path, &bounds);
+    if (shader != NULL) {
+        if (paint->is_stroke) {
+            atl_snapshot_push_shape_mask(snapshot, path, paint, &bounds);
+        } else {
+            gtk_snapshot_push_fill(snapshot, path, GSK_FILL_RULE_WINDING);
+        }
+        if (!atl_snapshot_append_shader(env, snapshot, shader, FALSE, filter, &paint->color, &bounds))
+            gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
+        gtk_snapshot_pop(snapshot);
+    } else {
+        if (paint->is_stroke)
+            gtk_snapshot_append_stroke(snapshot, path, paint->gsk_stroke, &paint->color);
+        if (paint->is_fill)
+            gtk_snapshot_append_fill(snapshot, path, GSK_FILL_RULE_WINDING, &paint->color);
+    }
 	if (paint->use_color_filter)
 		gtk_snapshot_pop(snapshot);
 }
@@ -264,7 +362,7 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawText(JNIEnv *env, 
 	g_object_unref(layout);
 }
 
-JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRoundRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jfloat rx, jfloat ry, jlong paint_ptr)
+JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRoundRect(JNIEnv *env, jclass this_class, jlong snapshot_ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jfloat rx, jfloat ry, jlong paint_ptr, jobject shader, jboolean filter)
 {
 	GdkSnapshot *snapshot = (GdkSnapshot *)_PTR(snapshot_ptr);
 	struct AndroidPaint *paint = _PTR(paint_ptr);
@@ -283,7 +381,8 @@ JNIEXPORT void JNICALL Java_android_atl_GskCanvas_native_1drawRoundRect(JNIEnv *
 	} else {
 		gtk_snapshot_push_rounded_clip(snapshot, &round_rect);
 	}
-	gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
+	if (!atl_snapshot_append_shader(env, snapshot, shader, FALSE, filter, &paint->color, &bounds))
+		gtk_snapshot_append_color(snapshot, &paint->color, &bounds);
 	gtk_snapshot_pop(snapshot);
 	if (paint->use_color_filter)
 		gtk_snapshot_pop(snapshot);

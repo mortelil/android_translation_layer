@@ -161,7 +161,7 @@ public class GskCanvas extends DisplayListCanvas {
 	@Override
 	public void drawPath(Path path, Paint paint) {
 		if (path != null)
-			native_drawPath(snapshot, path.getGskPath(), paint != null ? paint.paint : default_paint.paint);
+			native_drawPath(snapshot, path.getGskPath(), paint != null ? paint.paint : default_paint.paint, paint != null ? paint.getShader() : null, paint != null && paint.isFilterBitmap());
 	}
 
 	@Override
@@ -181,7 +181,7 @@ public class GskCanvas extends DisplayListCanvas {
 				android.util.Log.w("GskCanvas", "LinearGradient " + tile_mode + " tile mode is unsupported by GSK, drawing it clamped");
 			}
 		}
-		native_drawRect(snapshot, left, top, right, bottom, paint != null ? paint.paint : default_paint.paint, shader, repeating);
+		native_drawRect(snapshot, left, top, right, bottom, paint != null ? paint.paint : default_paint.paint, shader, repeating, paint != null && paint.isFilterBitmap());
 	}
 
 	@Override
@@ -207,7 +207,7 @@ public class GskCanvas extends DisplayListCanvas {
 
 	@Override
 	public void drawRoundRect(float left, float top, float right, float bottom, float rx, float ry, Paint paint) {
-		native_drawRoundRect(snapshot, left, top, right, bottom, rx, ry, paint != null ? paint.paint : default_paint.paint);
+		native_drawRoundRect(snapshot, left, top, right, bottom, rx, ry, paint != null ? paint.paint : default_paint.paint, paint != null ? paint.getShader() : null, paint != null && paint.isFilterBitmap());
 	}
 
 	@Override
@@ -227,8 +227,8 @@ public class GskCanvas extends DisplayListCanvas {
 
 	protected native void native_drawBitmap(long snapshot, long texture, int x, int y, int width, int height, long paint);
 	protected native void native_drawBitmap(long snapshot, long texture, int x, int y, int width, int height, int src_x, int src_y, int src_width, int src_height, long paint);
-	protected native void native_drawRect(long snapshot, float left, float top, float right, float bottom, long paint, Shader shader, boolean repeating);
-	protected native void native_drawPath(long snapshot, long path, long paint);
+	protected native void native_drawRect(long snapshot, float left, float top, float right, float bottom, long paint, Shader shader, boolean repeating, boolean filter);
+	protected native void native_drawPath(long snapshot, long path, long paint, Shader shader, boolean filter);
 	protected native void native_translate(long snapshot, float dx, float dy);
 	protected native void native_rotate(long snapshot, float degrees);
 	protected native void native_save(long snapshot);
@@ -236,7 +236,7 @@ public class GskCanvas extends DisplayListCanvas {
 	protected native void native_drawLine(long snapshot, float startX, float startY, float stopX, float stopY, long paint);
 	protected native void native_drawLines(long snapshot, float[] points, int offset, int count, long paint);
 	protected native void native_drawText(long snapshot, String text, float x, float y, long paint);
-	protected native void native_drawRoundRect(long snapshot, float left, float top, float right, float bottom, float rx, float ry, long paint);
+	protected native void native_drawRoundRect(long snapshot, float left, float top, float right, float bottom, float rx, float ry, long paint, Shader shader, boolean filter);
 	protected native void native_scale(long snapshot, float sx, float sy);
 	protected native void native_concat(long snapshot, long matrix);
 	protected native void native_clipRect(long snapshot, float left, float top, float right, float bottom);

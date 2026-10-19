@@ -157,7 +157,9 @@ public class Paint {
 		native_get_text_widths(paint, text.subSequence(start, end).toString(), widths, flags, hinting, letterSpacing, textSkewX);
 		return end - start;
 	}
-	public void setFilterBitmap(boolean filter) {}
+	public void setFilterBitmap(boolean filter) {
+		flags = filter ? flags | FILTER_BITMAP_FLAG : flags & ~FILTER_BITMAP_FLAG;
+	}
 
 	public int getFlags() { return flags; }
 
@@ -489,7 +491,7 @@ public class Paint {
 		this.typeface = paint.typeface;
 	}
 
-	public boolean isFilterBitmap() { return false; }
+	public boolean isFilterBitmap() { return (flags & FILTER_BITMAP_FLAG) != 0; }
 
 	public Cap getStrokeCap() {
 		return Cap.values[native_get_stroke_cap(paint)];
