@@ -28,6 +28,9 @@ typedef struct {
 	AHardwareBuffer_Plane planes[4];
 } AHardwareBuffer_Planes;
 int AHardwareBuffer_lockPlanes(AHardwareBuffer *, uint64_t, int32_t, const ATLBufferRect *, AHardwareBuffer_Planes *);
+/* Pass a buffer to another process over an AF_UNIX socket; see hardware_buffer.c. */
+int AHardwareBuffer_sendHandleToUnixSocket(const AHardwareBuffer *, int);
+int AHardwareBuffer_recvHandleFromUnixSocket(int socketFd, AHardwareBuffer **);
 AHardwareBuffer *AHardwareBuffer_fromHardwareBuffer(JNIEnv *, jobject);
 jobject AHardwareBuffer_toHardwareBuffer(JNIEnv *, AHardwareBuffer *);
 
