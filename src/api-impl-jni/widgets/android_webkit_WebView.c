@@ -329,3 +329,18 @@ JNIEXPORT jboolean JNICALL Java_android_webkit_WebSettings_nativeGetAllowUnivers
 	WebKitSettings *settings = webview_settings_from_ptr(widget);
 	return settings ? webkit_settings_get_allow_universal_access_from_file_urls(settings) : FALSE;
 }
+
+JNIEXPORT jstring JNICALL Java_android_webkit_WebView_native_1getTitle(JNIEnv *env, jobject self, jlong widget_ptr)
+{
+    GtkWidget *widget = _PTR(widget_ptr);
+    if (!widget || !WEBKIT_IS_WEB_VIEW(widget)) return NULL;
+    const gchar *title = webkit_web_view_get_title(WEBKIT_WEB_VIEW(widget));
+    if (!title) return NULL;
+    // JNI uses UTF-16, not WebKit's UTF-8 (including supplementary characters).
+    glong length = 0;
+    gunichar2 *utf16 = g_utf8_to_utf16(title, -1, NULL, &length, NULL);
+    if (!utf16) return NULL;
+    jstring result = (*env)->NewString(env, (const jchar *)utf16, length);
+    g_free(utf16);
+    return result;
+}
