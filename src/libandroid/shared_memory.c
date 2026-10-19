@@ -45,23 +45,13 @@ size_t ASharedMemory_getSize(int fd)
 }
 
 /*
- * ASharedMemory_setProt(fd, prot): restrict access to a shared memory region.
- *
- * Behavioural reference: the NDK's frozen header,
- * art_standalone/libandroidfw/include/android/sharedmem.h ("Restrict access of
- * shared memory region"): a region is created with PROT_READ|PROT_WRITE|PROT_EXEC,
- * "access can only be removed", the effect "applies globally to all file
- * descriptors in all processes across the system that refer to this shared
- * memory region", "existing memory mapped regions are not affected", and the
- * return is 0 for success / -1 with errno set. The framework side of the same
- * contract is frameworks-base/core/java/android/os/SharedMemory.java:127-156
- * (android-17.0.0_r1, commit 94b4c163): setProtect() → nSetProt(), with the
- * PROT mask PROT_READ|PROT_WRITE|PROT_EXEC|PROT_NONE (lines 117-122, 143-150).
- *
- * ATL uses memfd seals to restrict future shared writable mappings. Existing
- * mappings are unaffected. F_SEAL_EXEC locks file mode changes; it does NOT
- * prohibit executable mmap. There is no equivalent read/execute revocation
- * here, so reject those requests without changing the region.
+ * Match AOSP's memfd backend rather than the legacy ashmem device's stricter
+ * protection mask. memfd_set_prot_region only restricts future writes; READ
+ * and EXEC bits do not revoke mmap permissions. Existing mappings survive.
+ * Behaviour reference (implementation below is ATL's, not copied):
+ * platform/system/core, d3e91011ef767c231ec9c374cfc5c18657566b9c,
+ * libcutils/ashmem-dev.cpp, memfd_set_prot_region().
+ * F_SEAL_EXEC is deliberately not used: it locks file mode, not executable mmap.
  */
 int ASharedMemory_setProt(int fd, int prot)
 {
@@ -79,9 +69,7 @@ int ASharedMemory_setProt(int fd, int prot)
 	if ((seals & (F_SEAL_GROW | F_SEAL_SHRINK)) != (F_SEAL_GROW | F_SEAL_SHRINK)) { errno = EINVAL; return -1; }
 
 	/* Access can only be removed, never added back. */
-	if (prot & ~current) { errno = EPERM; return -1; }
-	/* No Linux seal removes read access; do not claim success for it. */
-	if ((prot & (PROT_READ | PROT_EXEC)) != (PROT_READ | PROT_EXEC)) { errno = ENOTSUP; return -1; }
+	if (prot & ~current) { errno = EINVAL; return -1; }
 
 	if (!(prot & PROT_WRITE)) added |= F_SEAL_FUTURE_WRITE;
 
