@@ -434,6 +434,12 @@ public class GradientDrawable extends Drawable {
 	 * @see #mutate()
 	 * @see #setColor(int)
 	 */
+	// AOSP frameworks/base 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d:
+	// getColors returns a detached color array, or null for a solid drawable.
+	public int[] getColors() {
+		return mGradientState.mColors == null ? null : mGradientState.mColors.clone();
+	}
+
 	public void setColors(int[] colors) {
 		mGradientState.setColors(colors);
 		mRectIsDirty = true;
