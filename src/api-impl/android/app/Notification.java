@@ -216,6 +216,11 @@ public class Notification implements Parcelable {
 	}
 
 	public static class Action {
+		// Semantic metadata follows AOSP Notification.Action (frameworks/base
+		// 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d). No desktop policy is implied.
+		private int semanticAction;
+		public int getSemanticAction() { return semanticAction; }
+
 
 		int icon;
 		String title;
@@ -245,8 +250,18 @@ public class Notification implements Parcelable {
 
 			public Builder setAllowGeneratedReplies(boolean allowGeneratedReplies) { return this; }
 
+			public Builder setSemanticAction(int semanticAction) {
+				action.semanticAction = semanticAction;
+				return this;
+			}
+
 			public Action build() {
-				return action;
+				Action result = new Action();
+				result.icon = action.icon;
+				result.title = action.title;
+				result.intent = action.intent;
+				result.semanticAction = action.semanticAction;
+				return result;
 			}
 		}
 	}
