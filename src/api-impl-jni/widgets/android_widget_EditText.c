@@ -66,14 +66,14 @@ static void changed_cb(GtkEditable *self, gpointer data)
 	(*env)->DeleteLocalRef(env, owner);
 }
 
-#define IME_ACTION_SEARCH 3
+#define ACTION_DOWN      0
 #define KEYCODE_ENTER     66
 
 static void on_activate(GtkText *gtk_text, struct changed_callback_data *d)
 {
 	JNIEnv *env = get_jni_env();
 
-	jobject key_event = (*env)->NewObject(env, handle_cache.key_event.class, handle_cache.key_event.constructor, (jlong)0, (jlong)0, IME_ACTION_SEARCH, KEYCODE_ENTER, 0, 0);
+	jobject key_event = (*env)->NewObject(env, handle_cache.key_event.class, handle_cache.key_event.constructor, (jlong)0, (jlong)0, ACTION_DOWN, KEYCODE_ENTER, 0, 0);
 	(*env)->CallBooleanMethod(env, d->listener, d->listener_method, d->this, 0, key_event);
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
