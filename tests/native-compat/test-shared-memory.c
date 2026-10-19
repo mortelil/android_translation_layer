@@ -56,11 +56,10 @@ int main(void)
 	assert(live != MAP_FAILED);
 	assert(ASharedMemory_setProt(region, PROT_READ | PROT_WRITE | PROT_EXEC) == 0);
 	assert(ASharedMemory_setProt(region, 0x8) == -1 && errno == EINVAL);
-	assert(ASharedMemory_setProt(region, PROT_NONE) == -1 && errno == ENOTSUP);
-	assert(ASharedMemory_setProt(unrelated, PROT_READ) < 0);
-	assert(ASharedMemory_setProt(region, PROT_READ) == -1 && errno == ENOTSUP);
+	assert(ASharedMemory_setProt(-1, PROT_READ) < 0);
+	assert(ASharedMemory_setProt(region, PROT_READ) == 0);
 	assert(ASharedMemory_setProt(region, PROT_READ | PROT_EXEC) == 0);
-	assert(ASharedMemory_setProt(region, PROT_READ | PROT_WRITE | PROT_EXEC) == -1 && errno == EPERM);
+	assert(ASharedMemory_setProt(region, PROT_READ | PROT_WRITE | PROT_EXEC) == -1 && errno == EINVAL);
 	char *ro = mmap(NULL, 4096, PROT_READ, MAP_SHARED, region, 0);
 	assert(ro != MAP_FAILED);
 	char *denied = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, region, 0);
@@ -72,9 +71,24 @@ int main(void)
 	char *denied_exec = mmap(NULL, 4096, PROT_READ | PROT_EXEC, MAP_SHARED, region, 0);
 	assert(denied_exec != MAP_FAILED);
 	munmap(denied_exec, 4096);
+	/* Seals apply to duplicated descriptors and other processes too. */
+	int duplicate = dup(region);
+	assert(duplicate >= 0);
+	child = fork();
+	assert(child >= 0);
+	if (!child) {
+		assert(ASharedMemory_setProt(duplicate, PROT_WRITE) == -1 && errno == EINVAL);
+		assert(mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, duplicate, 0) == MAP_FAILED);
+		_exit(0);
+	}
+	assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+	close(duplicate);
+	/* Like Android's memfd backend, NONE removes writes, not read access. */
+	assert(ASharedMemory_setProt(region, PROT_NONE) == 0);
+	assert(mprotect(ro, 4096, PROT_READ | PROT_WRITE) == -1);
 	munmap(ro, 4096);
 	munmap(live, 4096);
 	close(region);
-	puts("PASS: shared-memory protection mask narrows only, is region-wide and leaves live mappings untouched");
+	puts("PASS: shared-memory write protection cannot be restored, is region-wide and leaves live mappings untouched");
 	puts("PASS: shared-memory size, zero initialization, dup/close lifetime, cross-process contents and resize seals");
 }

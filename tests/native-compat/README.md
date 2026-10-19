@@ -51,12 +51,14 @@ prototypes are not hand-copied), compiles `test-media-drivers.c` with them and
 runs the checks; it needs curl and network access, and is not part of `run.sh`.
 No key request, session id or provision request is ever fabricated.
 
-`ASharedMemory_setProt` supports removing write access from future shared
-mappings with F_SEAL_FUTURE_WRITE; existing mappings remain writable. Removing
-read or execute permission returns ENOTSUP without modifying the region.
-F_SEAL_EXEC only freezes mode bits and does not prevent executable mmap.
-Widening a write-restricted region returns EPERM. Return is -1 with errno on
-failure. Full ashmem read/execute revocation is not implemented.
+`ASharedMemory_setProt` follows AOSP's memfd backend: removing PROT_WRITE
+seals future shared writable mappings, while existing mappings remain writable.
+READ/EXEC bits do not revoke access (including PROT_NONE); this is not the
+legacy ashmem driver's full protection mask. Restoring write access returns
+EINVAL. F_SEAL_EXEC is not used because it only freezes file mode bits.
+Reference: system/core d3e91011ef767c231ec9c374cfc5c18657566b9c,
+libcutils/ashmem-dev.cpp, memfd_set_prot_region().
+`tests/shared-memory-android` provides a dual-runtime reference APK.
 
 sync_merge uses real kernel sync_file ioctls; it does not turn eventfd or arbitrary
 file descriptors into fake GPU fences. Negative descriptor tests run everywhere;
