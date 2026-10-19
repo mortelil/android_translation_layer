@@ -6,6 +6,9 @@
 #include <glib/gstdio.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include "util.h"
 
 /* WebKit is the authority when experimental WebView is enabled. All WebViews
@@ -325,16 +328,52 @@ JNIEXPORT jboolean JNICALL Java_android_webkit_CookieManager_hasCookies(JNIEnv *
 	return result;
 }
 
+/* SoupCookieJarDB commits in its changed handler, before WebKit answers an
+ * ordered get-all request. Its SQLite backend uses synchronous=OFF, however,
+ * so the reply alone is not a disk barrier. Sync the existing database (and
+ * optional WAL), then its directory. Never rewrite WebKit's cookie database.
+ * Reference versions and persistence/restart tests: tests/web-cookies/README.md.
+ */
+static gboolean sync_cookie_file(const char *path, gboolean optional)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return optional && errno == ENOENT;
+    struct stat st;
+    gboolean ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode);
+    if (ok) { int rc; do { rc = fsync(fd); } while (rc < 0 && errno == EINTR); ok = rc == 0; }
+    close(fd);
+    return ok;
+}
+
+static void sync_cookie_storage(JNIEnv *env, const char *subdir, gboolean may_be_empty)
+{
+    const char *base = get_app_data_dir();
+    g_autofree char *dir = base ? g_build_filename(base, subdir, NULL) : NULL;
+    g_autofree char *path = dir ? g_build_filename(dir, "cookies.sqlite", NULL) : NULL;
+    g_autofree char *wal = path ? g_strconcat(path, "-wal", NULL) : NULL;
+    gboolean ok = path && sync_cookie_file(path, may_be_empty) && sync_cookie_file(wal, TRUE);
+    if (ok) {
+        int fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        if (fd < 0) ok = FALSE;
+        else { int rc; do { rc = fsync(fd); } while (rc < 0 && errno == EINTR); ok = rc == 0; close(fd); }
+    }
+    if (!ok)
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), "Cannot flush cookie storage");
+}
+
 JNIEXPORT void JNICALL Java_android_webkit_CookieManager_nativeFlush(JNIEnv *env, jclass cls)
 {
-	if (getenv("ATL_UGLY_ENABLE_WEBVIEW")) {
-        // WebKit persists non-session cookies automatically but exposes no
-        // synchronous disk-flush API. Do not claim Android's durability guarantee.
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsupportedOperationException"), "WebKit does not expose synchronous cookie flush");
+    if (getenv("ATL_UGLY_ENABLE_WEBVIEW")) {
+        CookieCall call = { .op = COOKIE_ALL };
+        gboolean ok = cookie_call(env, &call);
+        gboolean persistent = FALSE;
+        for (GList *it = call.cookies; it; it = it->next)
+            persistent |= soup_cookie_get_expires(it->data) != NULL;
+        g_list_free_full(call.cookies, (GDestroyNotify)soup_cookie_free);
+        if (ok) sync_cookie_storage(env, "atl-webview", !persistent);
         return;
     }
-	// SoupCookieJarDB commits synchronously in its changed signal handler.
-	g_mutex_lock(&cookie_lock);
-	ensure_jar(env);
-	g_mutex_unlock(&cookie_lock);
+    g_mutex_lock(&cookie_lock);
+    if (ensure_jar(env)) sync_cookie_storage(env, "atl-cookies", TRUE);
+    g_mutex_unlock(&cookie_lock);
 }

@@ -9,6 +9,6 @@ class Fixture(BaseHTTPRequestHandler):
         self.send_header('Set-Cookie', 'server=private; HttpOnly; Path=/')
         self.end_headers()
         seen = 'java=before' in self.headers.get('Cookie', '')
-        self.wfile.write(("<script>document.cookie='script=after; Path=/';window.sent=" +
+        self.wfile.write(("<title>Cookie title 🎵</title><script>document.cookie='script=after; Path=/';window.sent=" +
                          str(seen).lower() + ";</script><p>Local cookie fixture</p>").encode())
 HTTPServer(('127.0.0.1', 18761), Fixture).serve_forever()

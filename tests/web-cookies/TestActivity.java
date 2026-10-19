@@ -35,6 +35,7 @@ public class TestActivity extends Activity {
         check(has("https://secure.test/","secure=yes") && !has("http://secure.test/","secure=yes"),"Secure isolation");
         cm.setCookie(URL,"persistent=kept; Max-Age=3600; Path=/");
         web=new WebView(this);
+        check(web.getTitle()==null,"no title before navigation");
         web.getSettings().setJavaScriptEnabled(true);
         web.addJavascriptInterface(new Bridge(),"Native");
         web.setWebViewClient(new WebViewClient(){public void onPageFinished(WebView w,String u){
@@ -43,6 +44,7 @@ public class TestActivity extends Activity {
             check(has(URL,"script=after"),"JavaScript cookie visible to Java");
             web.evaluateJavascript("window.sent && document.cookie.includes('java=before') && !document.cookie.includes('server=private') && Native.cookieFromWorker()",new ValueCallback<String>(){
                 public void onReceiveValue(String value){
+                    check("Cookie title 🎵".equals(web.getTitle()),"WebView title including supplementary Unicode");
                     check("true".equals(value),"Java cookie sent in HTTP and visible to JS; HttpOnly protected; worker read");
                     cm.removeSessionCookies(new ValueCallback<Boolean>(){public void onReceiveValue(Boolean removed){
                         check(removed && Looper.myLooper()==Looper.getMainLooper(),"session deletion callback");

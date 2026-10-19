@@ -77,6 +77,12 @@ public class WebView extends ViewGroup {
 		}
 	}
 
+	/** AOSP: the current page title, or null when none is available. */
+	public String getTitle() {
+		checkJavascriptThread();
+		return native_getTitle(widget);
+	}
+
 	/** AOSP: the URL of the current page, or null if no page has been loaded. */
 	public String getUrl() {
 		return currentUrl;
@@ -200,6 +206,7 @@ public class WebView extends ViewGroup {
 	@Override
 	protected native long native_constructor(Context context, AttributeSet attrs);
 	private native void native_loadDataWithBaseURL(long widget, String baseUrl, String data, String mimeType, String encoding);
+	private native String native_getTitle(long widget);
 	private native void native_loadUrl(long widget, String url);
 	private native void native_evaluateJavascript(long widget, String script, ValueCallback<String> callback);
 	private native void native_setJavascriptBridge(long widget, JavascriptBridge bridge, String script);
