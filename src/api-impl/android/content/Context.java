@@ -424,13 +424,16 @@ public abstract class Context {
 	private static Map<String, SharedPreferences> sharedPrefs = new HashMap<String, SharedPreferences>();
 
 	public SharedPreferences getSharedPreferences(String name, int mode) {
-		Slog.v(TAG, "\n\n...> getSharedPreferences(" + name + ")\n\n");
-		if (sharedPrefs.containsKey(name)) {
-			return sharedPrefs.get(name);
-		} else {
-			File prefsFile = getSharedPrefsFile(name);
-			SharedPreferences prefs = new SharedPreferencesImpl(prefsFile, mode);
-			sharedPrefs.put(name, prefs);
+		File file = getSharedPrefsFile(name);
+		final String key;
+		try { key = file.getCanonicalPath(); }
+		catch (java.io.IOException e) { throw new IllegalStateException("Cannot resolve preferences path", e); }
+		synchronized (sharedPrefs) {
+			SharedPreferences prefs = sharedPrefs.get(key);
+			if (prefs == null) {
+				prefs = new SharedPreferencesImpl(file, mode);
+				sharedPrefs.put(key, prefs);
+			}
 			return prefs;
 		}
 	}
