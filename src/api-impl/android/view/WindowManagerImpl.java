@@ -8,6 +8,11 @@ public class WindowManagerImpl implements WindowManager, ViewManager {
 	private static final String TAG = "WindowManagerImpl";
 
 	private static class WindowViewParent implements ViewParent {
+		@Override
+		public boolean getChildVisibleRect(View child, Rect rect, android.graphics.Point offset) {
+			return rect.intersect(0, 0, child.getWidth(), child.getHeight());
+		}
+
 
 		@Override
 		public android.view.ViewParent getParent() {

@@ -1,6 +1,7 @@
 package android.view;
 
 public interface ViewParent {
+	boolean getChildVisibleRect(View child, android.graphics.Rect rect, android.graphics.Point offset);
 	public abstract ViewParent getParent();
 
 	public boolean isLayoutRequested();

@@ -1515,7 +1515,12 @@ public class View implements Drawable.Callback {
 	public void getHitRect(Rect outRect) {
 		outRect.set(left, top, right, bottom);
 	}
-	public final boolean getLocalVisibleRect(Rect r) { return false; }
+	public final boolean getLocalVisibleRect(Rect r) {
+		Point offset = new Point();
+		if (!getGlobalVisibleRect(r, offset)) return false;
+		r.offset(-offset.x, -offset.y);
+		return true;
+	}
 
 	public final int getScrollX() {
 		return scrollX;
@@ -1538,7 +1543,8 @@ public class View implements Drawable.Callback {
 
 	public void getLocationOnScreen(int[] location) {
 		Rect rect = new Rect();
-		getGlobalVisibleRect(rect);
+		// Position is the unclipped GTK origin, not the visible rectangle.
+		native_getGlobalVisibleRect(widget, rect);
 		location[0] = rect.left;
 		location[1] = rect.top;
 	}
@@ -2527,7 +2533,7 @@ public class View implements Drawable.Callback {
 	protected native boolean native_getGlobalVisibleRect(long widget, Rect visibleRect);
 
 	public boolean getGlobalVisibleRect(Rect visibleRect) {
-		return native_getGlobalVisibleRect(widget, visibleRect);
+		return getGlobalVisibleRect(visibleRect, null);
 	}
 
 	public boolean onCheckIsTextEditor() { return false; }
@@ -2767,9 +2773,12 @@ public class View implements Drawable.Callback {
 	}
 
 	public boolean getGlobalVisibleRect(Rect visibleRect, Point globalOffset) {
-		boolean result = native_getGlobalVisibleRect(widget, visibleRect);
-		globalOffset.set(visibleRect.left, visibleRect.top);
-		return result;
+		int width = right - left;
+		int height = bottom - top;
+		if (width <= 0 || height <= 0) return false;
+		visibleRect.set(0, 0, width, height);
+		if (globalOffset != null) globalOffset.set(-scrollX, -scrollY);
+		return parent == null || parent.getChildVisibleRect(this, visibleRect, globalOffset);
 	}
 
 	public void restoreHierarchyState(SparseArray<Parcelable> container) {

@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2006 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.view;
 
 import android.R;
@@ -18,6 +34,39 @@ import java.util.Iterator;
 import java.util.Objects;
 
 public class ViewGroup extends View implements ViewParent, ViewManager {
+	private boolean clipChildren = true;
+	private boolean clipToPadding = true;
+
+	// Adapted from AOSP android-14.0.0_r1 ViewGroup.getChildVisibleRect.
+	@Override
+	public boolean getChildVisibleRect(View child, Rect r, android.graphics.Point offset) {
+		android.graphics.RectF rect = new android.graphics.RectF(r);
+		android.graphics.Matrix matrix = child.getMatrix();
+		if (!matrix.isIdentity()) matrix.mapRect(rect);
+		int dx = child.getLeft() - getScrollX();
+		int dy = child.getTop() - getScrollY();
+		rect.offset(dx, dy);
+		if (offset != null) {
+			if (!matrix.isIdentity()) {
+				float[] position = {offset.x, offset.y};
+				matrix.mapPoints(position);
+				offset.set(Math.round(position[0]), Math.round(position[1]));
+			}
+			offset.offset(dx, dy);
+		}
+		boolean visible = true;
+		int width = getRight() - getLeft(), height = getBottom() - getTop();
+		if (parent == null || (parent instanceof ViewGroup && ((ViewGroup)parent).getClipChildren()))
+			visible = rect.intersect(0, 0, width, height);
+		if (visible && clipToPadding && (getPaddingLeft() != 0 || getPaddingTop() != 0
+				|| getPaddingRight() != 0 || getPaddingBottom() != 0))
+			visible = rect.intersect(getPaddingLeft(), getPaddingTop(),
+				width - getPaddingRight(), height - getPaddingBottom());
+		r.set((int)Math.floor(rect.left), (int)Math.floor(rect.top),
+			(int)Math.ceil(rect.right), (int)Math.ceil(rect.bottom));
+		return visible && (parent == null || parent.getChildVisibleRect(this, r, offset));
+	}
+
 	// Hierarchy-state dispatch: a ViewGroup saves/restores its own state (by
 	// ID, via super) and then forwards to every child (public API contract).
 	@Override
@@ -534,7 +583,7 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		return false;
 	}
 
-	public void setClipToPadding(boolean clipToPadding) {}
+	public void setClipToPadding(boolean clipToPadding) { this.clipToPadding = clipToPadding; }
 
 	public View findViewById(int id) {
 		Slog.v(TAG, "findViewById: looking for id: " + String.format("%x", id) + "(" + getResources().getAssets().getResourceName(id) + ")"
@@ -570,7 +619,7 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 
 	public void setTouchscreenBlocksFocus(boolean touchscreenBlocksFocus) {}
 
-	public void setClipChildren(boolean clipChildren) {}
+	public void setClipChildren(boolean clipChildren) { this.clipChildren = clipChildren; }
 
 	protected void dispatchSetPressed(boolean pressed) {}
 
@@ -621,7 +670,7 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		native_offsetRect(widget, descendant.widget, rect);
 	}
 
-	public boolean getClipToPadding() { return false; }
+	public boolean getClipToPadding() { return clipToPadding; }
 
 	public boolean isTransitionGroup() { return false; }
 
@@ -826,7 +875,7 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 	public void requestChildFocus(View child, View focused) {}
 
 	public boolean getClipChildren() {
-		return false;
+		return clipChildren;
 	}
 
 	public native boolean native_dispatchTouchEvent(long widget, MotionEvent event, double x, double y);
