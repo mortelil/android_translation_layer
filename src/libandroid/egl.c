@@ -16,10 +16,30 @@
 #include "../api-impl-jni/widgets/android_view_SurfaceView.h"
 
 #include "egl_lifecycle.h"
+#include "egl_attributes.h"
 #include "egl_readback.h"
 #include "native_window.h"
 
 extern GtkWindow *window; // TODO: how do we get rid of this? the app won't pass anything useful to eglGetDisplay
+
+/*
+ * The GdkDisplay EGL must attach to.
+ *
+ * An app process owns the ATL window (main-executable/main.c:735) whose display
+ * also backs the app's SurfaceViews. A service/GPU child process spawned by the
+ * process host does not: main.c's run_service_child() runs "before any
+ * GtkApplication exists, because a GtkApplication starts GTK and would need an X
+ * display for a process that only hosts services and has no window", so `window`
+ * stays NULL and gtk_root_get_display(GTK_ROOT(NULL)) is an invalid call (it
+ * asserts and returns NULL). gdk_display_get_default() is NULL in such a process
+ * as well, because nothing ever called gtk_init().
+ */
+static GdkDisplay *egl_gdk_display(void)
+{
+	if (window && GTK_IS_ROOT(window))
+		return gtk_root_get_display(GTK_ROOT(window));
+	return gdk_display_get_default();
+}
 
 static GHashTable *egl_surface_hashtable;
 static GHashTable *texture_surface_hashtable;
@@ -118,8 +138,23 @@ EGLDisplay bionic_eglGetDisplay(EGLNativeDisplayType native_display)
 	 * We obviously want to make the app use the correct display, which may happen to be a different one
 	 * than the "default" display (especially on Wayland)
 	 */
-	GdkDisplay *display = gtk_root_get_display(GTK_ROOT(window));
+	GdkDisplay *display = egl_gdk_display();
 	EGLDisplay egl_display;
+
+	if (!display) {
+		/*
+		 * No GDK connection (a process without an ATL window, e.g. the Gecko
+		 * GPU process): EGL_DEFAULT_DISPLAY is EGL_CAST(EGLNativeDisplayType,0)
+		 * (/usr/include/EGL/egl.h:251, android.opengl.EGL14.EGL_DEFAULT_DISPLAY
+		 * in the SDK sources) and denotes the default display, not a missing
+		 * one, so the host EGL resolves it from the DISPLAY the spawned child
+		 * inherits (g_get_environ() in atl_binder_spawn,
+		 * src/api-impl-jni/android_os_ATLBinderConnection.c:91). Returning NULL
+		 * here instead made Gecko's GPU process fail every
+		 * eglGetDisplay(EGL_DEFAULT_DISPLAY) with FEATURE_FAILURE_NO_DISPLAY.
+		 */
+		return eglGetDisplay(native_display);
+	}
 
 	if (GDK_IS_WAYLAND_DISPLAY(display)) {
 		struct wl_display *wl_display = gdk_wayland_display_get_wl_display(display);
@@ -139,7 +174,15 @@ EGLDisplay bionic_eglGetDisplay(EGLNativeDisplayType native_display)
 
 EGLBoolean bionic_eglChooseConfig(EGLDisplay display, EGLint *attrib_list, EGLConfig *configs, EGLint config_size, EGLint *num_config)
 {
-	GdkDisplay *gdk_display = gtk_root_get_display(GTK_ROOT(window));
+	GdkDisplay *gdk_display = egl_gdk_display();
+
+	/* No GDK connection: the display comes from the host EGL's default display
+	 * (bionic_eglGetDisplay), whose platform we cannot query here. The pbuffer
+	 * workaround below exists only for Wayland, which always has a GDK display,
+	 * so pass the request through unchanged - X11 and surfaceless EGL both
+	 * support the caller's attributes as given. */
+	if (!gdk_display || !attrib_list)
+		return eglChooseConfig(display, attrib_list, configs, config_size, num_config);
 
 	if (GDK_IS_X11_DISPLAY(gdk_display)) {
 		/* X11 supports pbuffers just fine */
@@ -175,7 +218,12 @@ EGLBoolean bionic_eglChooseConfig(EGLDisplay display, EGLint *attrib_list, EGLCo
 
 EGLSurface bionic_eglCreatePbufferSurface(EGLDisplay display, EGLConfig config, EGLint const *attrib_list)
 {
-	GdkDisplay *gdk_display = gtk_root_get_display(GTK_ROOT(window));
+	GdkDisplay *gdk_display = egl_gdk_display();
+
+	/* See bionic_eglChooseConfig: without a GDK connection the display is the
+	 * host EGL default display and the Wayland pbuffer emulation does not apply. */
+	if (!gdk_display)
+		return eglCreatePbufferSurface(display, config, attrib_list);
 
 	if (GDK_IS_X11_DISPLAY(gdk_display)) {
 		/* X11 supports pbuffers just fine */
@@ -185,28 +233,10 @@ EGLSurface bionic_eglCreatePbufferSurface(EGLDisplay display, EGLConfig config, 
 		struct wl_surface *wayland_surface = wl_compositor_create_surface(wl_compositor);
 		EGLint width = 0;
 		EGLint height = 0;
-		EGLint *new_attrib_list = NULL;
-		if (attrib_list) {
-			size_t attrib_list_len = 0;
-			for (EGLint *attr = (EGLint *)attrib_list; *attr != EGL_NONE; attr++)
-				attrib_list_len++;
-			new_attrib_list = malloc(attrib_list_len);
-			EGLint *new_attr_pos = new_attrib_list;
-			for (EGLint *attr = (EGLint *)attrib_list; *attr != EGL_NONE; attr += 2) {
-				if (*attr == EGL_WIDTH) {
-					width = *(attr + 1);
-				} else if (*attr == EGL_HEIGHT) {
-					height = *(attr + 1);
-				} else {
-					*new_attr_pos = *attr;
-					*(new_attr_pos + 1) = *(attr + 1);
-					new_attr_pos += 2;
-				}
-			}
-			*new_attr_pos = EGL_NONE;
-		}
+		EGLint *new_attrib_list = atl_pbuffer_window_attributes(attrib_list, &width, &height);
 		struct wl_egl_window *egl_window = wl_egl_window_create(wayland_surface, width, height);
 		EGLSurface surface = eglCreateWindowSurface(display, config, (EGLNativeWindowType)egl_window, new_attrib_list);
+		g_free(new_attrib_list);
 		return surface;
 	}
 }
