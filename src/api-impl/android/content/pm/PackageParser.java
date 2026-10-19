@@ -2280,6 +2280,7 @@ public class PackageParser {
 		    com.android.internal.R.styleable.AndroidManifestIntentFilter_logo, 0);
 		outInfo.priority = sa.getInt(
 		    com.android.internal.R.styleable.AndroidManifestIntentFilter_priority, 0);
+		outInfo.setPriority(outInfo.priority);
 		sa.recycle();
 		int outerDepth = parser.getDepth();
 		int type;
@@ -2307,11 +2308,51 @@ public class PackageParser {
 				}
 				XmlUtils.skipCurrentTag(parser);
 				outInfo.addCategory(value);
+				if (Intent.CATEGORY_DEFAULT.equals(value)) outInfo.hasDefault = true;
 			} else if (nodeName.equals("data")) {
-				String scheme = parser.getAttributeValue(
-				    ANDROID_RESOURCES, "scheme");
-				if (!TextUtils.isEmpty(scheme))
+				/* AOSP PackageParser.parseIntent: retain MIME, authority, path and
+				 * SSP constraints instead of treating every data filter as scheme-only. */
+				TypedArray dsa = res.obtainAttributes(attrs,
+				    com.android.internal.R.styleable.AndroidManifestData);
+				String scheme = dsa.getString(
+				    com.android.internal.R.styleable.AndroidManifestData_scheme);
+				if (scheme != null)
 					outInfo.addDataScheme(scheme);
+				String mimeType = dsa.getString(
+				    com.android.internal.R.styleable.AndroidManifestData_mimeType);
+				if (mimeType != null) {
+					try {
+						outInfo.addDataType(mimeType);
+					} catch (IntentFilter.MalformedMimeTypeException e) {
+						dsa.recycle();
+						outError[0] = "Bad mimeType: " + mimeType;
+						return false;
+					}
+				}
+				String host = dsa.getString(
+				    com.android.internal.R.styleable.AndroidManifestData_host);
+				if (host != null)
+					outInfo.addDataAuthority(host, dsa.getString(
+					    com.android.internal.R.styleable.AndroidManifestData_port));
+				String path = dsa.getString(
+				    com.android.internal.R.styleable.AndroidManifestData_path);
+				if (path != null)
+					outInfo.addDataPath(path, PatternMatcher.PATTERN_LITERAL);
+				String pathPrefix = dsa.getString(
+				    com.android.internal.R.styleable.AndroidManifestData_pathPrefix);
+				if (pathPrefix != null)
+					outInfo.addDataPath(pathPrefix, PatternMatcher.PATTERN_PREFIX);
+				String pathPattern = dsa.getString(
+				    com.android.internal.R.styleable.AndroidManifestData_pathPattern);
+				if (pathPattern != null)
+					outInfo.addDataPath(pathPattern, PatternMatcher.PATTERN_SIMPLE_GLOB);
+				String ssp = dsa.getString(com.android.internal.R.styleable.AndroidManifestData_ssp);
+				if (ssp != null) outInfo.addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_LITERAL);
+				String sspPrefix = dsa.getString(com.android.internal.R.styleable.AndroidManifestData_sspPrefix);
+				if (sspPrefix != null) outInfo.addDataSchemeSpecificPart(sspPrefix, PatternMatcher.PATTERN_PREFIX);
+				String sspPattern = dsa.getString(com.android.internal.R.styleable.AndroidManifestData_sspPattern);
+				if (sspPattern != null) outInfo.addDataSchemeSpecificPart(sspPattern, PatternMatcher.PATTERN_SIMPLE_GLOB);
+				dsa.recycle();
 				XmlUtils.skipCurrentTag(parser);
 			} else if (!RIGID_PARSER) {
 				Slog.w(TAG, "Unknown element under <intent-filter>: "
@@ -2873,7 +2914,11 @@ public class PackageParser {
 				continue;
 			}
 
-			if (parser.getName().equals("meta-data")) {
+			if (parser.getName().equals("intent-filter")) {
+				ProviderIntentInfo filter = new ProviderIntentInfo(outInfo);
+				if (!parseIntent(res, parser, attrs, true, false, filter, outError)) return false;
+				outInfo.intents.add(filter);
+			} else if (parser.getName().equals("meta-data")) {
 				if ((outInfo.metaData = parseMetaData(res, parser, attrs,
 				                                      outInfo.metaData, outError))
 				    == null) {

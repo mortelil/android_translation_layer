@@ -21,6 +21,7 @@ import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.atl.ATLLoadedApp;
 import android.atl.ATLLoadedAppManager;
+import android.atl.ATLPaths;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -145,6 +146,7 @@ public class PackageManager {
 	 * {@link PackageInfo} flag: include disabled components in the returned info.
 	 */
 	public static final int GET_DISABLED_COMPONENTS = 0x00000200;
+	public static final int MATCH_DISABLED_COMPONENTS = GET_DISABLED_COMPONENTS;
 
 	/**
 	 * {@link ApplicationInfo} flag: return the
@@ -2654,7 +2656,7 @@ public class PackageManager {
 	 */
 	public List<ResolveInfo> queryIntentContentProvidersAsUser(
 	    Intent intent, int flags, int userId) {
-		return null;
+		return queryIntentContentProviders(intent, flags);
 	}
 
 	/**
@@ -2670,7 +2672,79 @@ public class PackageManager {
 	 * @see #GET_RESOLVED_FILTER
 	 */
 	public List<ResolveInfo> queryIntentContentProviders(Intent intent, int flags) {
-		return null;
+		// AOSP ApplicationPackageManager / ComponentResolver: return an empty
+		// list on no match; explicit components bypass filters, selectors apply
+		// only in the absence of an explicit component.
+		Objects.requireNonNull(intent, "intent");
+		// AOSP resolves MIME on the original intent before the server substitutes
+		// its selector; the selector's type must not replace that resolved type.
+		String resolvedType = intent.getType();
+		if (intent.getComponent() == null && resolvedType == null && "content".equals(intent.getScheme()))
+			resolvedType = new android.content.ContentResolver().getType(intent.getData());
+		if (intent.getComponent() == null && intent.getSelector() != null)
+			intent = intent.getSelector();
+		ComponentName component = intent.getComponent();
+		String packageName = component != null ? component.getPackageName() : intent.getPackage();
+		List<ResolveInfo> result = new ArrayList<>();
+		ATLLoadedApp primary = ATLLoadedApp.getPrimaryApplication();
+		if (primary == null) return result;
+		Map<String, PackageParser.Package> packages = new java.util.LinkedHashMap<>();
+		if (packageName != null) {
+			PackageParser.Package pkg = ATLLoadedAppManager.getPackageFromPackageName(packageName);
+			if (pkg != null) packages.put(pkg.packageName, pkg);
+		} else {
+			packages.put(primary.pkg.packageName, primary.pkg);
+			File[] files = ATLPaths.installed_apks_dir.listFiles();
+			if (files != null) for (File file : files) {
+				String name = file.getName();
+				if (!file.isFile() || !name.endsWith(".apk")) continue;
+				PackageParser.Package pkg = ATLLoadedAppManager.getPackageFromPackageName(
+					name.substring(0, name.length() - 4));
+				if (pkg != null) packages.put(pkg.packageName, pkg);
+			}
+		}
+		for (PackageParser.Package pkg : packages.values()) {
+			if (pkg.providers == null) continue;
+			for (PackageParser.Provider provider : pkg.providers) {
+				if ((flags & MATCH_DISABLED_COMPONENTS) == 0 &&
+					(!provider.info.enabled || !pkg.applicationInfo.enabled)) continue;
+				if (component != null) {
+					if (component.equals(provider.getComponentName())) {
+						ResolveInfo ri = new ResolveInfo();
+						ri.providerInfo = provider.info; ri.priority = 0; ri.filter = null;
+						result.add(ri);
+					}
+					continue;
+				}
+				PackageParser.ProviderIntentInfo best = null;
+				int bestMatch = -1;
+				if (provider.intents != null) for (PackageParser.ProviderIntentInfo filter : provider.intents) {
+					if ((flags & MATCH_DEFAULT_ONLY) != 0 && !filter.hasCategory(Intent.CATEGORY_DEFAULT)) continue;
+					int match = filter.match(intent.getAction(), resolvedType, intent.getScheme(),
+						intent.getData(), intent.getCategories(), TAG);
+					if (match < 0) continue;
+					// ComponentResolver rejects later filters for the same provider.
+					best = filter; bestMatch = match;
+					break;
+				}
+				if (best != null) {
+					ResolveInfo ri = new ResolveInfo();
+					ri.providerInfo = provider.info; ri.priority = best.priority;
+					ri.match = bestMatch; ri.isDefault = best.hasCategory(Intent.CATEGORY_DEFAULT);
+					ri.filter = (flags & GET_RESOLVED_FILTER) != 0 ? best : null;
+					result.add(ri);
+				}
+			}
+		}
+		Collections.sort(result, new java.util.Comparator<ResolveInfo>() {
+			public int compare(ResolveInfo a, ResolveInfo b) {
+				int priority = Integer.compare(b.priority, a.priority);
+				if (priority != 0) return priority;
+				if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+				return Integer.compare(b.match, a.match);
+			}
+		});
+		return result;
 	}
 
 	/**
