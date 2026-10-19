@@ -145,6 +145,16 @@ public final class ATLLoadedAppManager {
 			pkg = packageParser.parsePackage(installed_apk_location,
 			                                 installed_apk_location.getPath(), new DisplayMetrics(), 0);
 			if (pkg != null) {
+				// Metadata-only contexts still describe an installed package. Publish
+				// its native files without loading dex or executing native code.
+				try {
+					pkg.applicationInfo.nativeLibraryDir = ensureNativeLibraryDir(installed_apk_location);
+				} catch (IOException e) {
+					Slog.e(TAG, "Failed to prepare package libraries for " + packageName, e);
+					return null;
+				}
+				pkg.applicationInfo.sourceDir = installed_apk_location.getPath();
+				pkg.applicationInfo.publicSourceDir = installed_apk_location.getPath();
 				packageParser.collectCertificates(pkg, 0);
 				if (ATLLoadedApp.play_services.contains(packageName)) {
 					ATLSigHelper.addGMSSignatures(pkg);
@@ -245,8 +255,7 @@ public final class ATLLoadedAppManager {
 			// running process; fail the load rather than guess a library directory.
 			throw new IOException("no host ABI to extract the native libraries of " + apk);
 		}
-		ATLNativeLibs.publishOrFail(apk, lib_dir, abi);
-		return lib_dir.getPath();
+		return ATLNativeLibs.publishOrFail(apk, lib_dir, abi).getPath();
 	}
 
 	private static ATLLoadedApp loadGStub(String packageName) {
