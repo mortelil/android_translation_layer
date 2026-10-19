@@ -28,10 +28,13 @@
 
 #include <avahi-client/client.h>
 #include <avahi-client/lookup.h>
+#include <avahi-client/publish.h>
 #include <avahi-common/thread-watch.h>
 #include <avahi-common/error.h>
 #include <avahi-common/strlst.h>
 #include <avahi-common/address.h>
+#include <avahi-common/alternative.h>
+#include <avahi-common/malloc.h>
 
 #include "../defines.h"
 #include "../util.h"
@@ -43,6 +46,8 @@ static jmethodID g_m_service_found;
 static jmethodID g_m_service_lost;
 static jmethodID g_m_resolve_result;
 static jmethodID g_m_backend_failed;
+static jmethodID g_m_service_registered;
+static jmethodID g_m_registration_failed;
 static int g_bridge_ready = 0;
 
 static JNIEnv *nsd_attach(void)
@@ -69,7 +74,12 @@ static int nsd_bridge_init(JNIEnv *env, jclass clazz)
 			"(J[BI[BLjava/lang/String;I)V");
 	g_m_backend_failed = (*env)->GetStaticMethodID(env, clazz, "onNativeOperationFailed",
 			"(J)V");
-	if (!g_m_service_found || !g_m_service_lost || !g_m_resolve_result || !g_m_backend_failed) {
+	g_m_service_registered = (*env)->GetStaticMethodID(env, clazz, "onNativeServiceRegistered",
+			"(JLjava/lang/String;)V");
+	g_m_registration_failed = (*env)->GetStaticMethodID(env, clazz, "onNativeRegistrationFailed",
+			"(J)V");
+	if (!g_m_service_found || !g_m_service_lost || !g_m_resolve_result || !g_m_backend_failed
+			|| !g_m_service_registered || !g_m_registration_failed) {
 		android_log_printf(ANDROID_LOG_ERROR, "NsdManager",
 				"failed to resolve NsdManager callback methods");
 		return 0;
@@ -140,6 +150,29 @@ static void java_operation_failed(jlong handle)
 		(*env)->ExceptionDescribe(env);
 }
 
+static void java_service_registered(jlong handle, const char *name)
+{
+	JNIEnv *env = nsd_attach();
+	if (!env)
+		return;
+	jstring jname = _JSTRING(name ? name : "");
+	(*env)->CallStaticVoidMethod(env, g_nsd_class, g_m_service_registered,
+			handle, jname);
+	if ((*env)->ExceptionCheck(env))
+		(*env)->ExceptionDescribe(env);
+	(*env)->DeleteLocalRef(env, jname);
+}
+
+static void java_registration_failed(jlong handle)
+{
+	JNIEnv *env = nsd_attach();
+	if (!env)
+		return;
+	(*env)->CallStaticVoidMethod(env, g_nsd_class, g_m_registration_failed, handle);
+	if ((*env)->ExceptionCheck(env))
+		(*env)->ExceptionDescribe(env);
+}
+
 /* ---- backend state ------------------------------------------------------- */
 
 static AvahiThreadedPoll *g_nsd_poll = NULL;
@@ -161,8 +194,20 @@ struct resolve_op {
 	struct resolve_op *next;
 };
 
+struct registration_op {
+	jlong handle;
+	AvahiEntryGroup *group;
+	char *name;          /* instance name, renamed on collision */
+	char *service_type;
+	uint16_t port;
+	unsigned renames;
+	AvahiStringList *txt; /* kept to re-add the service after a rename */
+	struct registration_op *next;
+};
+
 static struct discovery_op *g_discoveries = NULL;
 static struct resolve_op *g_resolves = NULL;
+static struct registration_op *g_registrations = NULL;
 
 static void java_backend_failed(void)
 {
@@ -170,6 +215,8 @@ static void java_backend_failed(void)
 		java_operation_failed(d->handle);
 	for (struct resolve_op *r = g_resolves; r; r = r->next)
 		java_operation_failed(r->handle);
+	for (struct registration_op *g = g_registrations; g; g = g->next)
+		java_operation_failed(g->handle);
 }
 
 static void clear_ops(void)
@@ -180,6 +227,33 @@ static void clear_ops(void)
 	struct resolve_op *r = g_resolves, *rn;
 	while (r) { rn = r->next; free(r); r = rn; }
 	g_resolves = NULL;
+	/* The entry groups themselves are destroyed with the AvahiClient; only the
+	 * bookkeeping has to go. */
+	struct registration_op *g = g_registrations, *gn;
+	while (g) {
+		gn = g->next;
+		free(g->name);
+		free(g->service_type);
+		avahi_string_list_free(g->txt);
+		free(g);
+		g = gn;
+	}
+	g_registrations = NULL;
+}
+
+static struct registration_op *unlink_registration_locked(jlong handle)
+{
+	struct registration_op **pp = &g_registrations;
+	while (*pp) {
+		if ((*pp)->handle == handle) {
+			struct registration_op *found = *pp;
+			*pp = found->next;
+			found->next = NULL;
+			return found;
+		}
+		pp = &(*pp)->next;
+	}
+	return NULL;
 }
 
 static struct discovery_op *unlink_discovery_locked(jlong handle)
@@ -329,6 +403,55 @@ static void browse_cb(AvahiServiceBrowser *b, AvahiIfIndex interface,
 		break;
 	case AVAHI_BROWSER_ALL_FOR_NOW:
 	case AVAHI_BROWSER_CACHE_EXHAUSTED:
+	default:
+		break;
+	}
+}
+
+static int rename_registration(struct registration_op *op)
+{
+	if (++op->renames > 16) return -1;
+	char *name = avahi_alternative_service_name(op->name);
+	char *copy = name ? strdup(name) : NULL;
+	avahi_free(name);
+	if (!copy) return -1;
+	free(op->name); op->name = copy;
+	return 0;
+}
+
+static int publish_registration(struct registration_op *op, AvahiEntryGroup *group)
+{
+	for (;;) {
+		int result = avahi_entry_group_add_service_strlst(group, AVAHI_IF_UNSPEC,
+			AVAHI_PROTO_UNSPEC, 0, op->name, op->service_type, NULL, NULL, op->port, op->txt);
+		if (result != AVAHI_ERR_COLLISION)
+			return result < 0 ? result : avahi_entry_group_commit(group);
+		avahi_entry_group_reset(group);
+		if (rename_registration(op)) return -1;
+	}
+}
+
+/* Announce (publish) a service. The daemon owns the name space, so a collision
+ * is resolved by renaming the instance and republishing it, which is the
+ * DNS-SD behaviour AOSP's NsdManager also exposes (onServiceRegistered reports
+ * the name the service is actually reachable under); the final name is handed
+ * back to Java. */
+static void registration_cb(AvahiEntryGroup *g, AvahiEntryGroupState state, void *userdata)
+{
+	struct registration_op *op = userdata;
+	switch (state) {
+	case AVAHI_ENTRY_GROUP_ESTABLISHED:
+		java_service_registered(op->handle, op->name);
+		break;
+	case AVAHI_ENTRY_GROUP_COLLISION: {
+        avahi_entry_group_reset(g);
+        if (rename_registration(op) || publish_registration(op, g) < 0)
+            java_registration_failed(op->handle);
+		break;
+	}
+	case AVAHI_ENTRY_GROUP_FAILURE:
+		java_registration_failed(op->handle);
+		break;
 	default:
 		break;
 	}
@@ -501,4 +624,121 @@ JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeResolve(
 		return JNI_FALSE;
 	}
 	return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeRegisterService(
+		JNIEnv *env, jclass clazz, jlong handle, jstring jname, jstring jtype,
+		jint port, jobjectArray keys, jobjectArray values)
+{
+	if (!nsd_bridge_init(env, clazz))
+		return JNI_FALSE;
+	if (!nsd_ensure_backend())
+		return JNI_FALSE;
+
+	const char *name = (*env)->GetStringUTFChars(env, jname, NULL);
+	if (!name) return JNI_FALSE;
+	const char *type = (*env)->GetStringUTFChars(env, jtype, NULL);
+	if (!type) { (*env)->ReleaseStringUTFChars(env, jname, name); return JNI_FALSE; }
+
+	/* DNS-SD TXT records: a null/empty value becomes a bare key, anything else
+	 * is kept as raw bytes. */
+	AvahiStringList *txt = NULL;
+	jsize n = keys ? (*env)->GetArrayLength(env, keys) : 0;
+	for (jsize i = 0; i < n; i++) {
+		jstring jk = (jstring)(*env)->GetObjectArrayElement(env, keys, i);
+		if (!jk)
+			continue;
+		const char *k = (*env)->GetStringUTFChars(env, jk, NULL);
+		if (!k) { (*env)->DeleteLocalRef(env, jk); goto failed_txt; }
+		jbyteArray jv = values
+				? (jbyteArray)(*env)->GetObjectArrayElement(env, values, i) : NULL;
+		if (jv) {
+			jsize len = (*env)->GetArrayLength(env, jv);
+			if (len > 0) {
+				jbyte *buf = (*env)->GetByteArrayElements(env, jv, NULL);
+				if (!buf) {
+					(*env)->ReleaseStringUTFChars(env, jk, k);
+					(*env)->DeleteLocalRef(env, jk);
+					(*env)->DeleteLocalRef(env, jv);
+					goto failed_txt;
+				}
+				txt = avahi_string_list_add_pair_arbitrary(txt, k,
+						(const uint8_t *)buf, (size_t)len);
+				(*env)->ReleaseByteArrayElements(env, jv, buf, JNI_ABORT);
+			} else {
+				txt = avahi_string_list_add_pair_arbitrary(txt, k, (const uint8_t *)"", 0);
+			}
+			(*env)->DeleteLocalRef(env, jv);
+		} else {
+			txt = avahi_string_list_add_pair(txt, k, NULL);
+		}
+		(*env)->ReleaseStringUTFChars(env, jk, k);
+		(*env)->DeleteLocalRef(env, jk);
+	}
+
+	struct registration_op *op = calloc(1, sizeof(*op));
+	if (!op) {
+		(*env)->ReleaseStringUTFChars(env, jname, name);
+		(*env)->ReleaseStringUTFChars(env, jtype, type);
+		avahi_string_list_free(txt);
+		return JNI_FALSE;
+	}
+	op->handle = handle;
+	op->name = strdup(name);
+	op->service_type = strdup(type);
+	op->port = (uint16_t)port;
+	op->txt = txt;
+
+	(*env)->ReleaseStringUTFChars(env, jname, name);
+	(*env)->ReleaseStringUTFChars(env, jtype, type);
+
+	int registered = 0;
+	avahi_threaded_poll_lock(g_nsd_poll);
+	if (g_client_running && op->name && op->service_type) {
+		op->group = avahi_entry_group_new(g_client, registration_cb, op);
+		if (op->group && publish_registration(op, op->group) >= 0) {
+			registered = 1;
+		} else if (op->group) {
+			avahi_entry_group_free(op->group);
+			op->group = NULL;
+		}
+	}
+	if (registered) {
+		op->next = g_registrations;
+		g_registrations = op;
+	}
+	avahi_threaded_poll_unlock(g_nsd_poll);
+
+	if (!registered) {
+		free(op->name);
+		free(op->service_type);
+		avahi_string_list_free(op->txt);
+		free(op);
+		return JNI_FALSE;
+	}
+	return JNI_TRUE;
+failed_txt:
+	(*env)->ReleaseStringUTFChars(env, jname, name);
+	(*env)->ReleaseStringUTFChars(env, jtype, type);
+	avahi_string_list_free(txt);
+	return JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_android_net_nsd_NsdManager_nativeUnregisterService(
+		JNIEnv *env, jclass clazz, jlong handle)
+{
+	(void)env; (void)clazz;
+	if (!g_nsd_poll)
+		return;
+	avahi_threaded_poll_lock(g_nsd_poll);
+	struct registration_op *op = unlink_registration_locked(handle);
+	if (op) {
+		if (op->group)
+			avahi_entry_group_free(op->group);
+		free(op->name);
+		free(op->service_type);
+		avahi_string_list_free(op->txt);
+		free(op);
+	}
+	avahi_threaded_poll_unlock(g_nsd_poll);
 }

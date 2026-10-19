@@ -103,6 +103,22 @@ public class NsdServiceInfo {
         mTxtRecord.put(key, value);
     }
 
+    /**
+     * Add a service attribute as a key/value pair. Values may be UTF-8 strings
+     * or null; the total length of key + value must be less than 255 bytes.
+     * Mirrors AOSP NsdServiceInfo.setAttribute(String, String)
+     * (frameworks/base core/java/android/net/nsd/NsdServiceInfo.java,
+     * tag android-12.0.0_r1:240-249), which stores the UTF-8 bytes of the
+     * value through the byte[] overload.
+     */
+    public void setAttribute(String key, String value) {
+        try {
+            setAttribute(key, value == null ? (byte[]) null : value.getBytes("UTF-8"));
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IllegalArgumentException("Value must be UTF-8");
+        }
+    }
+
     /** Remove a TXT record (attribute) by key. */
     public void removeAttribute(String key) {
         mTxtRecord.remove(key);

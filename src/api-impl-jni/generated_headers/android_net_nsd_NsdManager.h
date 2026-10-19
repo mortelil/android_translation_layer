@@ -49,6 +49,22 @@ JNIEXPORT void JNICALL Java_android_net_nsd_NsdManager_nativeStopDiscovery
 JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeResolve
   (JNIEnv *, jclass, jlong, jstring, jstring, jstring, jint, jint);
 
+/*
+ * Class:     android_net_nsd_NsdManager
+ * Method:    nativeRegisterService
+ * Signature: (JLjava/lang/String;Ljava/lang/String;I[Ljava/lang/String;[[B)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_net_nsd_NsdManager_nativeRegisterService
+  (JNIEnv *, jclass, jlong, jstring, jstring, jint, jobjectArray, jobjectArray);
+
+/*
+ * Class:     android_net_nsd_NsdManager
+ * Method:    nativeUnregisterService
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_android_net_nsd_NsdManager_nativeUnregisterService
+  (JNIEnv *, jclass, jlong);
+
 #ifdef __cplusplus
 }
 #endif
