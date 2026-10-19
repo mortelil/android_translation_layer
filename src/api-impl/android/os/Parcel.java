@@ -802,6 +802,10 @@ public class Parcel {
 	public void writeNoException() { writeInt(0); }
 
 	public int readExceptionCode() {
+		// Android's native no-status readInt32 returns zero without advancing
+		// when no data remains. Preserve that exception-header behaviour only;
+		// do not change Binder's handled=false result or accept partial headers.
+		if (dataPosition() == dataSize()) return 0;
 		int code = readInt();
 		if (code == -128) {
 			// Skip bounded StrictMode metadata; it is not an exception.

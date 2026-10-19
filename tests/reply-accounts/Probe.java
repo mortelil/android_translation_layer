@@ -7,6 +7,15 @@ public class Probe extends Activity {
     int checks;
     void check(boolean ok, String why) { if (!ok) throw new AssertionError(why); checks++; }
     void replies() {
+        Parcel empty=Parcel.obtain();empty.readException();
+        check(empty.dataPosition()==0,"empty exception header does not advance");empty.recycle();
+        Binder target=new Binder(){protected boolean onTransact(int code,Parcel data,Parcel reply,int flags){return code==1;}};
+        for(int code=1;code<=2;code++) {
+            Parcel request=Parcel.obtain(), reply=Parcel.obtain();
+            check(target.transact(code,request,reply,0)==(code==1),"handled result preserved");
+            reply.readException();check(reply.dataSize()==0,"no fabricated reply bytes");
+            request.recycle();reply.recycle();
+        }
         Parcel p=Parcel.obtain(); p.writeNoException();
         check(p.dataSize()==4,"success header length");p.setDataPosition(0);
         check(p.readInt()==0,"success header code");p.recycle();
