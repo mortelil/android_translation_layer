@@ -69,6 +69,7 @@ public class TextView extends View {
 	private boolean textColorApplied, hintColorApplied;
 	private CharSequence text = "";
 	private int inputType;
+	private String privateImeOptions;
 	private int highlightColor = 0x6633b5e5;
 	private ColorStateList hintColors = ColorStateList.valueOf(0xff808080);
 	private TransformationMethod transformationMethod;
@@ -269,6 +270,10 @@ public class TextView extends View {
 	public void setFilters(InputFilter[] filters) {}
 	public void setCursorVisible(boolean visible) {}
 	public void setImeOptions(int imeOptions) {}
+
+	/** Opaque keyboard-specific options; retained for clients that inspect them. */
+	public void setPrivateImeOptions(String options) { privateImeOptions = options; }
+	public String getPrivateImeOptions() { return privateImeOptions; }
 
 	public final ColorStateList getTextColors() { return colors; }
 	public static ColorStateList getTextColors(Context context, TypedArray attrs) { return new ColorStateList(new int[][] {new int[0]}, new int[1]); }

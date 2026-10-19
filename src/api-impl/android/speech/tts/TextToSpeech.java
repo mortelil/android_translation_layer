@@ -8,10 +8,16 @@ public class TextToSpeech {
 	public static final int ERROR = -1;
 
 	public TextToSpeech(Context context, TextToSpeech.OnInitListener listener) {
+		this(context, listener, null);
+	}
+
+	public TextToSpeech(Context context, TextToSpeech.OnInitListener listener, String engine) {
+		// No synthesis backend is installed in ATL. Report initialization failure
+		// asynchronously for both constructors, including an explicit engine.
 		new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override
 			public void run() {
-				listener.onInit(ERROR);
+				if (listener != null) listener.onInit(ERROR);
 			}
 		});
 	}
