@@ -331,7 +331,52 @@ public class Environment {
 			app_data_dir_file = new File(native_get_app_data_dir());
 		}
 
+		ensureStandardPublicDirectories();
+
 		return app_data_dir_file;
+	}
+
+	/** Guards {@link #ensureStandardPublicDirectories}. */
+	private static boolean standard_public_dirs_created = false;
+
+	/**
+	 * Create the standard public directories of the primary external volume.
+	 *
+	 * <p>On Android these directories ({@code Download}, {@code Pictures}, ...) are created by
+	 * the platform while the primary external volume is set up, not by apps:
+	 * {@code packages/providers/MediaProvider/src/com/android/providers/media/MediaProvider.java}
+	 * (tag android-17.0.0_r1), {@code ensureDefaultFolders()} at line 1465,
+	 * {@code for (String folderName : getDefaultFolderNames()) { ... folder.mkdirs(); }}
+	 * (lines 1504-1506), whose names come from {@link #STANDARD_DIRECTORIES} and the
+	 * {@code DIRECTORY_*} constants (same file, lines 4886-4889).
+	 *
+	 * <p>ATL's external storage is the per-app data directory and has no media provider or volume
+	 * setup, so nothing ever created those directories.  Applications that write into e.g.
+	 * {@code DIRECTORY_DOWNLOADS} without an explicit {@code mkdirs()} therefore failed with
+	 * ENOENT on a directory that always exists on a real device.  Create them here, once, when
+	 * the external storage root is first resolved.
+	 *
+	 * <p>{@link #STANDARD_DIRECTORIES} is declared after the {@code DIRECTORY_*} constants, so it
+	 * is still {@code null} while this class is being initialized (the static block at the top of
+	 * the class runs before them); in that case the directories are created on the next call.
+	 */
+	private static synchronized void ensureStandardPublicDirectories() {
+		if (standard_public_dirs_created || STANDARD_DIRECTORIES == null) {
+			/* STANDARD_DIRECTORIES is still null while this class is being initialized: the
+			 * static block at the top of the class runs before the DIRECTORY_* constants are
+			 * assigned, and UserEnvironment's field initializer resolves the external storage
+			 * root from that static block.  In that case the directories are created on the
+			 * next call, once initialization has finished. */
+			return;
+		}
+		boolean complete = true;
+		for (String directory : STANDARD_DIRECTORIES) {
+			File dir = new File(app_data_dir_file, directory);
+			if (!dir.exists()) {
+				if (!dir.mkdirs() && !dir.isDirectory()) complete = false;
+			}
+		}
+		standard_public_dirs_created = complete;
 	}
 
 	private static native String native_get_app_data_dir();
@@ -465,6 +510,37 @@ public class Environment {
 	public static String DIRECTORY_DOCUMENTS = "Documents";
 
 	/**
+	 * List of standard storage directories.
+	 * <p>
+	 * Each of its values have its own constant:
+	 * <ul>
+	 *   <li>{@link #DIRECTORY_MUSIC}
+	 *   <li>{@link #DIRECTORY_PODCASTS}
+	 *   <li>{@link #DIRECTORY_ALARMS}
+	 *   <li>{@link #DIRECTORY_RINGTONES}
+	 *   <li>{@link #DIRECTORY_NOTIFICATIONS}
+	 *   <li>{@link #DIRECTORY_PICTURES}
+	 *   <li>{@link #DIRECTORY_MOVIES}
+	 *   <li>{@link #DIRECTORY_DOWNLOADS}
+	 *   <li>{@link #DIRECTORY_DCIM}
+	 *   <li>{@link #DIRECTORY_DOCUMENTS}
+	 * </ul>
+	 * @hide
+	 */
+	public static final String[] STANDARD_DIRECTORIES = {
+			DIRECTORY_MUSIC,
+			DIRECTORY_PODCASTS,
+			DIRECTORY_RINGTONES,
+			DIRECTORY_ALARMS,
+			DIRECTORY_NOTIFICATIONS,
+			DIRECTORY_PICTURES,
+			DIRECTORY_MOVIES,
+			DIRECTORY_DOWNLOADS,
+			DIRECTORY_DCIM,
+			DIRECTORY_DOCUMENTS,
+	};
+
+	/**
 	 * Get a top-level public external storage directory for placing files of
 	 * a particular type.  This is where the user will typically place and
 	 * manage their own files, so you should be careful about what you put here
@@ -494,6 +570,7 @@ public class Environment {
 	 */
 	public static File getExternalStoragePublicDirectory(String type) {
 		throwIfUserRequired();
+		ensureStandardPublicDirectories();
 		return sCurrentUser.buildExternalStoragePublicDirs(type)[0];
 	}
 

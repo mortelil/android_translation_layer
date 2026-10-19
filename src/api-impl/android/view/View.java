@@ -1142,19 +1142,29 @@ public class View implements Drawable.Callback {
 			setStateListAnimator(AnimatorInflater.loadStateListAnimator(context, resId));
 		}
 		a.recycle();
-		onCreateDrawableState(0);
 	}
 
 	protected int[] onCreateDrawableState(int extraSpace) {
 		// Keep extension slots at the end for app-defined states (e.g. checked).
-		int count = (isEnabled() ? 1 : 0) + (pressed ? 1 : 0)
-			+ (isSelected() ? 1 : 0) + (isActivated() ? 1 : 0);
+		// Read the backing flags directly instead of via isEnabled()/isSelected()/
+		// isActivated(): this method is reachable from the View constructor - AOSP
+		// View.java:6756 calls setBackground(background) while still inside
+		// View(Context, AttributeSet, int, int), and setBackgroundDrawable ->
+		// getDrawableState() -> onCreateDrawableState() for a stateful background
+		// (View.java:26976, getDrawableState at View.java:26719). AOSP's own
+		// onCreateDrawableState (View.java:26744) therefore reads mViewFlags
+		// ENABLED_MASK and the PFLAG_PRESSED/SELECTED/ACTIVATED bits rather than
+		// calling the public (overridable) getters; calling an app override there
+		// runs app code before the subclass constructor body has initialised its
+		// fields.
+		int count = (atl_enabled ? 1 : 0) + (pressed ? 1 : 0)
+			+ (atl_selected ? 1 : 0) + (atl_activated ? 1 : 0);
 		int[] state = new int[count + extraSpace];
 		int next = 0;
-		if (isSelected()) state[next++] = R.attr.state_selected;
-		if (isEnabled()) state[next++] = R.attr.state_enabled;
+		if (atl_selected) state[next++] = R.attr.state_selected;
+		if (atl_enabled) state[next++] = R.attr.state_enabled;
 		if (pressed) state[next++] = R.attr.state_pressed;
-		if (isActivated()) state[next++] = R.attr.state_activated;
+		if (atl_activated) state[next++] = R.attr.state_activated;
 		return state;
 	}
 

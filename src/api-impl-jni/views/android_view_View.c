@@ -384,10 +384,16 @@ static gboolean scroll_cb(GtkEventControllerScroll *controller, gdouble dx, gdou
 
 static void hover_enter_cb(GtkEventControllerMotion *controller, double x, double y, WrapperWidget *wrapper)
 {
-	double raw_x;
-	double raw_y;
+	double raw_x = x;
+	double raw_y = y;
 	GdkEvent *event = gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller));
-	gdk_event_get_position(event, &raw_x, &raw_y);
+	if (event && !gdk_event_get_position(event, &raw_x, &raw_y)) {
+		/* gdk_event_get_position() leaves the out params untouched when it
+		 * fails, so fall back to the controller-supplied coordinates
+		 * instead of forwarding indeterminate values to the app. */
+		raw_x = x;
+		raw_y = y;
+	}
 	wrapper->hover_exit_pending = FALSE;
 	wrapper->hover_x = x;
 	wrapper->hover_y = y;
@@ -404,10 +410,13 @@ static void hover_leave_cb(GtkEventControllerMotion *controller, WrapperWidget *
 
 static void hover_motion_cb(GtkEventControllerMotion *controller, double x, double y, WrapperWidget *wrapper)
 {
-	double raw_x;
-	double raw_y;
+	double raw_x = x;
+	double raw_y = y;
 	GdkEvent *event = gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller));
-	gdk_event_get_position(event, &raw_x, &raw_y);
+	if (event && !gdk_event_get_position(event, &raw_x, &raw_y)) {
+		raw_x = x;
+		raw_y = y;
+	}
 	wrapper->hover_x = x;
 	wrapper->hover_y = y;
 	call_hover_callback(wrapper->jobj, ACTION_HOVER_MOVE, x, y, raw_x, raw_y);

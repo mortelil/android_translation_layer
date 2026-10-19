@@ -4,7 +4,9 @@ import android.R;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Parcelable;
+import android.util.ArrayMap;
 import android.util.SparseArray;
 import android.graphics.drawable.Drawable;
 import android.os.Binder;
@@ -37,7 +39,54 @@ public class Window {
 		public boolean onMenuOpened(int featureId, Menu menu);
 	}
 
-	public static interface OnFrameMetricsAvailableListener {}
+	/**
+	 * Callback for clients that want frame timing information for each frame
+	 * rendered by the Window.
+	 *
+	 * AOSP frameworks/base/core/java/android/view/Window.java:728-748.
+	 */
+	public interface OnFrameMetricsAvailableListener {
+		/**
+		 * Called when information is available for the previously rendered
+		 * frame. {@code frameMetrics} is reused between calls.
+		 */
+		void onFrameMetricsAvailable(Window window, FrameMetrics frameMetrics,
+				int dropCountSinceLastInvocation);
+	}
+
+	/* Listeners registered through addOnFrameMetricsAvailableListener(), keyed by
+	 * listener so a repeated add() is idempotent and remove() is exact - the same
+	 * role View.mFrameMetricsObservers plays in AOSP (View.addFrameMetricsListener). */
+	private ArrayMap<OnFrameMetricsAvailableListener, Handler> frameMetricsListeners;
+
+	/**
+	 * Set an observer to collect frame stats for each frame rendered in this window.
+	 *
+	 * AOSP Window.java:1043-1056 forwards this to the DecorView, whose
+	 * View.addFrameMetricsListener() only starts a FrameMetricsObserver when the
+	 * view is hardware accelerated (mAttachInfo.mThreadedRenderer != null); on the
+	 * non-accelerated path it logs and produces no callbacks. ATL renders through
+	 * GTK/GSK and has no ThreadedRenderer-backed frame-stats producer, so this is
+	 * the non-accelerated path: the registration is recorded (and remove() is
+	 * exact), but no FrameMetrics callback is produced.
+	 */
+	public final void addOnFrameMetricsAvailableListener(OnFrameMetricsAvailableListener listener, Handler handler) {
+		if (decorView == null)
+			throw new IllegalStateException("can't observe a Window without an attached view");
+		if (listener == null)
+			throw new NullPointerException("listener cannot be null");
+		if (frameMetricsListeners == null)
+			frameMetricsListeners = new ArrayMap<>();
+		frameMetricsListeners.put(listener, handler);
+	}
+
+	/**
+	 * Remove observer and stop listening to frame stats for this window.
+	 */
+	public final void removeOnFrameMetricsAvailableListener(OnFrameMetricsAvailableListener listener) {
+		if (decorView != null && frameMetricsListeners != null)
+			frameMetricsListeners.remove(listener);
+	}
 
 	private android.media.session.MediaController mediaController;
 	public void setMediaController(android.media.session.MediaController controller) { mediaController = controller; }

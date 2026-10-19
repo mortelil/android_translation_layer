@@ -88,6 +88,7 @@ public abstract class Context {
 	public static final String INPUT_METHOD_SERVICE = "input_method";
 	public static final String LOCATION_SERVICE = "location";
 	public static final String MEDIA_ROUTER_SERVICE = "media_router";
+	public static final String NETWORK_STATS_SERVICE = "netstats";
 	public static final String POWER_SERVICE = "power";
 	public static final String VIBRATOR_SERVICE = "vibrator";
 	public static final String WINDOW_SERVICE = "window";
@@ -203,6 +204,33 @@ public abstract class Context {
 
 	public String getPackageName() {
 		return getApplicationInfo().packageName;
+	}
+
+	/**
+	 * @hide Return the name of the base context this context is derived from.
+	 * This is the same as {@link #getOpPackageName()} except in
+	 * cases where system components are loaded into other app processes, in which
+	 * case {@link #getOpPackageName()} will be the name of the primary package in
+	 * that process (so that app ops uid verification will work with the name).
+	 * AOSP ContextImpl.getBasePackageName() (core/java/android/app/ContextImpl.java:563-567,
+	 * android-17.0.0_r1, 94b4c163) falls back to getPackageName(); ATL never has a separate
+	 * mBasePackageName, so the context's own package is the correct answer.
+	 */
+	public String getBasePackageName() {
+		return getPackageName();
+	}
+
+	/**
+	 * Return the package name that should be used for {@link android.app.AppOpsManager} calls from
+	 * this context, so that app ops manager's uid verification will work with the name.
+	 * <p>
+	 * This is not generally intended for third party application developers.
+	 * AOSP ContextImpl.getOpPackageName() (core/java/android/app/ContextImpl.java:570-573)
+	 * returns mAttributionSource.getPackageName(); ATL has no attribution sources, so the
+	 * package the context was created for is the equivalent value.
+	 */
+	public String getOpPackageName() {
+		return getBasePackageName();
 	}
 
 	public String getPackageCodePath() {

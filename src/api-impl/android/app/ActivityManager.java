@@ -21,20 +21,98 @@ import java.util.Map;
 
 public class ActivityManager {
 
-	/** AOSP {@code ActivityManager.RunningAppProcessInfo}: the fields a caller in this
-	 *  process needs to find itself, above all the packages the process runs (microG
-	 *  resolves the calling package with {@code pkgList}). */
+	/* AOSP ActivityManager keeps the PROCESS_STATE_* values on the outer class, as aliases of
+	 * the shared ProcessStateEnum (frameworks-base/core/java/android/app/ActivityManager.java:788-877
+	 * -> core/java/android/app/ProcessStateEnum.aidl values). */
+	public static final int PROCESS_STATE_UNKNOWN = -1;
+	public static final int PROCESS_STATE_PERSISTENT = 0;
+	public static final int PROCESS_STATE_PERSISTENT_UI = 1;
+	public static final int PROCESS_STATE_TOP = 2;
+	public static final int PROCESS_STATE_BOUND_TOP = 3;
+	public static final int PROCESS_STATE_FOREGROUND_SERVICE = 4;
+	public static final int PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 5;
+	public static final int PROCESS_STATE_IMPORTANT_FOREGROUND = 6;
+	public static final int PROCESS_STATE_IMPORTANT_BACKGROUND = 7;
+	public static final int PROCESS_STATE_TRANSIENT_BACKGROUND = 8;
+	public static final int PROCESS_STATE_BACKUP = 9;
+	public static final int PROCESS_STATE_SERVICE = 10;
+	public static final int PROCESS_STATE_RECEIVER = 11;
+	public static final int PROCESS_STATE_TOP_SLEEPING = 12;
+	public static final int PROCESS_STATE_HEAVY_WEIGHT = 13;
+	public static final int PROCESS_STATE_HOME = 14;
+	public static final int PROCESS_STATE_LAST_ACTIVITY = 15;
+	public static final int PROCESS_STATE_CACHED_ACTIVITY = 16;
+	public static final int PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 17;
+	public static final int PROCESS_STATE_CACHED_RECENT = 18;
+	public static final int PROCESS_STATE_CACHED_EMPTY = 19;
+	public static final int PROCESS_STATE_NONEXISTENT = 20;
+
+	/** AOSP {@code ActivityManager.RunningAppProcessInfo}. Field access is resolved by
+	 *  name at run time, so a field AOSP declares but ATL omits is a {@code NoSuchFieldError}
+	 *  for the caller instead of a default value. The crash reporter in this app reads the
+	 *  struct field by field, so the full AOSP field set is present here. Reference:
+	 *  frameworks-base/core/java/android/app/ActivityManager.java:4034-4400 (fields,
+	 *  constants and the no-arg constructor) and the shared enum
+	 *  core/java/android/app/ProcessStateEnum.aidl (the PROCESS_STATE_* values). */
 	public static class RunningAppProcessInfo {
-		public int importance;
+		public String processName;
 		public int pid;
 		public int uid;
-		public String processName;
 		public String[] pkgList;
+		public String[] pkgDeps;
+		/** Any of the FLAG_* constants. */
+		public int flags;
+		public int lastTrimLevel;
+
+		public static final int FLAG_CANT_SAVE_STATE = 1 << 0;
+		public static final int FLAG_PERSISTENT = 1 << 1;
+		public static final int FLAG_HAS_ACTIVITIES = 1 << 2;
+
+		public static final int IMPORTANCE_FOREGROUND = 100;
+		public static final int IMPORTANCE_FOREGROUND_SERVICE = 125;
+		public static final int IMPORTANCE_TOP_SLEEPING_PRE_28 = 150;
+		public static final int IMPORTANCE_VISIBLE = 200;
+		public static final int IMPORTANCE_PERCEPTIBLE_PRE_26 = 130;
+		public static final int IMPORTANCE_PERCEPTIBLE = 230;
+		public static final int IMPORTANCE_CANT_SAVE_STATE_PRE_26 = 170;
+		public static final int IMPORTANCE_SERVICE = 300;
+		public static final int IMPORTANCE_TOP_SLEEPING = 325;
+		public static final int IMPORTANCE_CANT_SAVE_STATE = 350;
+		public static final int IMPORTANCE_CACHED = 400;
+		public static final int IMPORTANCE_BACKGROUND = IMPORTANCE_CACHED;
+		public static final int IMPORTANCE_EMPTY = 500;
+		public static final int IMPORTANCE_GONE = 1000;
+
+		public int importance;
+		public int lru;
+
+		public static final int REASON_UNKNOWN = 0;
+		public static final int REASON_PROVIDER_IN_USE = 1;
+		public static final int REASON_SERVICE_IN_USE = 2;
+
+		public int importanceReasonCode;
+		public int importanceReasonPid;
+		public android.content.ComponentName importanceReasonComponent;
+		public int importanceReasonImportance;
+		/** Current process state, as per the PROCESS_STATE_* constants. */
+		public int processState;
+		public boolean isFocused;
+		public long lastActivityTime;
+
+		public RunningAppProcessInfo() {
+			importance = IMPORTANCE_FOREGROUND;
+			importanceReasonCode = REASON_UNKNOWN;
+			processState = PROCESS_STATE_IMPORTANT_FOREGROUND;
+			isFocused = false;
+			lastActivityTime = 0;
+		}
 
 		public RunningAppProcessInfo(String processName, int pid, String[] pkgList) {
 			this.processName = processName;
 			this.pid = pid;
 			this.pkgList = pkgList;
+			isFocused = false;
+			lastActivityTime = 0;
 		}
 
 		private RunningAppProcessInfo(int pid, String processName, String[] pkgList) {
@@ -68,7 +146,9 @@ public class ActivityManager {
 	public List<RunningAppProcessInfo> getRunningAppProcesses() {
 		String packageName = ATLLoadedApp.getPrimaryApplication().pkg.packageName;
 		ArrayList<RunningAppProcessInfo> result = new ArrayList<>();
-		result.add(new RunningAppProcessInfo(Application.getProcessName(), Process.myPid(), new String[] {packageName}));
+		RunningAppProcessInfo self = new RunningAppProcessInfo(Application.getProcessName(), Process.myPid(), new String[] {packageName});
+		self.uid = Process.myUid();
+		result.add(self);
 		RunningAppProcessInfo caller = android.atl.ChildHost.callingProcess();
 		if (caller != null) result.add(caller);
 		return result;
