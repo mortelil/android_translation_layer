@@ -9,6 +9,22 @@ extern "C" {
 #endif
 /*
  * Class:     android_view_Surface
+ * Method:    nativeRelease
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_android_view_Surface_nativeRelease
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     android_view_Surface
+ * Method:    nativeIsValid
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_view_Surface_nativeIsValid
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     android_view_Surface
  * Method:    nativeResetCanvas
  * Signature: (J)J
  */
