@@ -23,6 +23,9 @@ struct _WrapperWidget {
 	gboolean needs_allocation;
 	gboolean intercepting_touch;
 	gboolean custom_dispatch_touch;
+	/* Java side is attached: mirrors View.mAttachInfo, see WrapperWidget.c */
+	gboolean attached;
+	gboolean detaching;
 	gboolean hover_exit_pending;
 	int hover_x;
 	int hover_y;
@@ -32,9 +35,10 @@ struct _WrapperWidgetClass {
 	GtkWidgetClass parent_class;
 };
 
-extern GtkWidget *currently_unmapping;
-
 GtkWidget *wrapper_widget_new(void);
+/* Attach the Java views of a toplevel's tree right before it is presented:
+ * see the ordering contract documented at dispatch_attach() in WrapperWidget.c. */
+void atl_widget_present_tree(GtkWidget *toplevel);
 void wrapper_widget_set_child(WrapperWidget *parent, GtkWidget *child);
 void wrapper_widget_set_jobject(WrapperWidget *wrapper, JNIEnv *env, jobject jobj);
 GtkEventControllerKey *wrapper_widget_ensure_key_controller(GtkWidget *wrapper);
@@ -47,3 +51,5 @@ void wrapper_widget_register_invalidation_listener(WrapperWidget *wrapper);
 void _setOnTouchListener(JNIEnv *env, jobject this, GtkWidget *widget);
 
 #endif
+
+void atl_widget_dismiss_tree(GtkWidget *toplevel);

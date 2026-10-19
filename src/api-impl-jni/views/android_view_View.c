@@ -1049,7 +1049,15 @@ JNIEXPORT void JNICALL Java_android_view_View_native_1keep_1screen_1on(JNIEnv *e
 JNIEXPORT jboolean JNICALL Java_android_view_View_nativeIsAttachedToWindow(JNIEnv *env, jobject this, jlong widget_ptr)
 {
 	GtkWidget *widget = GTK_WIDGET(_PTR(widget_ptr));
-	return currently_unmapping == widget || gtk_widget_get_root(widget);
+	GtkWidget *parent = gtk_widget_get_parent(widget);
+	/* View.isAttachedToWindow() is View.mAttachInfo != null
+	 * (core/java/android/view/View.java:14495-14497); the wrapper's flag is set
+	 * by the attach dispatch and stays set until onDetachedFromWindow() has run
+	 * (View.java:23597,23625). */
+	if (parent && WRAPPER_IS_WIDGET(parent))
+		return WRAPPER_WIDGET(parent)->attached;
+	/* no Java view wrapper around this widget: fall back to "is rooted" */
+	return gtk_widget_get_root(widget) != NULL;
 }
 
 JNIEXPORT jobject JNICALL Java_android_view_View_native_1get_1window(JNIEnv *env, jobject this, jlong widget_ptr)
@@ -1068,15 +1076,14 @@ extern GtkWindow *window;
 
 JNIEXPORT void JNICALL Java_android_view_View_getWindowVisibleDisplayFrame(JNIEnv *env, jobject this, jobject rect)
 {
-	int width;
-	int height;
-	gtk_window_get_default_size(window, &width, &height);
-	if (getenv("ATL_RENDER_SCALE")) {
-		jclass display = (*env)->FindClass(env, "android/view/Display");
-		width = (*env)->GetStaticIntField(env, display, _STATIC_FIELD_ID(display, "window_width", "I"));
-		height = (*env)->GetStaticIntField(env, display, _STATIC_FIELD_ID(display, "window_height", "I"));
-		(*env)->DeleteLocalRef(env, display);
-	}
+	/* Use the current Android-pixel allocation, including density scaling,
+	 * instead of GTK's initial logical default size. ATL currently has one
+	 * display and no Android system-bar insets; this is not multi-display support.
+	 * AOSP reference: android-37 View.getWindowVisibleDisplayFrame(Rect). */
+	jclass display = (*env)->FindClass(env, "android/view/Display");
+	int width = (*env)->GetStaticIntField(env, display, _STATIC_FIELD_ID(display, "window_width", "I"));
+	int height = (*env)->GetStaticIntField(env, display, _STATIC_FIELD_ID(display, "window_height", "I"));
+	(*env)->DeleteLocalRef(env, display);
 	_SET_INT_FIELD(rect, "left", 0);
 	_SET_INT_FIELD(rect, "top", 0);
 	_SET_INT_FIELD(rect, "right", width);
