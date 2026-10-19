@@ -2317,34 +2317,8 @@ public class PackageManager {
 	 * @see #GET_RESOLVED_FILTER
 	 */
 	public ResolveInfo resolveActivity(Intent intent, int flags) {
-		ResolveInfo info = null;
-		ActivityInfo activity_info = null;
-
-		if (intent.getComponent() != null) {
-			for (PackageParser.Activity activity : ATLLoadedApp.getPrimaryApplication().pkg.activities) {
-				if (Objects.equals(intent.getComponent().getClassName(), activity.className))
-					activity_info = activity.info;
-			}
-		} else {
-			for (PackageParser.Activity activity : ATLLoadedApp.getPrimaryApplication().pkg.activities) {
-				for (PackageParser.IntentInfo intentInfo : activity.intents) {
-					if (intentInfo.matchAction(intent.getAction())) {
-						activity_info = activity.info;
-						break;
-					}
-				}
-			}
-		}
-
-		if (activity_info == null) {
-			return null;
-		}
-
-		info = new ResolveInfo();
-		info.activityInfo.exported = true;
-		info.activityInfo = activity_info;
-
-		return info;
+		List<ResolveInfo> matches = queryIntentActivities(intent, flags);
+		return matches.isEmpty() ? null : matches.get(0);
 	}
 
 	/**
@@ -2400,26 +2374,24 @@ public class PackageManager {
 	 * @see #GET_INTENT_FILTERS
 	 * @see #GET_RESOLVED_FILTER
 	 */
-	public List<ResolveInfo> queryIntentActivities(Intent intent,
-	                                               int flags) {
-		if ("android.intent.action.VIEW".equals(intent.getAction()) && intent.getData() != null
-		    && ("http".equals(intent.getData().getScheme()) || "https".equals(intent.getData().getScheme()))) {
+	public List<ResolveInfo> queryIntentActivities(Intent intent, int flags) {
+		List<ResolveInfo> matches = android.atl.ATLIntentResolver.queryVisible(intent, flags, false);
+		if (!matches.isEmpty()) return matches;
+		intent = android.atl.ATLIntentResolver.effective(intent);
+		// Preserve ATL's desktop-browser fallback only for unrestricted web intents.
+		if (intent.getComponent() == null && intent.getPackage() == null &&
+		    Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getType() == null &&
+		    ("http".equals(intent.getScheme()) || "https".equals(intent.getScheme()))) {
 			ResolveInfo ri = new ResolveInfo();
 			ri.activityInfo.exported = true;
-			ri.activityInfo.name = "atl.browser";
-			ri.activityInfo.packageName = "atl";
-			ri.filter.addAction("android.intent.action.VIEW");
-			ri.filter.addCategory("android.intent.category.BROWSABLE");
-			ri.filter.addDataScheme("http");
-			ri.filter.addDataScheme("https");
-			return Arrays.asList(ri);
+			ri.activityInfo.name = "atl.browser"; ri.activityInfo.packageName = "atl";
+			ri.filter.addAction(Intent.ACTION_VIEW);
+			ri.filter.addCategory(Intent.CATEGORY_BROWSABLE);
+			ri.filter.addCategory(Intent.CATEGORY_DEFAULT);
+			ri.filter.addDataScheme("http"); ri.filter.addDataScheme("https");
+			if (ri.filter.match(intent, TAG) >= 0) return Arrays.asList(ri);
 		}
-		/* FIXME - we may need to return more than one */
-		ResolveInfo info = resolveActivity(intent, flags);
-		if (info != null)
-			return Arrays.asList(info);
-		else
-			return Collections.emptyList();
+		return matches;
 	}
 
 	/**
@@ -2566,66 +2538,8 @@ public class PackageManager {
 	 * @see #GET_INTENT_FILTERS
 	 * @see #GET_RESOLVED_FILTER
 	 */
-	public List<ResolveInfo> queryIntentServices(Intent intent,
-	                                             int flags) {
-		String packageName;
-		PackageParser.Package pkg = null;
-		if ((packageName = intent.getComponent() != null ? intent.getComponent().getPackageName() : intent.getPackage()) != null) {
-			pkg = ATLLoadedAppManager.getPackageFromPackageName(packageName);
-			if (pkg == null) return new ArrayList<ResolveInfo>();
-		}
-		if (pkg == null) {
-			pkg = ATLLoadedApp.getPrimaryApplication().pkg;
-		}
-		ComponentName component = intent.getComponent();
-		final String action = intent.getAction();
-		// Explicit components resolve by name; every other request matches the
-		// <intent-filter> actions. The matches are ordered best-first by the priority
-		// of their best matching filter - the order resolveService() relies on to pick
-		// its single result. ATL reports one entry per service (AOSP's IntentResolver
-		// emits one per matching filter); the first entry is the same either way.
-		Map<Integer, List<Service>> by_priority = new TreeMap<Integer, List<Service>>(Collections.<Integer>reverseOrder());
-		for (Service s : pkg.services) {
-			int priority = Integer.MIN_VALUE;
-			if (s.intents != null) {
-				for (ServiceIntentInfo intentinfo : s.intents) {
-					if (intentinfo.matchAction(action) && intentinfo.priority > priority)
-						priority = intentinfo.priority;
-				}
-			}
-			if (component != null) {
-				// An explicit component is resolved without consulting its filters; it
-				// still carries the priority of a matching filter, if it has one
-				// (AOSP's ResolveInfo default is 0).
-				if (!component.equals(s.getComponentName()))
-					continue;
-				putByPriority(by_priority, priority == Integer.MIN_VALUE ? 0 : priority, s);
-				continue;
-			}
-			if (priority != Integer.MIN_VALUE)
-				putByPriority(by_priority, priority, s);
-		}
-		List<ResolveInfo> list = new ArrayList<ResolveInfo>(pkg.services.size());
-		for (Map.Entry<Integer, List<Service>> entry : by_priority.entrySet()) {
-			for (Service s : entry.getValue()) {
-				ResolveInfo ri = new ResolveInfo();
-				ri.serviceInfo = s.info;
-				ri.priority = entry.getKey();
-				list.add(ri);
-			}
-		}
-		if ("1".equals(System.getenv("ATL_DEBUG_PKG")))
-			Slog.w(TAG, "queryIntentServices " + intent + " in " + pkg.packageName + " -> " + list);
-		return list;
-	}
-
-	private static void putByPriority(Map<Integer, List<Service>> by_priority, int priority, Service s) {
-		List<Service> services = by_priority.get(priority);
-		if (services == null) {
-			services = new ArrayList<Service>(1);
-			by_priority.put(priority, services);
-		}
-		services.add(s);
+	public List<ResolveInfo> queryIntentServices(Intent intent, int flags) {
+		return android.atl.ATLIntentResolver.queryVisible(intent, flags, true);
 	}
 
 	/**

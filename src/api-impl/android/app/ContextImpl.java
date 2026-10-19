@@ -93,6 +93,7 @@ public final class ContextImpl extends Context {
 
 	@Nullable
 	private ATLLoadedApp atl_get_intent_target(Intent intent) {
+		intent = android.atl.ATLIntentResolver.effective(intent);
 		ATLLoadedApp targetApp;
 		String targetPackage = intent.getComponent() != null ? intent.getComponent().getPackageName() : null;
 		if (targetPackage != null || (targetPackage = intent.getPackage()) != null) {
@@ -401,10 +402,12 @@ public final class ContextImpl extends Context {
 			intent = (Intent)intent.getExtras().get("android.intent.extra.INTENT");
 		}
 
-		String className = null;
-		if (intent.getComponent() != null) {
-			className = intent.getComponent().getClassName();
-		} else {
+		java.util.List<android.content.pm.ResolveInfo> matches = android.atl.ATLIntentResolver.queryPackage(
+			this.atl_loaded_app.pkg, intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY, false);
+		String className = matches.isEmpty() ? null : matches.get(0).activityInfo.name;
+		Intent effectiveIntent = android.atl.ATLIntentResolver.effective(intent);
+		if (className == null && effectiveIntent.getComponent() == null && effectiveIntent.getPackage() == null) {
+			intent = effectiveIntent;
 			if (intent.getAction() != null && intent.getAction().equals("android.intent.action.SEND")) {
 				Slog.i(TAG, "sharing intent via composeMail: " + intent);
 				String text = intent.getStringExtra("android.intent.extra.TEXT");
@@ -450,14 +453,6 @@ public final class ContextImpl extends Context {
 				}
 				Activity.nativeOpenURI(String.valueOf(intent.getData()));
 				return;
-			}
-			for (PackageParser.Activity activity : this.atl_loaded_app.pkg.activities) {
-				for (PackageParser.IntentInfo intentInfo : activity.intents) {
-					if (intentInfo.matchAction(intent.getAction())) {
-						className = activity.className;
-						break;
-					}
-				}
 			}
 		}
 		if (className == null) {

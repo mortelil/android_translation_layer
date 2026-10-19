@@ -1,4 +1,5 @@
 srcs = [
+	'android/atl/ATLIntentResolver.java',
 	'android/atl/ATLApkSignatures.java',
 	'android/atl/ATLFontFiles.java',
 	'android/atl/ATLFontTrace.java',
