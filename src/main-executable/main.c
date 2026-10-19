@@ -132,7 +132,9 @@ JNIEnv *create_vm(char *api_impl_jar, char *apk_classpath, char *framework_res_a
 	snprintf(heap_size_mb_option, sizeof(heap_size_mb_option),
 	         "-Datl.heap.heapsize.mb=%d", HEAP_SIZE_MB);
 
-	const char *jdwp_port = getenv("JDWP_LISTEN");
+	// Spawned service hosts inherit the launcher environment, but cannot
+	// bind the parent debugger port (or wait for its debugger connection).
+	const char *jdwp_port = getenv("ATL_SERVICE_PROCESS") ? NULL : getenv("JDWP_LISTEN");
 
 	if (jdwp_port)
 		args.nOptions += 2;
