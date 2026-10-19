@@ -323,6 +323,7 @@ srcs = [
 	'android/graphics/drawable/RippleDrawable.java',
 	'android/graphics/drawable/ScaleDrawable.java',
 	'android/graphics/drawable/ShapeDrawable.java',
+	'android/graphics/drawable/PaintDrawable.java',
 	'android/graphics/drawable/StateListDrawable.java',
 	'android/graphics/drawable/TransitionDrawable.java',
 	'android/graphics/drawable/VectorDrawable.java',
