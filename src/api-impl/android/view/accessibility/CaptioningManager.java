@@ -27,6 +27,15 @@ public class CaptioningManager {
 		return false;
 	}
 
+	/**
+	 * No caption-language preference is configured in ATL. Android returns null
+	 * in that case, allowing the player to choose; the device locale is not an
+	 * explicit caption preference. See AOSP android-14.0.0_r1 CaptioningManager.
+	 */
+	public final Locale getLocale() {
+		return null;
+	}
+
 	public float getFontScale() {
 		return 1.0f;
 	}
