@@ -1373,6 +1373,7 @@ public final class MotionEvent extends InputEvent {
 	int source;
 	int action;
 	long eventTime;
+	long downTime;
 	int[] ids;
 	float[] coords;
 
@@ -1397,6 +1398,7 @@ public final class MotionEvent extends InputEvent {
 		this.source = source;
 		this.action = action;
 		this.eventTime = eventTime;
+		this.downTime = eventTime;
 
 		this.ids = ids;
 		this.coords = coords;
@@ -1472,6 +1474,7 @@ public final class MotionEvent extends InputEvent {
 		ev.source = source;
 		ev.action = action;
 		ev.eventTime = eventTime;
+		ev.downTime = downTime;
 		ev.ids = new int[pointerCount];
 		ev.coords = new float[pointerCount * 4];
 		for (int i = 0; i < pointerCount; i++) {
@@ -1586,6 +1589,7 @@ public final class MotionEvent extends InputEvent {
 			ev.ids = new int[] {1};
 			ev.coords = new float[] {x, y, 0, 0};
 			ev.eventTime = eventTime;
+			ev.downTime = downTime;
 			return ev;
 		}
 	}
@@ -1666,6 +1670,7 @@ public final class MotionEvent extends InputEvent {
 		ev.ids = other.ids.clone();
 		ev.coords = other.coords.clone();
 		ev.eventTime = other.eventTime;
+		ev.downTime = other.downTime;
 
 		return ev;
 	}
@@ -1834,8 +1839,7 @@ public final class MotionEvent extends InputEvent {
 	 * a stream of position events.
 	 */
 	public final long getDownTime() {
-		return getEventTime(); // FIXME?
-				       //		return nativeGetDownTimeNanos(mNativePtr) / NS_PER_MS;
+		return downTime;
 	}
 
 	/**
@@ -1845,7 +1849,7 @@ public final class MotionEvent extends InputEvent {
 	 * @hide
 	 */
 	public final void setDownTime(long downTime) {
-		nativeSetDownTimeNanos(mNativePtr, downTime * NS_PER_MS);
+		this.downTime = downTime;
 	}
 
 	/**
@@ -1876,7 +1880,7 @@ public final class MotionEvent extends InputEvent {
 	 */
 	@Override
 	public final long getEventTimeNano() {
-		return eventTime * 1000; // FIXME
+		return eventTime * NS_PER_MS;
 	}
 
 	/**

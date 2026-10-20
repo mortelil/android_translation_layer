@@ -10,6 +10,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.view.LayoutInflater;
+import android.view.ContextThemeWrapper;
+import android.util.TypedValue;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
@@ -37,11 +39,22 @@ public class Dialog implements Window.Callback, DialogInterface {
 	private boolean cancelable = true, canceled, created, showing;
 
 	public Dialog(Context context, int themeResId) {
-		this.context = context;
-		window = new Window(context, this);
+		// Same theme selection as AOSP Dialog(Context, int, boolean),
+		// frameworks/base/core/java/android/app/Dialog.java, android-17.0.0_r1.
+		if (themeResId == 0) {
+			TypedValue value = new TypedValue();
+			context.getTheme().resolveAttribute(R.attr.dialogTheme, value, true);
+			themeResId = value.resourceId;
+		}
+		this.context = new ContextThemeWrapper(context, themeResId);
+		window = new Window(this.context, this);
 		nativePtr = nativeInit(window.getDecorView().widget);
 
 		window.set_native_window(nativePtr);
+		TypedArray attrs = this.context.obtainStyledAttributes(R.styleable.Window);
+		boolean floating = attrs.getBoolean(R.styleable.Window_windowIsFloating, false);
+		attrs.recycle();
+		if (!floating) window.setLayout(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
 	}
 
 	public Dialog(Context context) {
@@ -91,12 +104,22 @@ public class Dialog implements Window.Callback, DialogInterface {
 		return window.findViewById(id);
 	}
 
+	/** Create the dialog without displaying it; show() must not recreate it. */
+	public void create() {
+		if (!created) {
+			onCreate(null);
+			created = true;
+		}
+	}
+
 	public void show() {
 		System.out.println("showing the Dialog " + this);
 		Runnable action = new Runnable() {
 			@Override
 			public void run() {
-				if (!created) { created = true; onCreate(null); }
+				if (showing) { nativeShow(nativePtr); return; }
+				create();
+				onStart();
 				showing = true;
 				canceled = false;
 				// Read the size of the main window. Floating dialogs should be smaller as specified in the windowMinWidth* attributes.
@@ -125,10 +148,15 @@ public class Dialog implements Window.Callback, DialogInterface {
 				                                                         lp.height == LayoutParams.WRAP_CONTENT ? View.MeasureSpec.AT_MOST : View.MeasureSpec.EXACTLY);
 
 				getWindow().getDecorView().internalSetDefaultMeasureSpec(widthMeasureSpec, heightMeasureSpec);
+				window.internalSetDefaultSize(
+					lp.width == LayoutParams.WRAP_CONTENT ? -1 : View.MeasureSpec.getSize(widthMeasureSpec),
+					lp.height == LayoutParams.WRAP_CONTENT ? -1 : View.MeasureSpec.getSize(heightMeasureSpec));
 
 				nativeShow(nativePtr);
-				if (onShowListener != null)
-					onShowListener.onShow(Dialog.this);
+				final OnShowListener listener = onShowListener;
+				if (listener != null) new Handler(Looper.getMainLooper()).post(new Runnable() {
+					public void run() { listener.onShow(Dialog.this); }
+				});
 			}
 		};
 		if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -154,6 +182,7 @@ public class Dialog implements Window.Callback, DialogInterface {
 		// Remove now; only listener delivery is posted, like AOSP dismissDialog.
 		// A delayed removal could otherwise close a subsequent show().
 		nativeClose(nativePtr);
+		onStop();
 		final OnDismissListener listener = onDismissListener;
 		if (listener != null) new Handler(Looper.getMainLooper()).post(new Runnable() {
 			@Override public void run() { listener.onDismiss(Dialog.this); }
@@ -208,6 +237,9 @@ public class Dialog implements Window.Callback, DialogInterface {
 		// TODO Auto-generated method stub
 		throw new UnsupportedOperationException("Unimplemented method 'onMenuOpened'");
 	}
+
+	protected void onStart() {}
+	protected void onStop() {}
 
 	protected void onCreate(Bundle savedInstanceState) {
 		System.out.println("- onCreate - Dialog!");

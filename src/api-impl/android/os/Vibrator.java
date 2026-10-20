@@ -10,7 +10,7 @@ public class Vibrator {
 	}
 
 	public boolean hasVibrator() {
-		return true;
+		return fd != -1;
 	}
 
 	public void vibrate(long millis) {
@@ -18,6 +18,15 @@ public class Vibrator {
 			native_vibrate(fd, millis);
 		else
 			Slog.v("Vibrator", "vibration motor go burrrr for " + millis + "ms");
+	}
+
+	public boolean hasAmplitudeControl() { return false; }
+
+	public void vibrate(VibrationEffect effect) {
+		if (effect == null) throw new NullPointerException("effect");
+		if (effect.timings != null) vibrate(effect.timings.clone(), effect.repeat);
+		else if (effect.duration > 0) vibrate(effect.duration);
+		else if (hasVibrator()) Slog.w("Vibrator", "Predefined haptic effects are not supported by this backend");
 	}
 
 	private Thread vibrateThread;

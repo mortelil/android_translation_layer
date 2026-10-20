@@ -179,8 +179,8 @@ JNIEXPORT void JNICALL Java_android_view_Window_take_1input_1queue(JNIEnv *env, 
 JNIEXPORT void JNICALL Java_android_view_Window_set_1layout(JNIEnv *env, jobject this, jlong window, jint width, jint height)
 {
 	GtkWindow *gtk_window = GTK_WINDOW(_PTR(window));
-	if (width > 0 && height > 0)
-		gtk_window_set_default_size(gtk_window, width, height);
+	if (gtk_window && (width > 0 || height > 0))
+		gtk_window_set_default_size(gtk_window, width > 0 ? width : -1, height > 0 ? height : -1);
 }
 
 static void free_window_reference(gpointer data)

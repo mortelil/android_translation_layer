@@ -231,7 +231,10 @@ static int write_frames_locked(struct atl_audio_track *t, const void *src, int f
 			int start = snd_pcm_start(t->pcm);
 			if (start < 0) { rc = start; break; }
 		}
-		if (!blocking || wrote == 0)
+		/* Nonblocking means never wait for space, not one period per call.
+		 * Continue while ALSA accepts data; EAGAIN above ends a nonblocking
+		 * write. A period-sized cap starves players that poll every 10 ms. */
+		if (wrote == 0)
 			break;
 	}
 

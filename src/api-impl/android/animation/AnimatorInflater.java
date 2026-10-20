@@ -30,7 +30,7 @@ import android.content.res.XmlResourceParser;
 import android.graphics.Path;
 import android.util.AttributeSet;
 import android.util.Log;
-//import android.util.PathParser;
+import android.util.PathParser;
 import android.util.StateSet;
 import android.util.TypedValue;
 import android.util.Xml;
@@ -254,19 +254,15 @@ public class AnimatorInflater {
 	 * represented in the same format but different control points' values.
 	 * The path is represented as verbs and points for each of the verbs.
 	 */
-	/*private static class PathDataEvaluator implements TypeEvaluator<PathParser.PathData> {
-		private final PathParser.PathData mPathData = new PathParser.PathData();
-
-		@Override
-		public PathParser.PathData evaluate(float fraction, PathParser.PathData startPathData,
-						    PathParser.PathData endPathData) {
-			if (!PathParser.interpolatePathData(mPathData, startPathData, endPathData, fraction)) {
-				throw new IllegalArgumentException("Can't interpolate between"
-								   + " two incompatible pathData");
-			}
-			return mPathData;
-		}
-	}*/
+    private static class PathDataEvaluator implements TypeEvaluator<PathParser.PathDataNode[]> {
+        private PathParser.PathDataNode[] nodes;
+        public PathParser.PathDataNode[] evaluate(float fraction, PathParser.PathDataNode[] from, PathParser.PathDataNode[] to) {
+            if (!PathParser.canMorph(from, to)) throw new IllegalArgumentException("Incompatible pathData");
+            if (!PathParser.canMorph(nodes, from)) nodes = PathParser.deepCopyNodes(from);
+            for (int i = 0; i < nodes.length; i++) nodes[i].interpolatePathDataNode(from[i], to[i], fraction);
+            return nodes;
+        }
+    }
 
 	private static PropertyValuesHolder getPVH(TypedArray styledAttributes, int valueType, int valueFromId, int valueToId, String propertyName) {
 
@@ -290,38 +286,16 @@ public class AnimatorInflater {
 
 		PropertyValuesHolder returnValue = null;
 
-		if (valueType == VALUE_TYPE_PATH) {
-			/*
-			String fromString = styledAttributes.getString(valueFromId);
-			String toString = styledAttributes.getString(valueToId);
-			PathParser.PathData nodesFrom = fromString == null
-							    ? null
-							    : new PathParser.PathData(fromString);
-			PathParser.PathData nodesTo = toString == null
-							  ? null
-							  : new PathParser.PathData(toString);
+        if (valueType == VALUE_TYPE_PATH) {
+            PathParser.PathDataNode[] from = PathParser.createNodesFromPathData(styledAttributes.getString(valueFromId));
+            PathParser.PathDataNode[] to = PathParser.createNodesFromPathData(styledAttributes.getString(valueToId));
+            if (from != null && to != null) {
+                if (!PathParser.canMorph(from,to)) throw new InflateException("Incompatible pathData for " + propertyName);
+                returnValue = PropertyValuesHolder.ofObject(propertyName,new PathDataEvaluator(),(Object)from,(Object)to);
+            } else if (from != null || to != null) {
+                returnValue = PropertyValuesHolder.ofObject(propertyName,new PathDataEvaluator(),(Object)(from != null ? from : to));
+            }
 
-			if (nodesFrom != null || nodesTo != null) {
-				if (nodesFrom != null) {
-					TypeEvaluator evaluator = new PathDataEvaluator();
-					if (nodesTo != null) {
-						if (!PathParser.canMorph(nodesFrom, nodesTo)) {
-							throw new InflateException(" Can't morph from " + fromString + " to " +
-										   toString);
-						}
-						returnValue = PropertyValuesHolder.ofObject(propertyName, evaluator,
-											    nodesFrom, nodesTo);
-					} else {
-						returnValue = PropertyValuesHolder.ofObject(propertyName, evaluator,
-											    (Object)nodesFrom);
-					}
-				} else if (nodesTo != null) {
-					TypeEvaluator evaluator = new PathDataEvaluator();
-					returnValue = PropertyValuesHolder.ofObject(propertyName, evaluator,
-										    (Object)nodesTo);
-				}
-			}
-			*/
 		} else {
 			TypeEvaluator evaluator = null;
 			// Integer and float value types are handled here.

@@ -20,6 +20,7 @@ struct java_touch {
     struct touch_point points[POINTER_LIMIT];
     int count;
     guint32 time;
+    guint32 down_time;
     guint generation;
     gboolean clearing;
     gboolean ending;
@@ -54,6 +55,7 @@ static gboolean deliver(struct java_touch *state, int action)
     event = (*env)->NewObject(env, handle_cache.motion_event.class,
         handle_cache.motion_event.constructor, 0x1002, action, (jlong)state->time, jids, jcoords);
     if (!event) goto cleanup;
+    _SET_LONG_FIELD(event, "downTime", (jlong)state->down_time);
     clazz = (*env)->GetObjectClass(env, state->callback);
     if (!clazz) goto cleanup;
     jmethodID method = (*env)->GetMethodID(env, clazz, "dispatchTouchEvent", "(Landroid/view/MotionEvent;)Z");
@@ -173,6 +175,7 @@ static gboolean capture(GtkEventControllerLegacy *controller, GdkEvent *event, s
     }
     state->points[index].x = x; state->points[index].y = y;
     state->time = gdk_event_get_time(event);
+    if (down && state->count == 1) state->down_time = state->time;
     int action = cancel ? 3 : down ? (state->count == 1 ? 0 : 5 | index << 8)
                                 : up ? (state->count == 1 ? 1 : 6 | index << 8) : 2;
     state->ending = action == 1 || action == 3;

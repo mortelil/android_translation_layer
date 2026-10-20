@@ -12,7 +12,7 @@ import android.webkit.ValueCallback;
 
 public class TestActivity extends Activity {
     private WebView web;
-    private int phase, check;
+    private int phase, check, starts;
     private boolean finished;
     private Thread ui;
     private boolean returned;
@@ -60,7 +60,12 @@ public class TestActivity extends Activity {
         web.getSettings().setJavaScriptEnabled(true);
         web.addJavascriptInterface(new Bridge(), "Native");
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (Looper.myLooper()!=Looper.getMainLooper()) fail("page start thread");
+                starts++;
+            }
             @Override public void onPageFinished(WebView view, String url) {
+                if (starts == 0) fail("page finished without Android onPageStarted callback");
                 if (phase==0) { phase=1; next(); }
                 else if (phase==2) verifyRemoved();
             }

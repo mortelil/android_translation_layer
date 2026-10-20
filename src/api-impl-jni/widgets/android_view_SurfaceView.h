@@ -17,4 +17,6 @@ struct _SurfaceViewWidgetClass {
 
 void surface_view_widget_set_texture(SurfaceViewWidget *surface_view_widget, GdkTexture *texture, gboolean needs_flip);
 
+SurfaceViewWidget *surface_view_widget_from_widget(GtkWidget *widget);
+
 void surface_view_widget_set_frame_callback(SurfaceViewWidget *, void (*)(SurfaceViewWidget *), gpointer, GDestroyNotify);

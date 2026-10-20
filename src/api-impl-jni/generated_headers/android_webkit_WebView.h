@@ -245,6 +245,30 @@ extern "C" {
 #define android_webkit_WebView_FLAG_TOUCHSCREEN_BLOCKS_FOCUS 67108864L
 /*
  * Class:     android_webkit_WebView
+ * Method:    native_installMessageListener
+ * Signature: (JLjava/lang/String;Landroid/webkit/WebMessageBridge;Ljava/lang/String;Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1installMessageListener
+  (JNIEnv *, jobject, jlong, jstring, jobject, jstring, jstring);
+
+/*
+ * Class:     android_webkit_WebView
+ * Method:    native_removeMessageListener
+ * Signature: (JLjava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1removeMessageListener
+  (JNIEnv *, jobject, jlong, jstring);
+
+/*
+ * Class:     android_webkit_WebView
+ * Method:    native_replyMessage
+ * Signature: (JLjava/lang/String;Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_android_webkit_WebView_native_1replyMessage
+  (JNIEnv *, jobject, jlong, jstring, jstring);
+
+/*
+ * Class:     android_webkit_WebView
  * Method:    native_constructor
  * Signature: (Landroid/content/Context;Landroid/util/AttributeSet;)J
  */

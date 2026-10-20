@@ -511,7 +511,7 @@ public abstract class Context {
 				for (PackageParser.IntentInfo intentInfo : activity.intents) {
 					int score = intentInfo.match(intent.getAction(), intent.getType(), intent.getScheme(), intent.getData(), intent.getCategories(), "Context");
 					if (score > best_score && score > 0) {
-						className = activity.className;
+						className = activity.info.targetActivity != null ? activity.info.targetActivity : activity.className;
 						best_score = score;
 					}
 				}

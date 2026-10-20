@@ -45,3 +45,9 @@ The missing-device control produces errors and no tone. Mobile-smoke passes.
 VLC's synthetic video advances between captured frames and its 440 Hz audio is
 present at the isolated sink. A click did not expose playback controls in that
 run; complete VLC UI compatibility and hardware-device routing are not claimed.
+
+The nonblocking paced-playback row pumps up to 20 ms of PCM every 10 ms for
+two seconds and requires at least 85% real-time playback-head progress. This
+regresses the one-ALSA-period-per-call cap that slowed ReVanced playback to
+about two thirds of normal speed. Short writes on a full device remain valid;
+the existing full-queue tests cover that case.

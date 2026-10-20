@@ -1075,6 +1075,9 @@ public class View implements Drawable.Callback {
 			atl_focusable = a.getBoolean(com.android.internal.R.styleable.View_focusable, true);
 			atl_focusable_mode = atl_focusable ? FOCUSABLE : NOT_FOCUSABLE;
 		}
+		if (a.hasValue(com.android.internal.R.styleable.View_alpha)) {
+			setAlpha(a.getFloat(com.android.internal.R.styleable.View_alpha, 1.0f));
+		}
 		if (a.hasValue(com.android.internal.R.styleable.View_visibility)) {
 			visibility = VISIBILITY_FLAGS[a.getInt(com.android.internal.R.styleable.View_visibility, 0)];
 			native_setVisibility(widget, visibility, alpha, atl_enabled);
@@ -1188,6 +1191,10 @@ public class View implements Drawable.Callback {
 	}
 
 	protected void dispatchDraw(Canvas canvas) {
+		if (this instanceof ViewGroup && ((ViewGroup)this).hasCustomDrawChild()) {
+			((ViewGroup)this).drawCustomChildren(canvas);
+			return;
+		}
 		if (canvas instanceof GskCanvas)
 			native_drawChildren(widget, ((GskCanvas)canvas).snapshot);
 	}
@@ -1761,12 +1768,16 @@ public class View implements Drawable.Callback {
 	boolean layouted = false;
 
 	public void layout(int l, int t, int r, int b) {
+		boolean frameChanged = left != l || top != t || right != r || bottom != b;
 		this.layouted = true;
 		this.left = l;
 		this.top = t;
 		this.right = r;
 		this.bottom = b;
 		native_layout(widget, l, t, r, b);
+		// Custom Android drawing can cache a child's pixels in an ancestor
+		// snapshot. Native allocation alone does not invalidate that snapshot.
+		if (frameChanged) invalidate();
 	}
 
 	/** Helper function to be called from GTKs LayoutManager via JNI */

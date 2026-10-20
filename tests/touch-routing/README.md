@@ -46,3 +46,11 @@ Negative native-boundary check: launch org.atl.touchrouting.Throwing and click
 its covered region. Require IllegalStateException: TOUCH_EXPECTED_EXCEPTION
 and nonzero termination through the uncaught-exception path, not continued
 callback processing with a pending JNI exception. Verified exit status 10.
+
+Gesture timing: the contract probe checks distinct down/event times, copying,
+setDownTime, and the pointer-array constructor. Visual also requires the native
+window fallback to preserve DOWN's timestamp through UP and prints TOUCH_TIME
+PASS with the elapsed duration. Hold the blue region for about 300 ms; require
+elapsed near 300 and Covered=1. Native GTK-only widget input does not exercise
+this Java fallback. MotionEvent timestamps are milliseconds; getEventTimeNano
+converts them using NS_PER_MS.
