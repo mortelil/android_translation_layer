@@ -421,7 +421,9 @@ public final class ContextImpl extends Context {
 
 		java.util.List<android.content.pm.ResolveInfo> matches = android.atl.ATLIntentResolver.queryPackage(
 			this.atl_loaded_app.pkg, intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY, false);
-		String className = matches.isEmpty() ? null : matches.get(0).activityInfo.name;
+		android.content.pm.ActivityInfo resolved = matches.isEmpty() ? null : matches.get(0).activityInfo;
+		// Aliases remain the intent component but are not loadable Java classes.
+		String className = resolved == null ? null : (resolved.targetActivity != null ? resolved.targetActivity : resolved.name);
 		Intent effectiveIntent = android.atl.ATLIntentResolver.effective(intent);
 		if (className == null && effectiveIntent.getComponent() == null && effectiveIntent.getPackage() == null) {
 			intent = effectiveIntent;
@@ -492,7 +494,7 @@ public final class ContextImpl extends Context {
 				try {
 					if ((reuseTask || (intent_.getFlags() & Intent.FLAG_ACTIVITY_CLEAR_TOP) != 0) && intent_.getComponent() != null) {
 						boolean found = Activity.nativeResumeActivity(
-						    ContextImpl.this.atl_loaded_app.loadClass(intent_.getComponent().getClassName())
+						    ContextImpl.this.atl_loaded_app.loadClass(className_)
 							.asSubclass(Activity.class),
 						    intent_);
 						if (found)
