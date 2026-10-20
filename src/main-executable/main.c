@@ -732,6 +732,53 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	JNIEnv *env = boot_android_vm(apk_classpath, apk_name, d->apk_instrumentation_class, d->sdk_int,
 	                              d->extra_jvm_options, d->window_width, d->window_height);
 
+	/* Installing a package must not construct its Application, initialize its
+	 * providers or call onCreate. Those callbacks can crash or start services
+	 * even though manifest parsing and APK registration succeeded. */
+	if (d->install_internal) {
+		if (d->apk_instrumentation_class || nfiles != 1) {
+			fprintf(stderr, "--install-internal requires one APK and no instrumentation\n");
+			exit(1);
+		}
+		jclass loaded_class = (*env)->FindClass(env, "android/atl/ATLLoadedApp");
+		atl_jni_handle_uncaught_exception(env, "Internal install class lookup");
+		jmethodID primary_method = (*env)->GetStaticMethodID(env, loaded_class,
+		    "getPrimaryApplication", "()Landroid/atl/ATLLoadedApp;");
+		atl_jni_handle_uncaught_exception(env, "Internal install parser lookup");
+		jobject loaded = (*env)->CallStaticObjectMethod(env, loaded_class, primary_method);
+		atl_jni_handle_uncaught_exception(env, "Internal install manifest parsing");
+		jobject pkg = _GET_OBJ_FIELD(loaded, "pkg", "Landroid/content/pm/PackageParser$Package;");
+		atl_jni_handle_uncaught_exception(env, "Internal install package lookup");
+		jstring name = _GET_OBJ_FIELD(pkg, "packageName", "Ljava/lang/String;");
+		atl_jni_handle_uncaught_exception(env, "Internal install package name");
+		const char *package = name ? _CSTRING(name) : NULL;
+		if (!package || !g_regex_match_simple("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$", package, 0, 0)) {
+			fprintf(stderr, "Invalid package name for internal installation\n");
+			exit(1);
+		}
+		char *directory = g_build_filename(app_data_dir_base, "_installed_apks_", NULL);
+		if (g_mkdir_with_parents(directory, 0700) != 0) {
+			fprintf(stderr, "Could not create installed APK directory: %s\n", strerror(errno));
+			exit(1);
+		}
+		char *filename = g_strdup_printf("%s.apk", package);
+		GFile *dest = g_file_new_build_filename(directory, filename, NULL);
+		char *temporary = g_build_filename(directory, ".install-XXXXXX", NULL);
+		int fd = g_mkstemp(temporary);
+		if (fd < 0) { fprintf(stderr, "Could not stage installed APK: %s\n", strerror(errno)); exit(1); }
+		close(fd);
+		GFile *staged = g_file_new_for_path(temporary);
+		GError *error = NULL;
+		if (!g_file_copy(files[0], staged, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL, &error) ||
+		    !g_file_move(staged, dest, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL, &error)) {
+			fprintf(stderr, "Could not install APK: %s\n", error ? error->message : "unknown error");
+			g_file_delete(staged, NULL, NULL);
+			exit(1);
+		}
+		printf("Installed %s without starting application code\n", package);
+		exit(0);
+	}
+
 	/* -- misc -- */
 
 	window = gtk_application_window_new(app);
