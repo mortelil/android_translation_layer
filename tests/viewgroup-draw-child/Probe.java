@@ -34,6 +34,35 @@ public class Probe extends Activity {
   g.reverseOrder(false);g.bringChildToFront(a);g.render();check(g.seen.toString().equals("[2, 1]"),"bring to front");
   try(java.io.FileWriter w=new java.io.FileWriter(new java.io.File(getFilesDir(),"results.json"))){w.write("{\"passed\":"+checks+",\"failed\":0}");}
   System.out.println("DRAW_CHILD_PASS checks="+checks);android.util.Log.i("DrawChildProbe","DRAW_CHILD_PASS checks="+checks);
-  setContentView(g);
+  // A descendant's bounds can change without resizing the host window.
+  // Observe actual native drawing, not a manually invoked Canvas draw.
+  final boolean[] presented = {false, false};
+  final View child = new View(this) {
+   public void onDraw(Canvas canvas) {
+    super.onDraw(canvas);
+    presented[0] = true;
+    if (getHeight() == 160) presented[1] = true;
+   }
+  };
+  child.setWillNotDraw(false);
+  android.widget.FrameLayout host = new android.widget.FrameLayout(this) {
+   public boolean drawChild(Canvas canvas,View view,long time) {
+    return super.drawChild(canvas,view,time);
+   }
+  };
+  host.addView(child,new android.widget.FrameLayout.LayoutParams(160,40));
+  setContentView(host);
+  new android.os.Handler().postDelayed(new Runnable(){public void run(){
+   try {
+    check(presented[0],"initial native frame");
+    child.layout(0,0,160,160);
+    new android.os.Handler().postDelayed(new Runnable(){public void run(){try{
+     check(presented[1],"changed child bounds redraw custom ancestor without window resize");
+     try(java.io.FileWriter w=new java.io.FileWriter(new java.io.File(getFilesDir(),"results.json"))){w.write("{\"passed\":"+checks+",\"failed\":0}");}
+     System.out.println("DRAW_CHILD_NATIVE_PASS checks="+checks);
+     System.exit(0);
+    }catch(Throwable t){t.printStackTrace();System.exit(1);}}},500);
+   }catch(Throwable t){t.printStackTrace();System.exit(1);}
+  }},500);
  }catch(Throwable t){t.printStackTrace();android.util.Log.e("DrawChildProbe","FAIL "+t);finish();}}
 }

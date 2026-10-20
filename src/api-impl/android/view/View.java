@@ -1768,12 +1768,16 @@ public class View implements Drawable.Callback {
 	boolean layouted = false;
 
 	public void layout(int l, int t, int r, int b) {
+		boolean frameChanged = left != l || top != t || right != r || bottom != b;
 		this.layouted = true;
 		this.left = l;
 		this.top = t;
 		this.right = r;
 		this.bottom = b;
 		native_layout(widget, l, t, r, b);
+		// Custom Android drawing can cache a child's pixels in an ancestor
+		// snapshot. Native allocation alone does not invalidate that snapshot.
+		if (frameChanged) invalidate();
 	}
 
 	/** Helper function to be called from GTKs LayoutManager via JNI */

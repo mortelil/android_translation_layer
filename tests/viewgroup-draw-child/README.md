@@ -12,3 +12,8 @@ for merging a dispatchDraw change.
 
 Reference: AOSP android-15.0.0_r1 ViewGroup.dispatchDraw/buildOrderedChildList.
 The test is original code; no application code is included.
+# Native frame invalidation
+
+Also require `DRAW_CHILD_NATIVE_PASS` and exit 0: after the initial native
+frame, the probe changes a child's bounds inside a custom drawChild parent.
+The new bounds must be drawn without resizing the host window.
