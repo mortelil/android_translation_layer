@@ -51,6 +51,8 @@ public class Probe extends android.app.Activity {
         private void add(String s) { check(Looper.myLooper() == handler.getLooper(), "requested handler"); events.add(s); }
         public void onAvailable(Network network) { add("available"); }
         public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+            check(capabilities.getLinkDownstreamBandwidthKbps() == 0, "unknown downstream bandwidth");
+            check(capabilities.getLinkUpstreamBandwidthKbps() == 0, "unknown upstream bandwidth");
             check(!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI), "no invented wifi");
             add(capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) ? "unmetered" : "metered");
             // Caller mutation must not corrupt the registration's remembered state.
