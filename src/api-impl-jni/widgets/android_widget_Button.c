@@ -4,14 +4,16 @@
 #include "../util.h"
 
 #include "WrapperWidget.h"
+#include "AndroidLineBox.h"
 
 #include "../generated_headers/android_widget_Button.h"
 
 static GtkLabel *box_get_label(JNIEnv *env, GtkWidget *box)
 {
 	GtkWidget *label = gtk_widget_get_last_child(GTK_WIDGET(box));
-	if (!GTK_IS_LABEL(label))
+	if (!GTK_IS_LABEL(label) && !ATL_IS_LINE_BOX(label))
 		label = gtk_widget_get_prev_sibling(label);
+	if (ATL_IS_LINE_BOX(label)) label = atl_line_box_get_label(ATL_LINE_BOX(label));
 	return GTK_LABEL(label);
 }
 
@@ -23,7 +25,7 @@ JNIEXPORT jlong JNICALL Java_android_widget_Button_native_1constructor(JNIEnv *e
 	GtkWidget *button = gtk_button_new();
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_button_set_child(GTK_BUTTON(button), box);
-	gtk_box_append(GTK_BOX(box), gtk_label_new(text));
+	gtk_box_append(GTK_BOX(box), atl_line_box_new(gtk_label_new(text)));
 	wrapper_widget_set_child(WRAPPER_WIDGET(wrapper), button);
 	wrapper_widget_set_jobject(WRAPPER_WIDGET(wrapper), env, this);
 

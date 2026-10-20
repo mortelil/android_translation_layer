@@ -6,7 +6,7 @@ import android.util.TypedValue;
 import android.view.*;
 import android.widget.TextView;
 public class Probe extends Activity {
-    int creations, starts, stops, shows;
+    int creations, starts, stops, shows, contentChanges;
     void check(boolean value, String message) { if (!value) throw new AssertionError(message); }
     boolean floating(Dialog dialog) {
         TypedValue value = new TypedValue();
@@ -20,8 +20,19 @@ public class Probe extends Activity {
             protected void onCreate(Bundle state) { super.onCreate(state); creations++; }
             protected void onStart() { super.onStart(); starts++; }
             protected void onStop() { super.onStop(); stops++; }
+            public void onContentChanged() { contentChanges++; }
         };
         Dialog floating = new Dialog(this, android.R.style.Theme_Material_Light_Dialog);
+        check(full.getWindow().peekDecorView() == full.getWindow().getDecorView(), "peek returns existing decor");
+        check(full.getWindow().peekDecorView() == full.getWindow().peekDecorView(), "peek keeps decor identity");
+        full.getWindow().setContentView(android.R.layout.simple_list_item_1);
+        check(contentChanges == 1, "resource content change callback");
+        View inflated = full.getWindow().findViewById(android.R.id.text1);
+        check(inflated instanceof TextView && inflated.getLayoutParams() != null, "resource content inflated with parent parameters");
+        TextView replacement = new TextView(this);
+        full.getWindow().setContentView(replacement, new ViewGroup.LayoutParams(123,45));
+        check(full.getWindow().findViewById(android.R.id.text1) == null, "replaced content removed");
+        check(replacement.getLayoutParams().width == 123 && replacement.getLayoutParams().height == 45, "explicit content dimensions preserved");
         check(full.getContext() != this, "dialog owns themed context");
         check(!floating(full) && floating(floating), "explicit themes stay distinct");
         check(full.getWindow().getAttributes().width == -1 && full.getWindow().getAttributes().height == -1, "nonfloating defaults fill window");

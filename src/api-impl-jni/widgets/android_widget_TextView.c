@@ -304,9 +304,11 @@ JNIEXPORT void JNICALL Java_android_widget_TextView_native_1setLineSpacing(JNIEn
 	/* GtkText is a single visual line. Android does not add spacing after
 	 * the last line; storing the property must not enlarge this editor. */
 	if (GTK_IS_TEXT(widget)) return;
-	GtkLabel *label = GTK_IS_BOX(widget) ? box_get_label(env, widget) : NULL;
-	GtkWidget *parent = label ? gtk_widget_get_parent(GTK_WIDGET(label)) : NULL;
-	if (parent && ATL_IS_LINE_BOX(parent)) atl_line_box_set_spacing(ATL_LINE_BOX(parent), add, mult);
-	else if (add != 0 || mult != 1)
-		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsupportedOperationException"), "Line spacing requires an ATL text label");
+	GtkWidget *line_box = find_line_box(widget);
+	if (line_box) atl_line_box_set_spacing(ATL_LINE_BOX(line_box), add, mult);
+	else if (add != 0 || mult != 1) {
+		char *message = g_strdup_printf("Line spacing requires an ATL text label (got %s)", G_OBJECT_TYPE_NAME(widget));
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsupportedOperationException"), message);
+		g_free(message);
+	}
 }

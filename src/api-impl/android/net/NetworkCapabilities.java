@@ -65,6 +65,12 @@ public final class NetworkCapabilities {
 	private long mNetworkCapabilities = DEFAULT_CAPABILITIES;
 	private long mTransportTypes;
 
+	// AOSP NetworkCapabilities (android-10.0.0_r1) represents an unspecified
+	// first-hop bandwidth as zero. ATL's connectivity backend does not provide
+	// a link-speed estimate; do not invent a speed from transport availability.
+	public int getLinkDownstreamBandwidthKbps() { return 0; }
+	public int getLinkUpstreamBandwidthKbps() { return 0; }
+
 	public boolean hasCapability(int capability) {
 		if (!isValidCapability(capability))
 			return false;

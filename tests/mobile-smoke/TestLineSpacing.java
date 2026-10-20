@@ -48,6 +48,12 @@ public class TestLineSpacing {
 		editor.measure(width,height); before=editor.getMeasuredHeight();
 		editor.setLineSpacing(30,2); editor.measure(width,height);
 		check(editor.getMeasuredHeight()==before,"Single line editor must not gain trailing spacing");
+		android.widget.Button button = new android.widget.Button(context);
+		button.setText("Ag\nAg\nAg"); button.setTextSize(20);
+		button.measure(width,height); before=button.getMeasuredHeight();
+		button.setLineSpacing(10,1); button.measure(width,height);
+		check(Math.abs(button.getMeasuredHeight()-before-20)<=1,"Button uses the same inter-line geometry as TextView");
+		check("Ag\nAg\nAg".contentEquals(button.getText()),"Button text survives line-box wrapping");
 		System.out.println("LINE_SPACING_CONTRACT PASS");
 	}
 }
