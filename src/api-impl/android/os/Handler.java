@@ -388,6 +388,20 @@ public class Handler {
 	}
 
 	/**
+	 * Causes the Runnable r to be added to the message queue after the
+	 * specified delay. The token is stored in the message and can be used to
+	 * remove this callback with {@link #removeCallbacksAndMessages(Object)}.
+	 *
+	 * @param r The Runnable that will be executed.
+	 * @param token An object identifying this callback for cancellation.
+	 * @param delayMillis The delay in milliseconds.
+	 * @return true if the Runnable was successfully placed in the message queue.
+	 */
+	public final boolean postDelayed(Runnable r, Object token, long delayMillis) {
+		return sendMessageDelayed(getPostMessage(r, token), delayMillis);
+	}
+
+	/**
 	 * Posts a message to an object that implements Runnable.
 	 * Causes the Runnable r to executed on the next iteration through the
 	 * message queue. The runnable will be run on the thread to which this
