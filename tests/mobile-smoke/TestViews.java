@@ -2,8 +2,18 @@
 import android.content.Context;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.TextView;
+import android.text.method.BaseMovementMethod;
+import android.text.method.MovementMethod;
 
 public class TestViews {
+	static class MovementTextView extends TextView {
+		static final MovementMethod DEFAULT = new BaseMovementMethod();
+		MovementTextView(Context context) { super(context); }
+		@Override protected MovementMethod getDefaultMovementMethod() { return DEFAULT; }
+	}
+	static class OtherMovementMethod extends BaseMovementMethod {}
+
 	static class Observer extends FrameLayout {
 		int count;
 		View child, target;
@@ -17,6 +27,18 @@ public class TestViews {
 		}
 	}
 	public static void run(Context context) {
+		MovementTextView movementText = new MovementTextView(context);
+		if (movementText.getMovementMethod() != MovementTextView.DEFAULT)
+			throw new AssertionError("TextView constructor must retain its default movement method");
+		MovementMethod replacement = new OtherMovementMethod();
+		movementText.setMovementMethod(replacement);
+		if (movementText.getMovementMethod() != replacement)
+			throw new AssertionError("TextView must retain the configured movement method");
+		movementText.setMovementMethod(null);
+		if (movementText.getMovementMethod() != null)
+			throw new AssertionError("TextView must retain an explicitly cleared movement method");
+		System.out.println("PASS: TextView default and configured movement method state");
+
 		View detached = new View(context);
 		detached.setAutofillHints("username");
 		detached.setImportantForAutofill(2);

@@ -18,7 +18,6 @@ import android.text.TextDirectionHeuristics;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-import android.text.method.BaseMovementMethod;
 import android.text.method.KeyListener;
 import android.text.method.MovementMethod;
 import android.text.method.TransformationMethod;
@@ -73,6 +72,7 @@ public class TextView extends View {
 	private int highlightColor = 0x6633b5e5;
 	private ColorStateList hintColors = ColorStateList.valueOf(0xff808080);
 	private TransformationMethod transformationMethod;
+	private MovementMethod movementMethod;
 	private TextPaint paint = new TextPaint();
 	private int textLayoutWidth = -1;
 	private boolean include_padding = false;
@@ -94,6 +94,7 @@ public class TextView extends View {
 
 	public TextView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
 		super(context, attrs, defStyleAttr, defStyleRes);
+		movementMethod = getDefaultMovementMethod();
 
 		// AOSP TextView starts with 15px, then applies appearance and direct style.
 		setRawTextSize(15);
@@ -409,12 +410,18 @@ public class TextView extends View {
 
 	public URLSpan[] getUrls() { return new URLSpan[0]; }
 
-	public void setMovementMethod(MovementMethod method) {}
+	public void setMovementMethod(MovementMethod method) {
+		movementMethod = method;
+	}
+
+	protected MovementMethod getDefaultMovementMethod() {
+		return null;
+	}
 
 	public void setTextIsSelectable(boolean selectable) {}
 
 	public MovementMethod getMovementMethod() {
-		return new BaseMovementMethod();
+		return movementMethod;
 	}
 
 	public CharSequence getHint() { return "HINT"; }
