@@ -66,6 +66,14 @@ public class Layout {
 		return native_get_line_width(layout, line);
 	}
 
+	public float getLineMax(int line) {
+		// Use this layout's shaped runs (including spans, tabs and bidi), not a
+		// newly measured substring. Paragraph indents are currently unsupported
+		// by ATL's Layout, so its leading margin is zero.
+		return native_get_line_max(layout, line, getLineVisibleEnd(line));
+	}
+	private native float native_get_line_max(long layout, int line, int end);
+
 	public TextPaint getPaint() {
 		return paint;
 	}
@@ -273,9 +281,20 @@ public class Layout {
 	public int getLineVisibleEnd(int line) {
 		if (line < 0 || line >= getLineCount())
 			throw new ArrayIndexOutOfBoundsException();
-		// Preserve Pango's exclusion of paragraph breaks. Android's additional
-		// trailing-space rules are not implemented by this query yet.
-		return native_get_line_end(layout, line);
+		// AOSP Layout.getLineVisibleEnd, android-10.0.0_r1: the final line
+		// retains its whitespace; a hard newline is removed without trimming
+		// the spaces preceding it. Soft-wrapped lines discard line-end spaces.
+		int start = getLineStart(line), end = getLineEnd(line);
+		if (line == getLineCount() - 1) return end;
+		if (end > start && text.charAt(end - 1) == '\n') return end - 1;
+		while (end > start) {
+			char c = text.charAt(end - 1);
+			if (c != ' ' && c != '\t' && c != '\u1680'
+					&& !(c >= '\u2000' && c <= '\u200a' && c != '\u2007')
+					&& c != '\u205f' && c != '\u3000') break;
+			end--;
+		}
+		return end;
 	}
 
 	public boolean getLineContainsTab(int line) { return text.toString().split("\n")[line].contains("\t"); }

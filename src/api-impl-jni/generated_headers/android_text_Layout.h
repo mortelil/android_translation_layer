@@ -25,6 +25,14 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1set_1spacing
 
 /*
  * Class:     android_text_Layout
+ * Method:    native_get_line_max
+ * Signature: (JII)F
+ */
+JNIEXPORT jfloat JNICALL Java_android_text_Layout_native_1get_1line_1max
+  (JNIEnv *, jobject, jlong, jint, jint);
+
+/*
+ * Class:     android_text_Layout
  * Method:    native_constructor
  * Signature: (Ljava/lang/String;JI)J
  */

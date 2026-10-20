@@ -131,6 +131,28 @@ JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1width(JNIEnv 
 	return logical_rect.width / PANGO_SCALE;
 }
 
+JNIEXPORT jfloat JNICALL Java_android_text_Layout_native_1get_1line_1max(JNIEnv *env, jobject object, jlong ptr, jint line, jint end)
+{
+	PangoLayout *layout = _PTR(ptr);
+	PangoLayoutLine *row = pango_layout_get_line_readonly(layout, line);
+	const char *text = pango_layout_get_text(layout), *p = text;
+	int units = 0;
+	while (*p && units < end) {
+		units += g_utf8_get_char(p) > 0xffff ? 2 : 1;
+		p = g_utf8_next_char(p);
+	}
+	int start = pango_layout_line_get_start_index(row);
+	int stop = MIN((int)(p - text), start + pango_layout_line_get_length(row));
+	if (stop <= start) return 0;
+	int *ranges = NULL, count = 0;
+	pango_layout_line_get_x_ranges(row, start, stop, &ranges, &count);
+	double width = 0;
+	for (int i = 0; i < count; i++)
+		width += ABS(ranges[2 * i + 1] - ranges[2 * i]);
+	g_free(ranges);
+	return width / PANGO_SCALE;
+}
+
 JNIEXPORT jint JNICALL Java_android_text_Layout_native_1get_1line_1baseline(JNIEnv *env, jobject object, jlong layout, jint line)
 {
 	const AtlLineGeometry *g = atl_layout_geometry(_PTR(layout));
