@@ -60,6 +60,29 @@ public class TestLayoutLines {
 		equal("edited astral line start", 4, dynamic.getLineStart(1));
 		editable.clear();
 		checkBoundaries(dynamic);
+		equal("empty line max", 0, Math.round(layout("",500).getLineMax(0)));
+		StaticLayout last = layout("abc   ",500);
+		equal("final line keeps spaces",6,last.getLineVisibleEnd(0));
+		if (last.getLineMax(0) <= layout("abc",500).getLineMax(0))
+			throw new AssertionError("Final line spacing lost");
+		StaticLayout newline = layout("abc  \nx",500);
+		equal("newline preserves preceding spaces",5,newline.getLineVisibleEnd(0));
+		StaticLayout soft = layout("abc     def ghi",60);
+		int visible = soft.getLineVisibleEnd(0);
+		if (visible <= 0 || soft.getText().charAt(visible-1)==' ')
+			throw new AssertionError("Soft wrap did not trim spaces");
+		float expected = layout(soft.getText().subSequence(0,visible).toString(),500).getLineMax(0);
+		if (Math.abs(expected-soft.getLineMax(0))>1)
+			throw new AssertionError("Shaped visible width differs: "+expected+" / "+soft.getLineMax(0));
+		for (String value : new String[]{"a\ud83d\ude00", "\u05d0\u05d1 abc", "a\tb", "a\u00a0"}) {
+			StaticLayout row = layout(value,500);
+			if (Math.abs(row.getLineMax(0)-row.getLineWidth(0))>1)
+				throw new AssertionError("Full shaped extent mismatch: "+value);
+		}
+		try { last.getLineMax(-1); throw new AssertionError("Negative line accepted"); }
+		catch (ArrayIndexOutOfBoundsException expectedError) {}
+		try { last.getLineMax(last.getLineCount()); throw new AssertionError("End sentinel accepted"); }
+		catch (ArrayIndexOutOfBoundsException expectedError) {}
 		System.out.println("PASS: Layout UTF-16 line boundaries, sentinels, wrapping and live edits");
 	}
 }
