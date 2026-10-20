@@ -35,6 +35,14 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1configure_1video
 
 /*
  * Class:     android_media_MediaCodec
+ * Method:    native_set_output_surface
+ * Signature: (JLandroid/view/Surface;)V
+ */
+JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1set_1output_1surface
+  (JNIEnv *, jobject, jlong, jobject);
+
+/*
+ * Class:     android_media_MediaCodec
  * Method:    native_start
  * Signature: (J)V
  */
