@@ -19,6 +19,7 @@ public class MediaCodec {
 	private long[] inputBufferTimestamps;
 	private long native_codec;
 	private boolean outputFormatSet = false;
+	private boolean configuredForVideoSurface = false;
 	private MediaFormat mediaFormat;
 
 	private Queue<Integer> freeOutputBuffers;
@@ -64,6 +65,7 @@ public class MediaCodec {
 			native_configure_audio(native_codec, format.getByteBuffer("csd-0"), format.getInteger("sample-rate"), format.getInteger("channel-count"));
 		} else if ("h264".equals(codecName) || "vp8".equals(codecName) || "vp9".equals(codecName)) {
 			native_configure_video(native_codec, format.getByteBuffer("csd-0"), format.getByteBuffer("csd-1"), surface);
+			configuredForVideoSurface = surface != null;
 		} else {
 			System.out.println("configure: format " + format + " not implemented");
 			Thread.dumpStack();
@@ -195,9 +197,17 @@ public class MediaCodec {
 			native_release(native_codec);
 		}
 		native_codec = 0;
+		configuredForVideoSurface = false;
 	}
 
 	public void setOutputSurface(Surface surface) {
+		if (!configuredForVideoSurface || native_codec == 0) {
+			throw new IllegalStateException("codec was not configured for a video output surface");
+		}
+		if (surface == null || !surface.isValid()) {
+			throw new IllegalArgumentException("surface must be a valid SurfaceView surface");
+		}
+		native_set_output_surface(native_codec, surface);
 	}
 
 	public void setParameters(Bundle parameters) {}
@@ -220,6 +230,7 @@ public class MediaCodec {
 	private native long native_constructor(String codecName);
 	private native void native_configure_audio(long codec, ByteBuffer extradata, int sampleRate, int channelCount);
 	private native void native_configure_video(long codec, ByteBuffer csd0, ByteBuffer csd1, Surface surface);
+	private native void native_set_output_surface(long codec, Surface surface);
 	private native void native_start(long codec);
 	private native int native_queueInputBuffer(long codec, ByteBuffer buffer, long presentationTimeUs);
 	private native int native_dequeueOutputBuffer(long codec, ByteBuffer buffer, BufferInfo info);

@@ -312,6 +312,15 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		removeView(children.get(index));
 	}
 
+	public void removeViews(int start, int count) {
+		int childCount = children.size();
+		if (start < 0 || count < 0 || count > childCount || start > childCount - count)
+			throw new IndexOutOfBoundsException();
+		for (int i = 0; i < count; i++)
+			removeViewInternal(children.get(start));
+		requestLayout();
+	}
+
 	public void removeAllViews() {
 		for (Iterator<View> it = children.iterator(); it.hasNext();) {
 			View child = it.next();

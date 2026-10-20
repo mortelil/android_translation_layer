@@ -193,6 +193,10 @@ public class Window {
 		decorView.addView(view);
 	}
 
+	public void addContentView(View view, ViewGroup.LayoutParams params) {
+		decorView.addView(view, params);
+	}
+
 	/** @hide Entry from the native window, before app dispatch overrides. */
 	public boolean dispatchTouchEvent(MotionEvent event) {
 		return callback != null ? callback.dispatchTouchEvent(event) : superDispatchTouchEvent(event);
