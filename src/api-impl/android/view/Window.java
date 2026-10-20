@@ -165,7 +165,7 @@ public class Window {
 			decorView.restoreHierarchyState(states);
 	}
 
-public void setContentView(View view) {
+	private void prepareContent() {
 		if (decorView.getBackground() == null) {
 			TypedArray ta = context.obtainStyledAttributes(new int[] {R.attr.windowBackground});
 			if (ta.hasValue(0))
@@ -173,6 +173,23 @@ public void setContentView(View view) {
 			ta.recycle();
 		}
 		decorView.removeAllViews();
+	}
+
+	public void setContentView(int layoutResId) {
+		prepareContent();
+		// Inflate into the content parent so XML layout parameters and <merge>
+		// roots retain their normal LayoutInflater semantics.
+		LayoutInflater.from(context).inflate(layoutResId, decorView, true);
+		if (callback != null) callback.onContentChanged();
+	}
+
+	public void setContentView(View view, ViewGroup.LayoutParams params) {
+		view.setLayoutParams(params);
+		setContentView(view);
+	}
+
+	public void setContentView(View view) {
+		prepareContent();
 		decorView.addView(view);
 	}
 
@@ -204,7 +221,9 @@ public void setContentView(View view) {
 	}
 
 	public View peekDecorView() {
-		return null;
+		// Unlike PhoneWindow, ATL creates its decor eagerly in the constructor.
+		// Peeking must return the existing view without creating another one.
+		return decorView;
 	}
 
 	public WindowManager.LayoutParams getAttributes() {
