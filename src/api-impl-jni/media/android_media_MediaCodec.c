@@ -27,6 +27,7 @@
 #include "../../libandroid/native_window.h"
 #include "../widgets/WrapperWidget.h"
 #include "../widgets/android_view_SurfaceView.h"
+#include "MediaCodecConfig.h"
 #include "jni.h"
 
 struct ATL_codec_context {
@@ -269,16 +270,36 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1configure_1video(JN
 		sps_size = get_nio_buffer_size(env, csd0);
 	if (csd1)
 		pps_size = get_nio_buffer_size(env, csd1);
+	if (sps_size < 0 || pps_size < 0) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "Codec configuration buffer has invalid bounds");
+		return;
+	}
 
 	size_t extradata_size = sps_size + pps_size;
 	uint8_t *extradata = av_mallocz(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
+	if (!extradata) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"), "Unable to allocate codec configuration data");
+		return;
+	}
 	if (csd0) {
-		memcpy(extradata, get_nio_buffer(env, csd0, &array_ref, &array), extradata_size);
+		jbyte *data = get_nio_buffer(env, csd0, &array_ref, &array);
+		bool copied = atl_copy_codec_config(extradata, extradata_size, 0, (const uint8_t *)data, sps_size);
 		release_nio_buffer(env, array_ref, array);
+		if (!copied) {
+			av_free(extradata);
+			(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "SPS buffer exceeds codec configuration bounds");
+			return;
+		}
 	}
 	if (csd1) {
-		memcpy(extradata + sps_size, get_nio_buffer(env, csd1, &array_ref, &array), extradata_size);
+		jbyte *data = get_nio_buffer(env, csd1, &array_ref, &array);
+		bool copied = atl_copy_codec_config(extradata, extradata_size, sps_size, (const uint8_t *)data, pps_size);
 		release_nio_buffer(env, array_ref, array);
+		if (!copied) {
+			av_free(extradata);
+			(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "PPS buffer exceeds codec configuration bounds");
+			return;
+		}
 	}
 
 	for (int i = 0; i < extradata_size; i++) {
@@ -318,12 +339,8 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1configure_1video(JN
 		codec_ctx->get_format = get_software_format;
 
 	SurfaceViewWidget *surface_view_widget = surface_obj ? surface_view_widget_from_widget(GTK_WIDGET(_PTR(_GET_LONG_FIELD(surface_obj, "widget")))) : NULL;
-	if (!surface_view_widget) {
-		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "MediaCodec requires a SurfaceView output surface");
-		av_freep(&ctx->video.extradata);
-		ctx->video.extradata_size = 0;
-		return;
-	}
+	if (!surface_view_widget)
+		fprintf(stderr, "MediaCodec: configured without a GTK SurfaceView; decoded frames will be dropped until setOutputSurface\n");
 	video_surface_replace(ctx, surface_view_widget);
 }
 
@@ -340,10 +357,8 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1set_1output_1surfac
 	}
 	jlong widget_handle = _GET_LONG_FIELD(surface_obj, "widget");
 	SurfaceViewWidget *view = widget_handle ? surface_view_widget_from_widget(GTK_WIDGET(_PTR(widget_handle))) : NULL;
-	if (!view) {
-		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "surface has no SurfaceView output widget");
-		return;
-	}
+	if (!view)
+		fprintf(stderr, "MediaCodec: output surface has no GTK target; decoded frames will be dropped until a renderable SurfaceView is attached\n");
 	video_surface_replace(ctx, view);
 }
 
@@ -571,6 +586,17 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 			av_frame_free(&frame);
 			return;
 		}
+
+		/* ExoPlayer configures a codec with a PlaceholderSurface while it is
+		 * preparing playback, before its SurfaceView has a real surface. Keep
+		 * decoding available, but drop frames until setOutputSurface supplies a
+		 * GTK-backed target. Do this before software conversion/GPU allocation. */
+		SurfaceViewWidget *current_surface = video_surface_ref(ctx);
+		if (!current_surface) {
+			av_frame_free(&frame);
+			return;
+		}
+		g_object_unref(current_surface);
 
 		if (!frame->hw_frames_ctx) {
 			const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);

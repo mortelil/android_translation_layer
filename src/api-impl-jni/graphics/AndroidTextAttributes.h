@@ -9,10 +9,28 @@ static char *atl_text_to_utf8(JNIEnv *env, jstring text)
 {
 	const jchar *utf16 = (*env)->GetStringChars(env, text, NULL);
 	if (!utf16) return NULL;
-	char *utf8 = g_utf16_to_utf8(utf16, (*env)->GetStringLength(env, text), NULL, NULL, NULL);
+	/* Minikin treats an isolated UTF-16 surrogate as U+FFFD rather than rejecting
+	 * the whole string (frameworks/minikin, Layout.cpp). Android text can contain
+	 * such units, e.g. when an app builds text from untrusted/network data. Pango
+	 * requires valid UTF-8, so normalize one invalid code unit at a time while
+	 * preserving valid supplementary characters and UTF-16 offsets. */
+	jsize length = (*env)->GetStringLength(env, text);
+	GString *converted = g_string_sized_new((gsize)length * 3);
+	for (jsize i = 0; i < length; i++) {
+		gunichar codepoint = utf16[i];
+		if (codepoint >= 0xd800 && codepoint <= 0xdbff) {
+			if (i + 1 < length && utf16[i + 1] >= 0xdc00 && utf16[i + 1] <= 0xdfff) {
+				codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + (utf16[++i] - 0xdc00);
+			} else {
+				codepoint = 0xfffd;
+			}
+		} else if (codepoint >= 0xdc00 && codepoint <= 0xdfff) {
+			codepoint = 0xfffd;
+		}
+		g_string_append_unichar(converted, codepoint);
+	}
+	char *utf8 = g_string_free(converted, FALSE);
 	(*env)->ReleaseStringChars(env, text, utf16);
-	if (!utf8)
-		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "Invalid UTF-16 text");
 	return utf8;
 }
 

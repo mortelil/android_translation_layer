@@ -79,10 +79,18 @@ public class TestLayoutLines {
 			if (Math.abs(row.getLineMax(0)-row.getLineWidth(0))>1)
 				throw new AssertionError("Full shaped extent mismatch: "+value);
 		}
+		// AOSP Minikin maps isolated UTF-16 surrogates to U+FFFD for shaping.
+		// They must not make ATL's UTF-8/Pango conversion reject the whole layout.
+		for (String malformed : new String[]{"\ud800", "\udc00", "a\ud800b", "a\udc00b", "\ud800\ud800"}) {
+			StaticLayout replacement = layout(malformed, 500);
+			equal("isolated surrogate stays one UTF-16 code unit", malformed.length(), replacement.getText().length());
+			if (replacement.getLineCount() != 1 || replacement.getLineMax(0) <= 0)
+				throw new AssertionError("Isolated surrogate must shape as replacement character");
+		}
 		try { last.getLineMax(-1); throw new AssertionError("Negative line accepted"); }
 		catch (ArrayIndexOutOfBoundsException expectedError) {}
 		try { last.getLineMax(last.getLineCount()); throw new AssertionError("End sentinel accepted"); }
 		catch (ArrayIndexOutOfBoundsException expectedError) {}
-		System.out.println("PASS: Layout UTF-16 line boundaries, sentinels, wrapping and live edits");
+		System.out.println("PASS: Layout UTF-16 boundaries, malformed-surrogate replacement, wrapping and live edits");
 	}
 }

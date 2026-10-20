@@ -12,6 +12,10 @@ public class TestActivity extends android.app.Activity {
 				throw new AssertionError("Activity.addContentView must append content to the existing window");
 			System.out.println("PASS: Activity.addContentView appends to Window content");
 			TestImageSpanContract.run(this);
+			// Keep the UTF-16/Pango contract test ahead of the broader usability
+			// regressions so it still runs when an unrelated graphics assertion fails.
+			TestLayoutLines.run();
+			TestMediaCodecPlaceholderSurface.run();
 			TestStackTrace.run();
 			TestAppOps.run(this);
 			TestPackageSuspension.run(this);
@@ -76,7 +80,6 @@ public class TestActivity extends android.app.Activity {
 			TestBitmap.main(new String[0]);
 			TestDynamicLayout.run();
 			TestLineSpacing.run(this);
-			TestLayoutLines.run();
 			TestQwerty.run();
 			TestEditText.run(this);
 			TestTextSize.run(this);
