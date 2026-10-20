@@ -105,6 +105,14 @@ GtkWidget *surface_view_widget_new(void)
 	return g_object_new(surface_view_widget_get_type(), NULL);
 }
 
+SurfaceViewWidget *surface_view_widget_from_widget(GtkWidget *widget)
+{
+	if (widget && SURFACE_VIEW_IS_WIDGET(widget))
+		return SURFACE_VIEW_WIDGET(widget);
+	GtkWidget *child = widget ? gtk_widget_get_first_child(widget) : NULL;
+	return child && SURFACE_VIEW_IS_WIDGET(child) ? SURFACE_VIEW_WIDGET(child) : NULL;
+}
+
 void surface_view_widget_set_texture(SurfaceViewWidget *surface_view_widget, GdkTexture *texture, gboolean needs_flip)
 {
 	if (surface_view_widget->texture)
@@ -236,7 +244,9 @@ extern GtkWindow *window;
 JNIEXPORT void JNICALL Java_android_view_SurfaceView_native_1postSnapshot(JNIEnv *env, jclass class, jlong surface_view, jlong snapshot_ptr)
 {
 	GtkWidget *view = GTK_WIDGET(_PTR(surface_view));
-	SurfaceViewWidget *surface_view_widget = SURFACE_VIEW_WIDGET(gtk_widget_get_first_child(view));
+	SurfaceViewWidget *surface_view_widget = surface_view_widget_from_widget(view);
+	if (!surface_view_widget)
+		return;
 	GtkSnapshot *snapshot = GTK_SNAPSHOT(_PTR(snapshot_ptr));
 	static GType renderer_type = 0;
 	if (!renderer_type) {

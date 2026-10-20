@@ -559,14 +559,18 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 		}
 	}
 
-	protected void setChildrenDrawingOrderEnabled(boolean enabled) {}
+	private boolean childrenDrawingOrderEnabled;
+	protected void setChildrenDrawingOrderEnabled(boolean enabled) {
+		childrenDrawingOrderEnabled = enabled; invalidate();
+	}
+	protected boolean isChildrenDrawingOrderEnabled() { return childrenDrawingOrderEnabled; }
+	protected int getChildDrawingOrder(int childCount, int drawingPosition) { return drawingPosition; }
 
 	public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
 		for (ViewGroup iter = this; iter != null; iter = iter.parent instanceof ViewGroup ? (ViewGroup)iter.parent : null)
 			iter.disallowIntercept = disallowIntercept;
 	}
 
-	protected boolean isChildrenDrawingOrderEnabled() { return false; }
 
 	@Override
 	public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes) {
@@ -637,6 +641,51 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 
 	public void setLayoutTransition(LayoutTransition transition) {
 		this.transition = transition;
+	}
+
+	private Boolean customDrawChild;
+
+	boolean hasCustomDrawChild() {
+		if (customDrawChild == null) {
+			customDrawChild = false;
+			for (Class<?> type = getClass(); type != ViewGroup.class; type = type.getSuperclass()) {
+				try {
+					type.getDeclaredMethod("drawChild", Canvas.class, View.class, long.class);
+					customDrawChild = true;
+					break;
+				} catch (NoSuchMethodException e) { }
+			}
+		}
+		return customDrawChild || childrenDrawingOrderEnabled;
+	}
+
+	// AOSP ViewGroup.dispatchDraw/buildOrderedChildList: custom order is resolved
+	// immediately before each child unless elevation requires a preordered list.
+	// Some hosts interleave their own drawables inside getChildDrawingOrder().
+	private int drawingIndex(int count, int position) {
+		int index = childrenDrawingOrderEnabled ? getChildDrawingOrder(count, position) : position;
+		if (index < 0 || index >= count)
+			throw new IndexOutOfBoundsException("getChildDrawingOrder returned " + index + " for " + count + " children");
+		return index;
+	}
+	void drawCustomChildren(Canvas canvas) {
+		int count = children.size();
+		boolean hasZ = false;
+		for (View child : children) if (child.getZ() != 0) { hasZ = true; break; }
+		ArrayList<View> ordered = null;
+		if (hasZ) {
+			ordered = new ArrayList<View>(count);
+			for (int i = 0; i < count; i++) ordered.add(children.get(drawingIndex(count, i)));
+			ordered.sort(new Comparator<View>() {
+				@Override public int compare(View a, View b) { return Float.compare(a.getZ(), b.getZ()); }
+			});
+		}
+		long time = getDrawingTime();
+		for (int i = 0; i < count; i++) {
+			View child = ordered == null ? children.get(drawingIndex(count, i)) : ordered.get(i);
+			if (child.getVisibility() == VISIBLE || child.getAnimation() != null)
+				drawChild(canvas, child, time);
+		}
 	}
 
 	public boolean drawChild(Canvas canvas, View child, long drawingTime) {
@@ -882,6 +931,9 @@ public class ViewGroup extends View implements ViewParent, ViewManager {
 
 	@Override
 	public void onDescendantInvalidated(View child, View target) {
+		// A custom drawChild path snapshots descendants outside their native
+		// container's snapshot. Its cached GTK node must be invalidated too.
+		if (hasCustomDrawChild()) nativeInvalidate(widget);
 		if (getParent() != null)
 			getParent().onDescendantInvalidated(this, target);
 	}

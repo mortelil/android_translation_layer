@@ -5,12 +5,19 @@ import android.widget.*;
 public class Visual extends android.app.Activity {
     private int nativeClicks, coveredClicks;
     private TextView status;
+    private long gestureStart;
     private void update() {
         status.setText("Native="+nativeClicks+" Covered="+coveredClicks);
         System.out.println("TOUCH_VISUAL native="+nativeClicks+" covered="+coveredClicks);
     }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         System.out.println("TOUCH_WINDOW action="+event.getActionMasked());
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) gestureStart = event.getDownTime();
+        if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+            if (event.getDownTime() != gestureStart || event.getEventTime() < gestureStart)
+                throw new AssertionError("Native gesture start time changed");
+            System.out.println("TOUCH_TIME PASS elapsed="+(event.getEventTime()-gestureStart));
+        }
         return super.dispatchTouchEvent(event);
     }
     public void onCreate(android.os.Bundle saved) {

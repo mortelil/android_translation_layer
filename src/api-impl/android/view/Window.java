@@ -240,6 +240,11 @@ public void setContentView(View view) {
 		set_layout(native_window, width, height);
 	}
 
+	/** @hide Supply resolved host dimensions without changing Android layout parameters. */
+	public void internalSetDefaultSize(int width, int height) {
+		set_layout(native_window, width, height);
+	}
+
 	public WindowManager getWindowManager() {
 		return new WindowManagerImpl();
 	}

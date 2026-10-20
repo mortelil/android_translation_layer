@@ -157,6 +157,7 @@ public class PropertyValuesHolder {
 		propertyValuesHolder.property_name = property_name;
 		propertyValuesHolder.setter = setter;
 		propertyValuesHolder.value = value;
+		propertyValuesHolder.evaluator = evaluator;
 		propertyValuesHolder.values_float = values_float;
 		propertyValuesHolder.values_int = values_int;
 		propertyValuesHolder.values_object = values_object;
@@ -186,7 +187,9 @@ public class PropertyValuesHolder {
 				clazz = values_object[0].getClass();
 			}
 			setter = target.getClass().getMethod("set" + property_name.substring(0, 1).toUpperCase() + property_name.substring(1), clazz);
+			setter.setAccessible(true);
 			Method getter = target.getClass().getMethod("get" + property_name.substring(0, 1).toUpperCase() + property_name.substring(1));
+			getter.setAccessible(true);
 			if (values_int != null && values_int.length == 1) {
 				values_int = new int[] {(Integer)getter.invoke(target), values_int[0]};
 			} else if (values_float != null && values_float.length == 1) {

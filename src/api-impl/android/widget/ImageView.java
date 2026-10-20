@@ -60,6 +60,7 @@ public class ImageView extends View {
 		drawable = a.getDrawable(com.android.internal.R.styleable.ImageView_src);
 		if (drawable != null) {
 			drawable.setCallback(this);
+			if (drawable.isStateful()) drawable.setState(getDrawableState());
 			if (colorFilter != null)
 				drawable.setColorFilter(colorFilter);
 			native_setDrawable(widget, drawable.paintable);
@@ -71,6 +72,12 @@ public class ImageView extends View {
 		setAdjustViewBounds(a.getBoolean(com.android.internal.R.styleable.ImageView_adjustViewBounds, false));
 		a.recycle();
 	}
+
+    @Override
+    protected void drawableStateChanged() {
+        super.drawableStateChanged();
+        if (drawable != null && drawable.isStateful() && drawable.setState(getDrawableState())) invalidate();
+    }
 
 	public void setImageResource(final int resid) {
 		setImageDrawable(resid == 0 ? null : getContext().getDrawable(resid));
@@ -252,6 +259,7 @@ public class ImageView extends View {
 		this.drawable = drawable;
 		if (drawable != null) {
 			drawable.setCallback(this);
+			if (drawable.isStateful()) drawable.setState(getDrawableState());
 		}
 		native_setDrawable(widget, drawable != null ? drawable.paintable : 0);
 		requestLayout();

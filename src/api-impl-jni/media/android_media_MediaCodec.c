@@ -147,6 +147,20 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
 	return AV_PIX_FMT_NONE;
 }
 
+/* A decoder can offer several hardware formats even when VAAPI/DRM cannot be
+ * initialized. Select a CPU-readable format so frames can be converted to GTK. */
+static enum AVPixelFormat get_software_format(AVCodecContext *ctx,
+                                              const enum AVPixelFormat *pix_fmts)
+{
+	for (size_t i = 0; pix_fmts[i] != AV_PIX_FMT_NONE; i++) {
+		const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmts[i]);
+		if (desc && !(desc->flags & AV_PIX_FMT_FLAG_HWACCEL))
+			return pix_fmts[i];
+	}
+	fprintf(stderr, "Decoder %s offered no software pixel format\n", ctx->codec->name);
+	return AV_PIX_FMT_NONE;
+}
+
 struct render_frame_data {
 	AVFrame *frame;
 	GdkTexture *texture; // for software decoding
@@ -254,30 +268,39 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1configure_1video(JN
 	ctx->video.extradata_size = extradata_size;
 
 	int i = 0;
+	int hw_device_ready = 0;
 	while (1) {
 		const AVCodecHWConfig *config = avcodec_get_hw_config(codec_ctx->codec, i);
 		if (!config) {
-			fprintf(stderr, "Decoder %s doesn't support pixel format VAAPI or DRM_PRIME\n",
-			        codec_ctx->codec->name);
 			break;
 		}
 
 		if ((config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) && (config->pix_fmt == AV_PIX_FMT_VAAPI || config->pix_fmt == AV_PIX_FMT_DRM_PRIME)) {
-			fprintf(stderr, "Selected pixel format %s\n", av_get_pix_fmt_name(config->pix_fmt));
-			codec_ctx->get_format = get_hw_format;
-
 			AVBufferRef *hw_device_ctx = NULL;
 			int ret = av_hwdevice_ctx_create(&hw_device_ctx, config->device_type, NULL, NULL, 0);
 			if (ret >= 0) {
+				fprintf(stderr, "Selected pixel format %s\n", av_get_pix_fmt_name(config->pix_fmt));
 				codec_ctx->hw_device_ctx = hw_device_ctx;
+				codec_ctx->get_format = get_hw_format;
+				hw_device_ready = 1;
 				break;
 			}
+			fprintf(stderr, "Could not initialize %s hardware decoder (%s); trying software decode\n",
+			        av_get_pix_fmt_name(config->pix_fmt), av_err2str(ret));
 		}
 
 		i++;
 	}
+	if (!hw_device_ready)
+		codec_ctx->get_format = get_software_format;
 
-	SurfaceViewWidget *surface_view_widget = SURFACE_VIEW_WIDGET(gtk_widget_get_first_child(_PTR(_GET_LONG_FIELD(surface_obj, "widget"))));
+	SurfaceViewWidget *surface_view_widget = surface_view_widget_from_widget(GTK_WIDGET(_PTR(_GET_LONG_FIELD(surface_obj, "widget"))));
+	if (!surface_view_widget) {
+		fprintf(stderr, "MediaCodec: Surface has no SurfaceViewWidget\n");
+		av_freep(&ctx->video.extradata);
+		ctx->video.extradata_size = 0;
+		return;
+	}
 	ctx->video.surface_view_widget = surface_view_widget;
 }
 
@@ -416,12 +439,19 @@ static void invalidate_video_view(SurfaceViewWidget *surface)
 	if ((*env)->ExceptionCheck(env))
 		(*env)->ExceptionDescribe(env);
 	(*env)->DeleteLocalRef(env, view);
-	if (getenv("ATL_DEBUG_VIDEO")) {
-		static unsigned frames;
-		if (++frames % 30 == 1)
-			g_printerr("ATL video: posted frame %u widget=%dx%d mapped=%d visible=%d\n", frames,
-			           gtk_widget_get_width(GTK_WIDGET(surface)), gtk_widget_get_height(GTK_WIDGET(surface)),
-			           gtk_widget_get_mapped(GTK_WIDGET(surface)), gtk_widget_get_visible(GTK_WIDGET(surface)));
+	/* SurfaceView is a child of ATL's cached pixel-density root. Queue the root's
+	 * content widget as well as the Android wrapper: on some GTK renderers a
+	 * child-only invalidation does not schedule a fresh root snapshot for a
+	 * continuously updated decoder surface. Request paint explicitly so each
+	 * presented decoder frame reaches the window. */
+	GtkRoot *gtk_root = gtk_widget_get_root(GTK_WIDGET(surface));
+	if (gtk_root && GTK_IS_WINDOW(gtk_root)) {
+		GtkWidget *content = gtk_window_get_child(GTK_WINDOW(gtk_root));
+		if (content)
+			gtk_widget_queue_draw(content);
+		GdkFrameClock *clock = gtk_widget_get_frame_clock(GTK_WIDGET(gtk_root));
+		if (clock)
+			gdk_frame_clock_request_phase(clock, GDK_FRAME_CLOCK_PHASE_PAINT);
 	}
 }
 
@@ -452,6 +482,12 @@ static gboolean render_frame(void *data)
 	AVDRMFrameDescriptor *drm_frame_desc = (void *)drm_frame->data[0];
 
 	GdkTexture *texture = import_drm_frame_desc_as_texture(drm_frame_desc, drm_frame->width, drm_frame->height, drm_frame);
+	if (!texture) {
+		fprintf(stderr, "MediaCodec: DRM frame import returned no texture\n");
+		g_object_unref(d->surface_view_widget);
+		free(d);
+		return G_SOURCE_REMOVE;
+	}
 	surface_view_widget_set_texture(d->surface_view_widget, texture, FALSE);
 	invalidate_video_view(d->surface_view_widget);
 	g_object_unref(d->surface_view_widget);
@@ -463,7 +499,6 @@ static gboolean render_frame(void *data)
 static gboolean render_texture(void *data)
 {
 	struct render_frame_data *d = (struct render_frame_data *)data;
-
 	surface_view_widget_set_texture(d->surface_view_widget, d->texture, FALSE);
 	invalidate_video_view(d->surface_view_widget);
 	g_object_unref(d->surface_view_widget);
@@ -498,7 +533,13 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 			const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
 			enum AVPixelFormat gdk_pix_fmt;
 			GdkMemoryFormat gdk_mem_fmt;
-			int stride;
+			int stride, rows;
+			if (frame->width <= 0 || frame->height <= 0 || !desc) {
+				fprintf(stderr, "MediaCodec: refusing invalid software frame (%dx%d, format=%d)\n",
+				        frame->width, frame->height, frame->format);
+				av_frame_free(&frame);
+				return;
+			}
 			if (desc != NULL && (desc->flags & AV_PIX_FMT_FLAG_ALPHA)) {
 				gdk_pix_fmt = AV_PIX_FMT_RGBA;
 				gdk_mem_fmt = GDK_MEMORY_R8G8B8A8;
@@ -512,13 +553,38 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 			// use swscale to convert YUV to RGB
 			ctx->video.sws = sws_getCachedContext(ctx->video.sws, frame->width, frame->height, frame->format,
 			                                      frame->width, frame->height, gdk_pix_fmt, 0, NULL, NULL, NULL);
-			guchar *data_rgb = g_try_malloc0(frame->height * stride);
-			sws_scale(ctx->video.sws, (const uint8_t *const *)frame->data, frame->linesize, 0,
-			          frame->height, (uint8_t *[1]){data_rgb}, (int[1]){stride});
-
-			GBytes *bytes = g_bytes_new_take(data_rgb, frame->height * stride);
+			guchar *data_rgb = g_try_malloc0_n(frame->height, stride);
+			if (!ctx->video.sws || !data_rgb) {
+				fprintf(stderr, "MediaCodec: cannot allocate conversion for %dx%d frame (%s)\n",
+				        frame->width, frame->height, av_get_pix_fmt_name(frame->format));
+				g_free(data_rgb);
+				av_frame_free(&frame);
+				return;
+			}
+			rows = sws_scale(ctx->video.sws, (const uint8_t *const *)frame->data, frame->linesize, 0,
+			                 frame->height, (uint8_t *[1]){data_rgb}, (int[1]){stride});
+			if (rows != frame->height) {
+				fprintf(stderr, "MediaCodec: pixel conversion produced %d/%d rows (format=%s)\n",
+				        rows, frame->height, av_get_pix_fmt_name(frame->format));
+				g_free(data_rgb);
+				av_frame_free(&frame);
+				return;
+			}
+			GBytes *bytes = g_bytes_new_take(data_rgb, (gsize)frame->height * stride);
 			GdkTexture *texture = gdk_memory_texture_new(frame->width, frame->height, gdk_mem_fmt, bytes, stride);
-			struct render_frame_data *data = malloc(sizeof(struct render_frame_data));
+			if (!texture) {
+				fprintf(stderr, "MediaCodec: GTK could not create %dx%d video texture\n", frame->width, frame->height);
+				g_bytes_unref(bytes);
+				av_frame_free(&frame);
+				return;
+			}
+			struct render_frame_data *data = calloc(1, sizeof(struct render_frame_data));
+			if (!data) {
+				g_object_unref(texture);
+				g_bytes_unref(bytes);
+				av_frame_free(&frame);
+				return;
+			}
 			data->texture = texture;
 			data->surface_view_widget = g_object_ref(ctx->video.surface_view_widget);
 			data->release_time_ns = presentationTimeNs;
@@ -528,7 +594,11 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 			return;
 		}
 
-		struct render_frame_data *data = malloc(sizeof(struct render_frame_data));
+		struct render_frame_data *data = calloc(1, sizeof(struct render_frame_data));
+		if (!data) {
+			av_frame_free(&frame);
+			return;
+		}
 		data->frame = frame;
 		data->release_time_ns = presentationTimeNs;
 		data->surface_view_widget = g_object_ref(ctx->video.surface_view_widget);

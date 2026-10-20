@@ -1,4 +1,6 @@
 srcs = [
+	'org/chromium/support_lib_glue/SupportLibReflectionUtil.java',
+	'android/webkit/WebMessageBridge.java',
 	'android/view/FrameMetrics.java',
 	'android/app/usage/NetworkStats.java',
 	'android/app/usage/NetworkStatsManager.java',
@@ -636,6 +638,7 @@ srcs = [
 	'android/util/MapCollections.java',
 	'android/util/MathUtils.java',
 	'android/util/Pair.java',
+	'android/util/PathParser.java',
 	'android/util/Patterns.java',
 	'android/util/Pools.java',
 	'android/util/PrefixPrinter.java',

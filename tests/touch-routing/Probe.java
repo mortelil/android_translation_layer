@@ -25,6 +25,20 @@ public class Probe extends android.app.Activity {
     public void onCreate(android.os.Bundle saved) {
         super.onCreate(saved);
         try {
+            MotionEvent timing = MotionEvent.obtain(100, 170, MotionEvent.ACTION_UP, 5, 7, 0);
+            check(timing.getDownTime() == 100 && timing.getEventTime() == 170, "distinct gesture and event times");
+            MotionEvent copied = MotionEvent.obtain(timing);
+            timing.recycle();
+            check(copied.getDownTime() == 100 && copied.getEventTime() == 170, "copy preserves gesture time");
+            copied.setDownTime(90);
+            check(copied.getDownTime() == 90 && copied.getEventTime() == 170, "setDownTime preserves event time");
+            copied.recycle();
+            MotionEvent.PointerProperties pp = new MotionEvent.PointerProperties(); pp.id = 0;
+            MotionEvent.PointerCoords pc = new MotionEvent.PointerCoords(); pc.x = 5; pc.y = 7;
+            MotionEvent timedPointers = MotionEvent.obtain(200, 280, 2, 1, new MotionEvent.PointerProperties[]{pp},
+                new MotionEvent.PointerCoords[]{pc}, 0, 0, 1, 1, 0, 0, 0x1002, 0);
+            check(timedPointers.getDownTime() == 200 && timedPointers.getEventTime() == 280, "pointer constructor times");
+            timedPointers.recycle();
             Root root = new Root(); Leaf bottom = new Leaf(), top = new Leaf();
             root.addView(bottom, new FrameLayout.LayoutParams(100,100));
             root.addView(top, new FrameLayout.LayoutParams(100,100));

@@ -8,9 +8,7 @@ import android.view.ViewGroup;
 
 public class WebView extends ViewGroup {
 
-	/** ATL's WebView implementation lives in the framework loader. Optional
-	 * Chromium support-library classes are absent and must not be advertised.
-	 */
+	/** ATL's WebView and its scoped AndroidX boundary adapter share the framework loader. */
 	public static ClassLoader getWebViewClassLoader() {
 		return WebView.class.getClassLoader();
 	}
@@ -24,8 +22,9 @@ public class WebView extends ViewGroup {
 	private String currentUrl;
 	private String originalUrl;
 	private JavascriptBridge javascriptBridge;
+	private WebMessageBridge messageBridge;
 	private boolean destroyed;
-	private void checkJavascriptThread() {
+	void checkJavascriptThread() {
 		if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper())
 			throw new IllegalStateException("WebView JavaScript API must run on the UI thread");
 		if (destroyed) throw new IllegalStateException("WebView destroyed");
@@ -67,11 +66,11 @@ public class WebView extends ViewGroup {
 		// WEBKIT_LOAD_FINISHED (3) events carry the URI the load actually reached (a redirect
 		// replaces it). Keep both, like AOSP's getUrl()/getOriginalUrl() pair.
 		if (loadState == /*WEBKIT_LOAD_STARTED*/ 0)
-			originalUrl = url;
+			{ originalUrl = url; if (messageBridge != null) messageBridge.navigated(); }
 		currentUrl = url;
 
 		if (loadState == /*WEBKIT_LOAD_STARTED*/ 0 && webViewClient != null) {
-			webViewClient.onPageStarted(this, url);
+			webViewClient.onPageStarted(this, url, null);
 		} else if (loadState == /*WEBKIT_LOAD_FINISHED*/ 3 && webViewClient != null) {
 			webViewClient.onPageFinished(this, url);
 		}
@@ -121,6 +120,7 @@ public class WebView extends ViewGroup {
 		checkJavascriptThread();
 		destroyed = true;
 		if (javascriptBridge != null) javascriptBridge.destroy();
+		if (messageBridge != null) messageBridge.destroy();
 		native_destroyJavascript(widget);
 	}
 
@@ -202,6 +202,21 @@ public class WebView extends ViewGroup {
 		if (javascriptBridge != null)
 			native_setJavascriptBridge(widget, javascriptBridge, javascriptBridge.update(name, null));
 	}
+
+    /** @hide AndroidX boundary adapter, on the UI thread. */
+    public java.lang.reflect.InvocationHandler internalMessageProvider() {
+        checkJavascriptThread();
+        if (messageBridge == null) messageBridge = new WebMessageBridge(this);
+        return messageBridge.provider();
+    }
+    void installMessageListener(String name, WebMessageBridge bridge, String isolated, String page) {
+        native_installMessageListener(widget, name, bridge, isolated, page);
+    }
+    void removeMessageListener(String name) { native_removeMessageListener(widget, name); }
+    void replyMessage(String document, String data) { native_replyMessage(widget, document, data); }
+    private native void native_installMessageListener(long widget, String name, WebMessageBridge bridge, String isolated, String page);
+    private native void native_removeMessageListener(long widget, String name);
+    private native void native_replyMessage(long widget, String document, String data);
 
 	@Override
 	protected native long native_constructor(Context context, AttributeSet attrs);

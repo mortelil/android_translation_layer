@@ -115,6 +115,9 @@ public class Drawable {
 		return mBounds;
 	}
 
+	/** Subclasses should report a precise opacity when it is known. */
+	public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+
 	public void draw(Canvas canvas) {
 		if (canvas instanceof GskCanvas) {
 			if (mBounds.left != 0 || mBounds.top != 0)
@@ -183,8 +186,14 @@ public class Drawable {
 
 	public void clearColorFilter() {}
 
-	public final int getLevel() { return 0; }
-	public final boolean setLevel(int level) { return false; }
+	private int mLevel;
+	public final int getLevel() { return mLevel; }
+	public final boolean setLevel(int level) {
+		if (level == mLevel) return false;
+		mLevel = level;
+		return onLevelChange(level);
+	}
+	protected boolean onLevelChange(int level) { return false; }
 
 	public void setColorFilter(int color, PorterDuff.Mode mode) {
 		setColorFilter(new PorterDuffColorFilter(color, mode));
@@ -281,7 +290,9 @@ public class Drawable {
 				return drawable;
 			}
 			case "transition": {
-				return new Drawable();
+				TransitionDrawable drawable = new TransitionDrawable();
+				drawable.inflate(resources, parser, attrs, theme);
+				return drawable;
 			}
 			case "ripple": {
 				RippleDrawable drawable = new RippleDrawable();
@@ -323,7 +334,9 @@ public class Drawable {
 				return drawable;
 			}
 			case "animated-vector": {
-				return new AnimatedVectorDrawable();
+				AnimatedVectorDrawable drawable = new AnimatedVectorDrawable();
+				drawable.inflate(resources, parser, attrs, theme);
+				return drawable;
 			}
 		}
 

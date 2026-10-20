@@ -774,6 +774,29 @@ public class AudioProbeActivity extends Activity {
 			}
 		}
 
+		// A player commonly pumps a nonblocking buffer every 10 ms. Returning
+		// after one ALSA period, despite available space, starves this workload.
+		AudioTrack paced = null;
+		try {
+			paced = newStereo(rate, Math.max(min, rate)); // 250 ms, stereo PCM16
+			byte[] silence = new byte[rate / 50 * 4]; // 20 ms per attempt
+			paced.play();
+			long start = android.os.SystemClock.uptimeMillis();
+			long accepted = 0;
+			while (android.os.SystemClock.uptimeMillis() - start < 2000) {
+				int count = paced.write(silence, 0, silence.length, AudioTrack.WRITE_NON_BLOCKING);
+				if (count < 0) throw new AssertionError("nonblocking write " + count);
+				accepted += count / 4;
+				Thread.sleep(10);
+			}
+			long elapsed = android.os.SystemClock.uptimeMillis() - start;
+			long head = paced.getPlaybackHeadPosition() & 0xffffffffL;
+			check("nonblocking_paced_playback", head >= rate * elapsed * 0.85 / 1000
+			      && head <= accepted,
+			      "elapsed=" + elapsed + "ms rendered=" + head + " accepted=" + accepted);
+		} catch (Throwable e) { fail("nonblocking_paced_playback", e); }
+		finally { if (paced != null) paced.release(); }
+
 		// ---- 32-bit playback head wrap: AOSP unsigned-32 reinterpretation ----
 		// AOSP's getPlaybackHeadPosition() returns native_get_position(); the
 		// javadoc (android-17.0.0_r1 media/java/android/media/AudioTrack.java:

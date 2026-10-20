@@ -7,6 +7,7 @@
 #include "../defines.h"
 #include "../util.h"
 #include "../WebViewSession.h"
+#include "../jni_exceptions.h"
 
 #include "../AssetInputStream.h"
 #include "WrapperWidget.h"
@@ -67,6 +68,7 @@ static void web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_
 	/* the engine has no URI yet -> report Java null (AOSP getUrl() semantics), never NewStringUTF(NULL) */
 	const gchar *uri = webkit_web_view_get_uri(web_view);
 	(*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.webview.internalLoadChanged, load_event, uri ? _JSTRING(uri) : NULL);
+	atl_jni_handle_uncaught_exception(env, "WebView load callback");
 
 }
 
@@ -117,6 +119,7 @@ static gboolean decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *dec
 
 		JNIEnv *env = get_jni_env();
 		jboolean result = (*env)->CallBooleanMethod(env, wrapper->jobj, handle_cache.webview.internalShouldOverrideUrlLoading, _JSTRING(uri));
+		atl_jni_handle_uncaught_exception(env, "WebView navigation callback");
 		if (result)
 			webkit_policy_decision_ignore(decision);
 		else

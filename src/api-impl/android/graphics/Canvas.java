@@ -652,6 +652,28 @@ public class Canvas {
 		return clipRect((float)rect.left, rect.top, rect.right, rect.bottom);
 	}
 
+	// AOSP Canvas clipOutRect uses DIFFERENCE in local coordinates. Reuse
+	// ATL's path subtraction so both bitmap and onscreen canvases apply it.
+	public boolean clipOutRect(float left, float top, float right, float bottom) {
+		Path path = new Path();
+		if (left != right && top != bottom)
+			path.addRect(Math.min(left, right), Math.min(top, bottom),
+			             Math.max(left, right), Math.max(top, bottom), Path.Direction.CW);
+		return clipOutPath(path);
+	}
+
+	public boolean clipOutRect(int left, int top, int right, int bottom) {
+		return clipOutRect((float)left, top, right, bottom);
+	}
+
+	public boolean clipOutRect(Rect rect) {
+		return clipOutRect(rect.left, rect.top, rect.right, rect.bottom);
+	}
+
+	public boolean clipOutRect(RectF rect) {
+		return clipOutRect(rect.left, rect.top, rect.right, rect.bottom);
+	}
+
 	public boolean clipRect(Rect rect, Region.Op op) {
 		return clipRect((float)rect.left, rect.top, rect.right, rect.bottom);
 	}

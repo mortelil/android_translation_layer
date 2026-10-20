@@ -7,6 +7,7 @@
 
 #include "WrapperWidget.h"
 #include "NativeDensity.h"
+#include "android_view_SurfaceView.h"
 #include "src/api-impl-jni/views/AndroidLayout.h"
 
 G_DEFINE_TYPE(WrapperWidget, wrapper_widget, GTK_TYPE_WIDGET)
@@ -195,6 +196,12 @@ static void wrapper_widget_snapshot(GtkWidget *widget, GdkSnapshot *snapshot)
 		(*env)->CallVoidMethod(env, wrapper->canvas, wrapper->draw_method, wrapper->jobj, _INTPTR(snapshot));
 		if ((*env)->ExceptionCheck(env))
 			(*env)->ExceptionDescribe(env);
+
+		/* SurfaceView's pixels live in its native GTK child, outside the Android
+		 * Canvas draw path. Its Java draw() intentionally does not draw that child,
+		 * so include the native surface after drawing the View itself. */
+		if (wrapper->child && surface_view_widget_from_widget(wrapper->child))
+			gtk_widget_snapshot_child(widget, wrapper->child, snapshot);
 	} else {
 		GtkWidget *widget = &wrapper->parent_instance;
 		GtkWidget *child = gtk_widget_get_first_child(widget);
