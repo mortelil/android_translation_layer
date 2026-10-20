@@ -4,6 +4,14 @@ public class TestActivity extends android.app.Activity {
 	public void onCreate(android.os.Bundle state) {
 		super.onCreate(state);
 		try {
+			android.view.View additionalContent = new android.view.View(this);
+			additionalContent.setId(0x41544c);
+			addContentView(additionalContent, new android.view.ViewGroup.LayoutParams(
+				android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+			if (findViewById(0x41544c) != additionalContent)
+				throw new AssertionError("Activity.addContentView must append content to the existing window");
+			System.out.println("PASS: Activity.addContentView appends to Window content");
+			TestImageSpanContract.run(this);
 			TestStackTrace.run();
 			TestAppOps.run(this);
 			TestPackageSuspension.run(this);

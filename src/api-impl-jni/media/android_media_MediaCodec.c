@@ -31,6 +31,7 @@
 
 struct ATL_codec_context {
 	AVCodecContext *codec;
+	GMutex video_surface_lock;
 	union {
 		struct {
 			SwrContext *swr;
@@ -44,6 +45,27 @@ struct ATL_codec_context {
 		} video;
 	};
 };
+
+static SurfaceViewWidget *video_surface_ref(struct ATL_codec_context *ctx)
+{
+	g_mutex_lock(&ctx->video_surface_lock);
+	SurfaceViewWidget *view = ctx->video.surface_view_widget;
+	if (view)
+		g_object_ref(view);
+	g_mutex_unlock(&ctx->video_surface_lock);
+	return view;
+}
+
+static void video_surface_replace(struct ATL_codec_context *ctx, SurfaceViewWidget *view)
+{
+	SurfaceViewWidget *new_view = view ? g_object_ref(view) : NULL;
+	g_mutex_lock(&ctx->video_surface_lock);
+	SurfaceViewWidget *old_view = ctx->video.surface_view_widget;
+	ctx->video.surface_view_widget = new_view;
+	g_mutex_unlock(&ctx->video_surface_lock);
+	if (old_view)
+		g_object_unref(old_view);
+}
 
 JNIEXPORT jlong JNICALL Java_android_media_MediaCodec_native_1constructor(JNIEnv *env, jobject this, jstring codec_name)
 {
@@ -60,6 +82,7 @@ JNIEXPORT jlong JNICALL Java_android_media_MediaCodec_native_1constructor(JNIEnv
 
 	struct ATL_codec_context *ctx = calloc(1, sizeof(struct ATL_codec_context));
 	ctx->codec = codec_ctx;
+	g_mutex_init(&ctx->video_surface_lock);
 	return _INTPTR(ctx);
 }
 
@@ -294,14 +317,34 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1configure_1video(JN
 	if (!hw_device_ready)
 		codec_ctx->get_format = get_software_format;
 
-	SurfaceViewWidget *surface_view_widget = surface_view_widget_from_widget(GTK_WIDGET(_PTR(_GET_LONG_FIELD(surface_obj, "widget"))));
+	SurfaceViewWidget *surface_view_widget = surface_obj ? surface_view_widget_from_widget(GTK_WIDGET(_PTR(_GET_LONG_FIELD(surface_obj, "widget")))) : NULL;
 	if (!surface_view_widget) {
-		fprintf(stderr, "MediaCodec: Surface has no SurfaceViewWidget\n");
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "MediaCodec requires a SurfaceView output surface");
 		av_freep(&ctx->video.extradata);
 		ctx->video.extradata_size = 0;
 		return;
 	}
-	ctx->video.surface_view_widget = surface_view_widget;
+	video_surface_replace(ctx, surface_view_widget);
+}
+
+JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1set_1output_1surface(JNIEnv *env, jobject this, jlong codec, jobject surface_obj)
+{
+	struct ATL_codec_context *ctx = _PTR(codec);
+	if (ctx->codec->codec_type != AVMEDIA_TYPE_VIDEO) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), "setOutputSurface is only supported for video codecs");
+		return;
+	}
+	if (!surface_obj) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "surface must not be null");
+		return;
+	}
+	jlong widget_handle = _GET_LONG_FIELD(surface_obj, "widget");
+	SurfaceViewWidget *view = widget_handle ? surface_view_widget_from_widget(GTK_WIDGET(_PTR(widget_handle))) : NULL;
+	if (!view) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), "surface has no SurfaceView output widget");
+		return;
+	}
+	video_surface_replace(ctx, view);
 }
 
 JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1start(JNIEnv *env, jobject this, jlong codec)
@@ -586,7 +629,13 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 				return;
 			}
 			data->texture = texture;
-			data->surface_view_widget = g_object_ref(ctx->video.surface_view_widget);
+			data->surface_view_widget = video_surface_ref(ctx);
+			if (!data->surface_view_widget) {
+				free(data);
+				g_object_unref(texture);
+				av_frame_free(&frame);
+				return;
+			}
 			data->release_time_ns = presentationTimeNs;
 			schedule_render(render_texture, data, texture);
 			g_bytes_unref(bytes);
@@ -601,7 +650,12 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1releaseOutputBuffer
 		}
 		data->frame = frame;
 		data->release_time_ns = presentationTimeNs;
-		data->surface_view_widget = g_object_ref(ctx->video.surface_view_widget);
+		data->surface_view_widget = video_surface_ref(ctx);
+		if (!data->surface_view_widget) {
+			free(data);
+			av_frame_free(&frame);
+			return;
+		}
 		schedule_render(render_frame, data, NULL);
 	}
 }
@@ -620,5 +674,12 @@ JNIEXPORT void JNICALL Java_android_media_MediaCodec_native_1release(JNIEnv *env
 	}
 
 	avcodec_free_context(&ctx->codec);
+	g_mutex_lock(&ctx->video_surface_lock);
+	SurfaceViewWidget *view = ctx->video.surface_view_widget;
+	ctx->video.surface_view_widget = NULL;
+	g_mutex_unlock(&ctx->video_surface_lock);
+	if (view)
+		g_object_unref(view);
+	g_mutex_clear(&ctx->video_surface_lock);
 	free(ctx);
 }

@@ -66,5 +66,23 @@ public class TestViews {
 		if (middle.getChildCount() != 2)
 			throw new AssertionError("Stacking changed child count");
 		System.out.println("PASS: descendant invalidation and child stacking");
+		FrameLayout range = new FrameLayout(context);
+		View first = new View(context), removedOne = new View(context), removedTwo = new View(context), last = new View(context);
+		range.addView(first);
+		range.addView(removedOne);
+		range.addView(removedTwo);
+		range.addView(last);
+		range.removeViews(1, 2);
+		if (range.getChildCount() != 2 || range.getChildAt(0) != first || range.getChildAt(1) != last
+		    || removedOne.getParent() != null || removedTwo.getParent() != null)
+			throw new AssertionError("removeViews must remove the selected contiguous range and detach its children");
+		try {
+			range.removeViews(1, 2);
+			throw new AssertionError("removeViews must reject a range extending past the child list");
+		} catch (IndexOutOfBoundsException expected) {
+			if (range.getChildCount() != 2 || range.getChildAt(1) != last)
+				throw new AssertionError("Invalid removeViews range must not partially mutate the child list");
+		}
+		System.out.println("PASS: ViewGroup.removeViews range removal and bounds checking");
 	}
 }

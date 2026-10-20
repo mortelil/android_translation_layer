@@ -432,6 +432,10 @@ public class Activity extends ContextThemeWrapper implements Window.Callback, La
 		onContentChanged();
 	}
 
+	public void addContentView(View view, ViewGroup.LayoutParams params) {
+		getWindow().addContentView(view, params);
+	}
+
 	public <T extends android.view.View> T findViewById(int id) {
 		View view = window.findViewById(id);
 
