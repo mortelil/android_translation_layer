@@ -7,52 +7,88 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#undef android_media_MediaPlayer_MEDIA_ERROR_UNKNOWN
+#define android_media_MediaPlayer_MEDIA_ERROR_UNKNOWN 1L
+#undef android_media_MediaPlayer_MEDIA_ERROR_SERVER_DIED
+#define android_media_MediaPlayer_MEDIA_ERROR_SERVER_DIED 100L
+#undef android_media_MediaPlayer_MEDIA_ERROR_IO
+#define android_media_MediaPlayer_MEDIA_ERROR_IO -1004L
+#undef android_media_MediaPlayer_MEDIA_ERROR_UNSUPPORTED
+#define android_media_MediaPlayer_MEDIA_ERROR_UNSUPPORTED -1010L
+#undef android_media_MediaPlayer_MEDIA_INFO_BUFFERING_START
+#define android_media_MediaPlayer_MEDIA_INFO_BUFFERING_START 701L
+#undef android_media_MediaPlayer_MEDIA_INFO_BUFFERING_END
+#define android_media_MediaPlayer_MEDIA_INFO_BUFFERING_END 702L
+#undef android_media_MediaPlayer_SEEK_PREVIOUS_SYNC
+#define android_media_MediaPlayer_SEEK_PREVIOUS_SYNC 0L
+#undef android_media_MediaPlayer_SEEK_NEXT_SYNC
+#define android_media_MediaPlayer_SEEK_NEXT_SYNC 1L
+#undef android_media_MediaPlayer_SEEK_CLOSEST_SYNC
+#define android_media_MediaPlayer_SEEK_CLOSEST_SYNC 2L
+#undef android_media_MediaPlayer_SEEK_CLOSEST
+#define android_media_MediaPlayer_SEEK_CLOSEST 3L
 /*
  * Class:     android_media_MediaPlayer
- * Method:    native_prepare
- * Signature: (J)V
+ * Method:    nativeCreate
+ * Signature: (Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;I)J
  */
-JNIEXPORT void JNICALL Java_android_media_MediaPlayer_native_1prepare
-  (JNIEnv *, jclass, jlong);
+JNIEXPORT jlong JNICALL Java_android_media_MediaPlayer_nativeCreate
+  (JNIEnv *, jobject, jstring, jobjectArray, jobjectArray, jint);
 
 /*
  * Class:     android_media_MediaPlayer
- * Method:    native_setDataSource
- * Signature: (Ljava/lang/String;)J
+ * Method:    nativeSurface
+ * Signature: (JLandroid/view/Surface;)V
  */
-JNIEXPORT jlong JNICALL Java_android_media_MediaPlayer_native_1setDataSource
-  (JNIEnv *, jobject, jstring);
-
-/*
- * Class:     android_media_MediaPlayer
- * Method:    native_setOnCompletionListener
- * Signature: (JLandroid/media/MediaPlayer/OnCompletionListener;)V
- */
-JNIEXPORT void JNICALL Java_android_media_MediaPlayer_native_1setOnCompletionListener
+JNIEXPORT void JNICALL Java_android_media_MediaPlayer_nativeSurface
   (JNIEnv *, jclass, jlong, jobject);
 
 /*
  * Class:     android_media_MediaPlayer
- * Method:    native_start
+ * Method:    nativePrepare
+ * Signature: (JZ)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_media_MediaPlayer_nativePrepare
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     android_media_MediaPlayer
+ * Method:    nativeState
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_android_media_MediaPlayer_nativeState
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     android_media_MediaPlayer
+ * Method:    nativeSeek
+ * Signature: (JJI)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_media_MediaPlayer_nativeSeek
+  (JNIEnv *, jclass, jlong, jlong, jint);
+
+/*
+ * Class:     android_media_MediaPlayer
+ * Method:    nativeTime
+ * Signature: (JZ)I
+ */
+JNIEXPORT jint JNICALL Java_android_media_MediaPlayer_nativeTime
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     android_media_MediaPlayer
+ * Method:    nativeVolume
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_android_media_MediaPlayer_nativeVolume
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     android_media_MediaPlayer
+ * Method:    nativeRelease
  * Signature: (J)V
  */
-JNIEXPORT void JNICALL Java_android_media_MediaPlayer_native_1start
-  (JNIEnv *, jclass, jlong);
-
-/*
- * Class:     android_media_MediaPlayer
- * Method:    native_getDuration
- * Signature: (J)I
- */
-JNIEXPORT jint JNICALL Java_android_media_MediaPlayer_native_1getDuration
-  (JNIEnv *, jclass, jlong);
-
-/*
- * Class:     android_media_MediaPlayer
- * Method:    native_getCurrentPosition
- * Signature: (J)I
- */
-JNIEXPORT jint JNICALL Java_android_media_MediaPlayer_native_1getCurrentPosition
+JNIEXPORT void JNICALL Java_android_media_MediaPlayer_nativeRelease
   (JNIEnv *, jclass, jlong);
 
 #ifdef __cplusplus
