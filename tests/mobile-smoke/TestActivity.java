@@ -199,10 +199,14 @@ public class TestActivity extends android.app.Activity {
 			if (!getCodeCacheDir().isDirectory())
 				throw new AssertionError("Code cache");
 			System.out.println("PASS: network request immutability, callback lifecycle and code cache");
-			TestHandlerPostDelayedToken.run(new Runnable() {
-				public void run() {
-					System.out.println("ATL TEST APK PASSED");
-					System.exit(0);
+			TestAlertDialogButton.run(this, new Runnable() {
+				@Override public void run() {
+					TestHandlerPostDelayedToken.run(new Runnable() {
+						public void run() {
+							System.out.println("ATL TEST APK PASSED");
+							System.exit(0);
+						}
+					});
 				}
 			});
 		} catch (Throwable e) {

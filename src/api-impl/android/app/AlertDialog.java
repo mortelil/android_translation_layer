@@ -2,6 +2,8 @@ package android.app;
 
 import android.content.Context;
 import android.content.DialogInterface;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -10,6 +12,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
 
 	private Button[] buttons;
 	private final TextView messageView;
+	private final Handler buttonHandler;
 
 	private native void nativeConstruct(long ptr, long message, long button_positive, long button_negative, long button_neutral);
 	private native void nativeSetItems(long ptr, String[] items, DialogInterface.OnClickListener listener);
@@ -20,6 +23,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
 
 	public AlertDialog(Context context, int themeResId) {
 		super(context, themeResId);
+		buttonHandler = new Handler(Looper.getMainLooper());
 		Context viewContext = getContext();
 		// three buttons: positive, negative, neutral
 		buttons = new Button[] {new Button(viewContext), new Button(viewContext), new Button(viewContext)};
@@ -44,9 +48,17 @@ public class AlertDialog extends Dialog implements DialogInterface {
 		button.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
-				if (listener != null)
-					listener.onClick(AlertDialog.this, whichButton);
-				dismiss();
+				/* The native GTK button emits this callback while its clicked
+				 * signal is still on the stack. Dispatch like AOSP's ButtonHandler
+				 * so dismiss() cannot tear down the native widget tree from inside
+				 * that signal. */
+				buttonHandler.post(new Runnable() {
+					@Override public void run() {
+						if (listener != null)
+							listener.onClick(AlertDialog.this, whichButton);
+						dismiss();
+					}
+				});
 			}
 		});
 		button.setVisibility(View.VISIBLE);
