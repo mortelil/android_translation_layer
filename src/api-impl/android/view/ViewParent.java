@@ -4,6 +4,9 @@ public interface ViewParent {
 	boolean getChildVisibleRect(View child, android.graphics.Rect rect, android.graphics.Point offset);
 	public abstract ViewParent getParent();
 
+	/** Moves a child to the top of its parent's drawing order. */
+	public void bringChildToFront(View child);
+
 	public boolean isLayoutRequested();
 
 	public void requestDisallowInterceptTouchEvent(boolean disallowIntercept);

@@ -20,6 +20,11 @@ public class WindowManagerImpl implements WindowManager, ViewManager {
 		}
 
 		@Override
+		public void bringChildToFront(View child) {
+			// A WindowManager window has one top-level view, so there are no siblings to reorder.
+		}
+
+		@Override
 		public boolean isLayoutRequested() {
 			// TODO Auto-generated method stub
 			throw new UnsupportedOperationException("Unimplemented method 'isLayoutRequested'");
