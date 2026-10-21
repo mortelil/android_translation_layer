@@ -81,9 +81,9 @@ public class TestViews {
 			throw new AssertionError("Descendant invalidation");
 		View second = new View(context);
 		middle.addView(second);
-		leaf.bringToFront();
+		((android.view.ViewParent) middle).bringChildToFront(leaf);
 		if (middle.getChildAt(0) != second || middle.getChildAt(1) != leaf || leaf.getParent() != middle)
-			throw new AssertionError("Child stacking");
+			throw new AssertionError("ViewParent.bringChildToFront must reorder its child");
 		leaf.bringToFront();
 		if (middle.getChildCount() != 2)
 			throw new AssertionError("Stacking changed child count");
