@@ -710,20 +710,20 @@ JNIEXPORT void JNICALL Java_android_view_View_native_1measure(JNIEnv *env, jobje
 	int height_spec_size = height_spec & ~MEASURE_SPEC_MASK;
 	int width_spec_mode = width_spec & MEASURE_SPEC_MASK;
 	int height_spec_mode = height_spec & MEASURE_SPEC_MASK;
-	GtkSizeRequestMode request_mode;
+	GtkSizeRequestMode request_mode = gtk_widget_get_request_mode(widget);
 
 	if (width_spec_mode == MEASURE_SPEC_EXACTLY) {
 		width = width_spec_size;
-		request_mode = GTK_SIZE_REQUEST_HEIGHT_FOR_WIDTH;
 	}
 	if (height_spec_mode == MEASURE_SPEC_EXACTLY) {
 		height = height_spec_size;
-		request_mode = GTK_SIZE_REQUEST_WIDTH_FOR_HEIGHT;
 	}
-	if (width == -1 && height == -1)
-		request_mode = gtk_widget_get_request_mode(widget);
-	if (width == -1 && request_mode == GTK_SIZE_REQUEST_HEIGHT_FOR_WIDTH) {
-		gtk_widget_measure(widget, GTK_ORIENTATION_HORIZONTAL, height, NULL, &width, NULL, NULL);
+	if (width == -1 && request_mode != GTK_SIZE_REQUEST_WIDTH_FOR_HEIGHT) {
+		/* Height-for-width widgets choose their natural width first. An exact
+		 * Android height does not turn a wrapping label into width-for-height:
+		 * measuring it against that height would shrink wrap_content text into
+		 * several lines even when its parent has room for a single line. */
+		gtk_widget_measure(widget, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &width, NULL, NULL);
 		if (width_spec_mode == MEASURE_SPEC_AT_MOST && width > width_spec_size)
 			width = width_spec_size;
 	}
