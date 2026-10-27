@@ -7,6 +7,13 @@ import java.util.IdentityHashMap;
 class ProxyInfo {}
 
 public class ConnectivityManager {
+    public static final int RESTRICT_BACKGROUND_STATUS_DISABLED = 1;
+    public static final int RESTRICT_BACKGROUND_STATUS_WHITELISTED = 2;
+    public static final int RESTRICT_BACKGROUND_STATUS_ENABLED = 3;
+    // ATL does not impose Android Data Saver restrictions on host networking.
+    // Metering alone is not a background-data restriction.
+    public int getRestrictBackgroundStatus() { return RESTRICT_BACKGROUND_STATUS_DISABLED; }
+
 	private final IdentityHashMap<NetworkCallback, ArrayList<Registration>> registrations = new IdentityHashMap<>();
 	private final IdentityHashMap<OnNetworkActiveListener, NetworkCallback> activeListeners = new IdentityHashMap<>();
 

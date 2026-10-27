@@ -7,6 +7,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#undef android_net_ConnectivityManager_RESTRICT_BACKGROUND_STATUS_DISABLED
+#define android_net_ConnectivityManager_RESTRICT_BACKGROUND_STATUS_DISABLED 1L
+#undef android_net_ConnectivityManager_RESTRICT_BACKGROUND_STATUS_WHITELISTED
+#define android_net_ConnectivityManager_RESTRICT_BACKGROUND_STATUS_WHITELISTED 2L
+#undef android_net_ConnectivityManager_RESTRICT_BACKGROUND_STATUS_ENABLED
+#define android_net_ConnectivityManager_RESTRICT_BACKGROUND_STATUS_ENABLED 3L
 /*
  * Class:     android_net_ConnectivityManager
  * Method:    nativeRegisterNetworkCallback
