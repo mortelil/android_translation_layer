@@ -56,18 +56,49 @@ public class Probe extends Activity {
     void widgetChecks() {
         FrameLayout root=new FrameLayout(this);SurfaceView v=new SurfaceView(this);
         v.getHolder().addCallback(new SurfaceHolder.Callback(){
-            long p;Surface wrapper;
-            public void surfaceCreated(SurfaceHolder holder) {h.postDelayed(new Runnable(){public void run(){try {
-                p=take(holder.getSurface());check(p!=0,"widget native window");
-                wrapper=wrap(p);check(wrapper.isValid() && refs(p)==2,"widget wrapper valid");
-                long q=take(wrapper);check(q==p,"widget roundtrip");drop(q,true);
-                check(width(p)>0,"cached width");root.removeView(v);
+            long p;int createdWidth;Surface wrapper;
+            public void surfaceCreated(SurfaceHolder holder) {
+                /* Android makes the Surface usable from surfaceCreated even
+                 * when the parent has not completed its first layout pass.
+                 * ATL must not return null just because GTK still reports a
+                 * zero-sized widget at this point. */
+                p=take(holder.getSurface());
+                check(p!=0,"widget native window available in surfaceCreated");
+                createdWidth=width(p);
+                check(createdWidth>0,"surfaceCreated has a non-zero EGL backing size");
+                System.out.println("NATIVE_SURFACE_CREATED width="+createdWidth);
                 h.postDelayed(new Runnable(){public void run(){try {
-                    check(!wrapper.isValid(),"unrealized consumer invalid");
-                    check(width(p)>0,"retained native window readable after view removal");
-                    wrapper.release();check(refs(p)==1,"widget wrapper released");drop(p,true);
-                    h.postDelayed(new Runnable(){public void run(){System.out.println("NATIVE_SURFACE_PASS");finish();System.exit(0);}},100);
-                }catch(Throwable t){fail(t);}}},100);
+                    v.setLayoutParams(new FrameLayout.LayoutParams(100,100));
+                    h.postDelayed(new Runnable(){public void run(){try {
+                    wrapper=wrap(p);check(wrapper.isValid() && refs(p)==2,"widget wrapper valid");
+                    long q=take(wrapper);check(q==p,"widget roundtrip");drop(q,true);
+                    check(width(p)==100,"retained native window follows first non-zero allocation");
+                    System.out.println("NATIVE_SURFACE_ALLOCATED width="+width(p));
+                    root.removeView(v);
+                    h.postDelayed(new Runnable(){public void run(){try {
+                        check(!wrapper.isValid(),"unrealized consumer invalid");
+                        check(width(p)>0,"retained native window readable after view removal");
+                        wrapper.release();check(refs(p)==1,"widget wrapper released");drop(p,true);
+                        h.postDelayed(new Runnable(){public void run(){widgetSizedChecks();}},100);
+                    }catch(Throwable t){fail(t);}}},150);
+                    }catch(Throwable t){fail(t);}}},150);
+                }catch(Throwable t){fail(t);}}},150);
+            }
+            public void surfaceChanged(SurfaceHolder h,int f,int w,int height){}
+            public void surfaceDestroyed(SurfaceHolder h){}
+        });
+        root.addView(v,new FrameLayout.LayoutParams(0,0));setContentView(root);
+    }
+    void widgetSizedChecks() {
+        FrameLayout root=new FrameLayout(this);SurfaceView v=new SurfaceView(this);
+        v.getHolder().addCallback(new SurfaceHolder.Callback(){
+            public void surfaceCreated(SurfaceHolder holder){h.postDelayed(new Runnable(){public void run(){try {
+                long p=take(holder.getSurface());
+                check(p!=0,"allocated SurfaceView native window");
+                check(width(p)>1,"allocated SurfaceView uses its real dimensions");
+                System.out.println("NATIVE_SURFACE_ALLOCATED width="+width(p));
+                drop(p,false);
+                System.out.println("NATIVE_SURFACE_PASS");finish();System.exit(0);
             }catch(Throwable t){fail(t);}}},150);}
             public void surfaceChanged(SurfaceHolder h,int f,int w,int height){}
             public void surfaceDestroyed(SurfaceHolder h){}
