@@ -145,3 +145,19 @@ JNIEXPORT jboolean JNICALL Java_android_view_Surface_nativeIsValid(JNIEnv *env, 
 {
 	return atl_native_window_is_valid(env, (struct ANativeWindow *)(intptr_t)handle);
 }
+
+JNIEXPORT jlong JNICALL Java_android_view_Surface_nativeAcquire(JNIEnv *env, jclass cls, jobject surface)
+{ return (intptr_t)ANativeWindow_fromSurface(env, surface); }
+JNIEXPORT jlong JNICALL Java_android_view_Surface_nativeRemote(JNIEnv *env, jclass cls, jobject producer)
+{ return (intptr_t)atl_native_window_remote(env, producer); }
+JNIEXPORT jintArray JNICALL Java_android_view_Surface_nativeSize(JNIEnv *env, jclass cls, jlong handle)
+{
+    struct ANativeWindow *w = (void *)(intptr_t)handle;
+    jint dims[2] = {0};
+    if (atl_native_window_is_valid(env, w)) { dims[0] = g_atomic_int_get(&w->width); dims[1] = g_atomic_int_get(&w->height); }
+    jintArray result = (*env)->NewIntArray(env, 2);
+    if (result) (*env)->SetIntArrayRegion(env, result, 0, 2, dims);
+    return result;
+}
+JNIEXPORT jboolean JNICALL Java_android_view_Surface_nativePresent(JNIEnv *env, jclass cls, jlong handle, jint fd, jint width, jint height)
+{ return atl_native_window_present_fd((void *)(intptr_t)handle, fd, width, height); }

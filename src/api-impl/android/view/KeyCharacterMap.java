@@ -273,14 +273,50 @@ public class KeyCharacterMap {
 
 	private static native void nativeDispose(int ptr);
 
-	private static native char nativeGetCharacter(int ptr, int keyCode, int metaState);
+    private static char nativeGetCharacter(int ptr, int keyCode, int metaState) {
+        return virtualCharacter(keyCode, metaState);
+    }
+    private KeyEvent synthetic(long time, int action, int code, int meta, int unicode) {
+        KeyEvent event = new KeyEvent(time, time, action, code, 0, meta, mPtr, 0, 0,
+                InputDevice.SOURCE_KEYBOARD);
+        event.unicodeValue = unicode;
+        return event;
+    }
+    private static char virtualCharacter(int key, int meta) {
+        meta = KeyEvent.normalizeMetaState(meta);
+        if ((meta & (KeyEvent.META_ALT_ON | KeyEvent.META_CTRL_ON | KeyEvent.META_META_ON)) != 0) return 0;
+        boolean shift = (meta & KeyEvent.META_SHIFT_ON) != 0;
+        if (key >= KeyEvent.KEYCODE_A && key <= KeyEvent.KEYCODE_Z) {
+            boolean caps = (meta & KeyEvent.META_CAPS_LOCK_ON) != 0;
+            return (char)((shift ^ caps ? 'A' : 'a') + key - KeyEvent.KEYCODE_A);
+        }
+        if (key >= KeyEvent.KEYCODE_0 && key <= KeyEvent.KEYCODE_9)
+            return (shift ? ")!@#$%^&*(" : "0123456789").charAt(key - KeyEvent.KEYCODE_0);
+        switch (key) {
+            case KeyEvent.KEYCODE_SPACE: return ' ';
+            case KeyEvent.KEYCODE_ENTER: return '\n';
+            case KeyEvent.KEYCODE_TAB: return '\t';
+            case KeyEvent.KEYCODE_COMMA: return shift ? '<' : ',';
+            case KeyEvent.KEYCODE_PERIOD: return shift ? '>' : '.';
+            case KeyEvent.KEYCODE_SLASH: return shift ? '?' : '/';
+            case KeyEvent.KEYCODE_GRAVE: return shift ? '~' : '`';
+            case KeyEvent.KEYCODE_MINUS: return shift ? '_' : '-';
+            case KeyEvent.KEYCODE_EQUALS: return shift ? '+' : '=';
+            case KeyEvent.KEYCODE_LEFT_BRACKET: return shift ? '{' : '[';
+            case KeyEvent.KEYCODE_RIGHT_BRACKET: return shift ? '}' : ']';
+            case KeyEvent.KEYCODE_BACKSLASH: return shift ? '|' : '\\';
+            case KeyEvent.KEYCODE_SEMICOLON: return shift ? ':' : ';';
+            case KeyEvent.KEYCODE_APOSTROPHE: return shift ? '"' : '\'';
+            default: return 0;
+        }
+    }
 	private static native boolean nativeGetFallbackAction(int ptr, int keyCode, int metaState,
 	                                                      FallbackAction outFallbackAction);
 	private static native char nativeGetNumber(int ptr, int keyCode);
 	private static native char nativeGetMatch(int ptr, int keyCode, char[] chars, int metaState);
 	private static native char nativeGetDisplayLabel(int ptr, int keyCode);
 	private static native int nativeGetKeyboardType(int ptr);
-	private static native KeyEvent[] nativeGetEvents(int ptr, char[] chars);
+
 
 	// Called from native
 	private KeyCharacterMap(int ptr) {
@@ -307,7 +343,7 @@ public class KeyCharacterMap {
 			}
 		}
 		return inputDevice.getKeyCharacterMap();*/
-		return new KeyCharacterMap(0);
+		return new KeyCharacterMap(deviceId);
 	}
 
 	/**
@@ -332,17 +368,8 @@ public class KeyCharacterMap {
 	 * @return The associated character or combining accent, or 0 if none.
 	 */
 	public int get(int keyCode, int metaState) {
-		return 0;
-		/*metaState = KeyEvent.normalizeMetaState(metaState);
-		char ch = nativeGetCharacter(mPtr, keyCode, metaState);
-
-		int map = sCombiningToAccent.get(ch);
-		if (map != 0) {
-			return map | COMBINING_ACCENT;
-		} else {
-			return ch;
-		}*/
-	}
+        return virtualCharacter(keyCode, metaState);
+    }
 
 	/**
 	 * Gets the fallback action to perform if the application does not
@@ -574,7 +601,26 @@ public class KeyCharacterMap {
 		if (chars == null) {
 			throw new IllegalArgumentException("chars must not be null.");
 		}
-		return nativeGetEvents(mPtr, chars);
+        // Synthesize the base/shift subset of the Android virtual US keyboard.
+        // Reference: AOSP android-16.0.0_r1 data/keyboards/Generic.kcm.
+        // Unmappable text must return null so IMEs can use their text path.
+        java.util.ArrayList<KeyEvent> events = new java.util.ArrayList<>();
+        long now = android.os.SystemClock.uptimeMillis();
+        for (char ch : chars) {
+            int code = 0, meta = 0;
+            for (int key = 1; key <= KeyEvent.KEYCODE_NUMPAD_EQUALS; key++) {
+                if (virtualCharacter(key, 0) == ch && ch != 0) { code = key; break; }
+                if (virtualCharacter(key, KeyEvent.META_SHIFT_ON) == ch && ch != 0) {
+                    code = key; meta = KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON; break;
+                }
+            }
+            if (code == 0) return null;
+            if (meta != 0) events.add(synthetic(now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT, meta, 0));
+            events.add(synthetic(now, KeyEvent.ACTION_DOWN, code, meta, ch));
+            events.add(synthetic(now, KeyEvent.ACTION_UP, code, meta, ch));
+            if (meta != 0) events.add(synthetic(now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0));
+        }
+        return events.toArray(new KeyEvent[events.size()]);
 	}
 
 	/**

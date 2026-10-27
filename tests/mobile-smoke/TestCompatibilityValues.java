@@ -8,6 +8,10 @@ public class TestCompatibilityValues {
         if (!value) throw new AssertionError(message);
     }
     public static void run(android.content.Context context) {
+        android.net.ConnectivityManager connectivity = (android.net.ConnectivityManager)
+            context.getSystemService("connectivity");
+        check(connectivity.getRestrictBackgroundStatus() == android.net.ConnectivityManager.RESTRICT_BACKGROUND_STATUS_DISABLED,
+              "host networking has no Android Data Saver policy");
         ParcelUuid id = ParcelUuid.fromString("12345678-1234-5678-9abc-123456789abc");
         Parcel parcel = Parcel.obtain();
         id.writeToParcel(parcel, 0);

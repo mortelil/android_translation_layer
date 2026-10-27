@@ -16,7 +16,15 @@
  * limitations under the License.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdint.h>
+#include "../api-impl-jni/widgets/android_view_SurfaceView.h"
 #include <stdlib.h>
 
 #include <EGL/egl.h>
@@ -132,18 +140,20 @@ static gboolean destroy_widget_window(gpointer data)
 	g_clear_object(&window->surface_view_widget);
 	g_clear_object(&window->parent_surface);
 	g_clear_object(&window->display);
+	g_mutex_clear(&window->pending_lock);
 	free(window);
 	return G_SOURCE_REMOVE;
 }
 void ANativeWindow_release(struct ANativeWindow *window)
 {
 	if (!window || !g_atomic_int_dec_and_test(&window->refcount)) return;
-	if (window->surface_texture) {
+	if (window->surface_texture || window->remote_producer) {
 		JNIEnv *env;
 		gboolean attached = (*window->jvm)->GetEnv(window->jvm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED;
 		if (attached && (*window->jvm)->AttachCurrentThread(window->jvm, (void **)&env, NULL) != JNI_OK)
 			g_error("Cannot attach thread to release SurfaceTexture reference");
-		(*env)->DeleteWeakGlobalRef(env, window->surface_texture);
+		if (window->surface_texture) (*env)->DeleteWeakGlobalRef(env, window->surface_texture);
+		if (window->remote_producer) (*env)->DeleteGlobalRef(env, window->remote_producer);
 		if (attached) (*window->jvm)->DetachCurrentThread(window->jvm);
 		free(window);
 	} else if (g_thread_self() == main_thread_id) {
@@ -159,7 +169,16 @@ int32_t ANativeWindow_getHeight(struct ANativeWindow *window) { return g_atomic_
 gboolean atl_native_window_is_valid(JNIEnv *env, struct ANativeWindow *window)
 {
 	if (!window) return FALSE;
-	if (!window->surface_texture) return !g_atomic_int_get(&window->abandoned);
+	if (window->remote_producer) {
+        jclass cls = (*env)->GetObjectClass(env, window->remote_producer);
+        jintArray size = (*env)->CallObjectMethod(env, window->remote_producer, (*env)->GetMethodID(env, cls, "size", "()[I"));
+        jint dims[2] = {0};
+        if (size && !(*env)->ExceptionCheck(env)) (*env)->GetIntArrayRegion(env, size, 0, 2, dims);
+        if (size) (*env)->DeleteLocalRef(env, size);
+        (*env)->DeleteLocalRef(env, cls);
+        return dims[0] > 0 && dims[1] > 0 && !(*env)->ExceptionCheck(env);
+    }
+    if (!window->surface_texture) return !g_atomic_int_get(&window->abandoned);
 	jobject texture = (*env)->NewLocalRef(env, window->surface_texture);
 	if (!texture) return FALSE;
 	jclass cls = (*env)->GetObjectClass(env, texture);
@@ -180,6 +199,16 @@ jobject ANativeWindow_toSurface(JNIEnv *env, struct ANativeWindow *window)
 	ANativeWindow_acquire(window);
 	jobject surface = (*env)->NewObject(env, cls, ctor, (jlong)(intptr_t)window, texture);
 	if (!surface) ANativeWindow_release(window);
+    if (surface && window->remote_producer) {
+        // A native roundtrip must forward the original capability, not create
+        // a new consumer in this process (which has no GTK widget).
+        jclass remote_cls = (*env)->GetObjectClass(env, window->remote_producer);
+        jfieldID endpoint_field = (*env)->GetFieldID(env, remote_cls, "endpoint", "Landroid/os/IBinder;");
+        jobject endpoint = (*env)->GetObjectField(env, window->remote_producer, endpoint_field);
+        (*env)->SetObjectField(env, surface, (*env)->GetFieldID(env, cls, "producer", "Landroid/os/IBinder;"), endpoint);
+        (*env)->DeleteLocalRef(env, endpoint);
+        (*env)->DeleteLocalRef(env, remote_cls);
+    }
 	if (texture) (*env)->DeleteLocalRef(env, texture);
 	(*env)->DeleteLocalRef(env, cls);
 	return surface;
@@ -599,6 +628,24 @@ gboolean atl_native_window_post_rgba(ANativeWindow *window, const unsigned char 
 	gboolean attached = (*window->jvm)->GetEnv(window->jvm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED;
 	if (attached && (*window->jvm)->AttachCurrentThread(window->jvm, (void **)&env, NULL) != JNI_OK)
 		return FALSE;
+    if (window->remote_producer) {
+        gboolean ok = FALSE;
+        size_t bytes = (size_t)width * height * 4;
+        int fd = memfd_create("atl-surface-frame", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+        if (fd >= 0 && bytes <= 64 * 1024 * 1024 && ftruncate(fd, bytes) == 0) {
+            void *mapping = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (mapping != MAP_FAILED) {
+                memcpy(mapping, pixels, bytes);
+                munmap(mapping, bytes);
+                if (fcntl(fd, F_ADD_SEALS, F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL) == 0)
+                    ok = (*env)->CallBooleanMethod(env, window->remote_producer, window->queue_frame, fd, width, height);
+            }
+        }
+        if (fd >= 0) close(fd);
+        if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionDescribe(env); (*env)->ExceptionClear(env); ok = FALSE; }
+        if (attached) (*window->jvm)->DetachCurrentThread(window->jvm);
+        return ok;
+    }
 	jobject texture = (*env)->NewLocalRef(env, window->surface_texture);
 	if (!texture) {
 		if (attached) (*window->jvm)->DetachCurrentThread(window->jvm);
@@ -839,4 +886,67 @@ typedef void *ANativeActivity;
 void ANativeActivity_setWindowFormat(ANativeActivity *activity, int32_t format)
 {
 	printf("STUB: %s called\n", __func__);
+}
+
+/* A remote producer renders to a local pbuffer. The Binder capability sends
+ * sealed RGBA frames to the owner; GTK handles only ever stay in the owner. */
+ANativeWindow *atl_native_window_remote(JNIEnv *env, jobject producer)
+{
+    jclass cls = (*env)->GetObjectClass(env, producer);
+    jintArray size = (*env)->CallObjectMethod(env, producer, (*env)->GetMethodID(env, cls, "size", "()[I"));
+    jint dims[2] = {0};
+    if (size && !(*env)->ExceptionCheck(env)) (*env)->GetIntArrayRegion(env, size, 0, 2, dims);
+    ANativeWindow *result = NULL;
+    if (!(*env)->ExceptionCheck(env) && dims[0] > 0 && dims[1] > 0 && (int64_t)dims[0]*dims[1]*4 <= 64*1024*1024) {
+        result = g_new0(ANativeWindow, 1);
+        result->width = dims[0]; result->height = dims[1]; result->refcount = 1;
+        (*env)->GetJavaVM(env, &result->jvm);
+        result->remote_producer = (*env)->NewGlobalRef(env, producer);
+        result->queue_frame = (*env)->GetMethodID(env, cls, "post", "(III)Z");
+        if (!result->remote_producer || !result->queue_frame) { ANativeWindow_release(result); result = NULL; }
+    }
+    if (size) (*env)->DeleteLocalRef(env, size);
+    (*env)->DeleteLocalRef(env, cls);
+    return result;
+}
+
+static gboolean present_remote_frame(gpointer data)
+{
+    ANativeWindow *window = data;
+    g_mutex_lock(&window->pending_lock);
+    GBytes *bytes = window->pending_frame;
+    int width = window->pending_width, height = window->pending_height;
+    window->pending_frame = NULL;
+    g_mutex_unlock(&window->pending_lock);
+    if (!g_atomic_int_get(&window->abandoned)) {
+        GdkTexture *texture = gdk_memory_texture_new(width, height,
+            GDK_MEMORY_R8G8B8A8_PREMULTIPLIED, bytes, (size_t)width * 4);
+        surface_view_widget_set_texture(SURFACE_VIEW_WIDGET(window->surface_view_widget), texture, FALSE);
+    }
+    g_bytes_unref(bytes);
+    ANativeWindow_release(window);
+    return G_SOURCE_REMOVE;
+}
+
+gboolean atl_native_window_present_fd(ANativeWindow *window, int fd, int width, int height)
+{
+    if (!window || !window->surface_view_widget || g_atomic_int_get(&window->abandoned) ||
+        width <= 0 || height <= 0 || (int64_t)width * height * 4 > 64*1024*1024) return FALSE;
+    size_t length = (size_t)width * height * 4;
+    struct stat st;
+    int seals = fcntl(fd, F_GET_SEALS);
+    int required = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK;
+    if (seals < 0 || (seals & required) != required || fstat(fd, &st) || st.st_size != (off_t)length) return FALSE;
+    void *mapped = mmap(NULL, length, PROT_READ, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) return FALSE;
+    GBytes *bytes = g_bytes_new(mapped, length);
+    munmap(mapped, length);
+    g_mutex_lock(&window->pending_lock);
+    gboolean schedule = window->pending_frame == NULL;
+    if (window->pending_frame) g_bytes_unref(window->pending_frame);
+    window->pending_frame = bytes; window->pending_width = width; window->pending_height = height;
+    if (schedule) ANativeWindow_acquire(window);
+    g_mutex_unlock(&window->pending_lock);
+    if (schedule) g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, present_remote_frame, window, NULL);
+    return TRUE;
 }

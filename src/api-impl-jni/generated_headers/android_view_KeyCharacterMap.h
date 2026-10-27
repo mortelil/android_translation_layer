@@ -99,14 +99,6 @@ JNIEXPORT void JNICALL Java_android_view_KeyCharacterMap_nativeDispose
 
 /*
  * Class:     android_view_KeyCharacterMap
- * Method:    nativeGetCharacter
- * Signature: (III)C
- */
-JNIEXPORT jchar JNICALL Java_android_view_KeyCharacterMap_nativeGetCharacter
-  (JNIEnv *, jclass, jint, jint, jint);
-
-/*
- * Class:     android_view_KeyCharacterMap
  * Method:    nativeGetFallbackAction
  * Signature: (IIILandroid/view/KeyCharacterMap/FallbackAction;)Z
  */
@@ -144,14 +136,6 @@ JNIEXPORT jchar JNICALL Java_android_view_KeyCharacterMap_nativeGetDisplayLabel
  */
 JNIEXPORT jint JNICALL Java_android_view_KeyCharacterMap_nativeGetKeyboardType
   (JNIEnv *, jclass, jint);
-
-/*
- * Class:     android_view_KeyCharacterMap
- * Method:    nativeGetEvents
- * Signature: (I[C)[Landroid/view/KeyEvent;
- */
-JNIEXPORT jobjectArray JNICALL Java_android_view_KeyCharacterMap_nativeGetEvents
-  (JNIEnv *, jclass, jint, jcharArray);
 
 #ifdef __cplusplus
 }

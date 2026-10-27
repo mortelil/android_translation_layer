@@ -1738,6 +1738,32 @@ public class KeyEvent extends InputEvent implements Parcelable {
 	private long mEventTime;
 	private String mCharacters;
 
+    // ATL parcel format. Preserve the host-resolved Unicode value as well as
+    // Android's event fields; it cannot be reconstructed from a US keycode
+    // when the physical keyboard has a different layout.
+    public void writeToParcel(android.os.Parcel out, int flags) {
+        out.writeInt(PARCEL_TOKEN_KEY_EVENT);
+        out.writeInt(mDeviceId); out.writeInt(mSource); out.writeInt(mAction);
+        out.writeInt(mKeyCode); out.writeInt(mRepeatCount); out.writeInt(mMetaState);
+        out.writeInt(mScanCode); out.writeInt(mFlags);
+        out.writeLong(mDownTime); out.writeLong(mEventTime);
+        out.writeString(mCharacters); out.writeInt(unicodeValue);
+    }
+    public static final Parcelable.Creator<KeyEvent> CREATOR = new Parcelable.Creator<KeyEvent>() {
+        public KeyEvent createFromParcel(android.os.Parcel in) {
+            if (in.readInt() != PARCEL_TOKEN_KEY_EVENT)
+                throw new android.os.BadParcelableException("Not a KeyEvent");
+            int device = in.readInt(), source = in.readInt(), action = in.readInt();
+            int code = in.readInt(), repeat = in.readInt(), meta = in.readInt();
+            int scan = in.readInt(), flags = in.readInt();
+            long down = in.readLong(), time = in.readLong();
+            KeyEvent event = new KeyEvent(down, time, action, code, repeat, meta, device, scan, flags, source);
+            event.mCharacters = in.readString(); event.unicodeValue = in.readInt();
+            return event;
+        }
+        public KeyEvent[] newArray(int size) { return new KeyEvent[size]; }
+    };
+
 	int unicodeValue; // set from native code using gdk_keyval_to_unicode
 
 	public interface Callback {

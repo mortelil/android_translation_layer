@@ -30,5 +30,4 @@ public interface Editable extends CharSequence, Spannable, Appendable {
 
 	public void clear();
 
-	public <T> T[] getSpans(int queryStart, int queryEnd, Class<T> kind);
 }

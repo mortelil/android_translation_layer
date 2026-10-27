@@ -120,6 +120,18 @@ void surface_view_widget_set_texture(SurfaceViewWidget *surface_view_widget, Gdk
 	surface_view_widget->texture = texture;
 	surface_view_widget->needs_flip = needs_flip;
 	gtk_widget_queue_draw(GTK_WIDGET(surface_view_widget));
+    // Android custom drawChild/display-list consumers cache a separate node.
+    // GTK child invalidation alone does not invalidate those Java ancestors.
+    GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(surface_view_widget));
+    while (parent && !WRAPPER_IS_WIDGET(parent)) parent = gtk_widget_get_parent(parent);
+    if (parent) {
+        WrapperWidget *wrapper = WRAPPER_WIDGET(parent);
+        if (wrapper->jobj) {
+            JNIEnv *env = get_jni_env();
+            (*env)->CallVoidMethod(env, wrapper->jobj, handle_cache.view.propagateInvalidation);
+            atl_jni_handle_uncaught_exception(env, "Surface frame invalidation");
+        }
+    }
 }
 
 // ---
