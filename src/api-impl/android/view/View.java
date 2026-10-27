@@ -1244,6 +1244,9 @@ public class View implements Drawable.Callback {
 		native_setLayoutParams(widget, params.width, params.height, gravity, params.weight, leftMargin, topMargin, rightMargin, bottomMargin);
 
 		layout_params = params;
+		// Like AOSP View.setLayoutParams (android-16.0.0_r1), invalidate the
+		// Java measurement cache as well as updating the native widget hints.
+		requestLayout();
 	}
 
 	public ViewGroup.LayoutParams getLayoutParams() {

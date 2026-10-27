@@ -304,6 +304,10 @@ void wl_registry_global_remove_handler(void *data, struct wl_registry *registry,
 static void on_resize(GtkWidget *self, gint width, gint height, ANativeWindow *native_window)
 {
 	if (g_atomic_int_get(&native_window->abandoned)) return;
+	/* EGL buffers cannot have a zero extent. Keep the temporary 1x1 backing
+	 * surface until GTK assigns a real allocation. */
+	width = MAX(width, 1);
+	height = MAX(height, 1);
 	g_atomic_int_set(&native_window->width, width);
 	g_atomic_int_set(&native_window->height, height);
 	if (native_window->wayland_display) {
@@ -349,8 +353,17 @@ static ANativeWindow *window_from_surface_on_main(JNIEnv *env, jobject surface)
 	if (!surface_view_widget || !gtk_widget_get_realized(surface_view_widget)) return NULL;
 	GtkWidget *window = GTK_WIDGET(gtk_widget_get_native(surface_view_widget));
 	width = gtk_widget_get_width(surface_view_widget);
-	if (!window || width <= 0) return NULL;
+	if (!window) return NULL;
 	height = gtk_widget_get_height(surface_view_widget);
+	/* SurfaceHolder.surfaceCreated is delivered after GTK realizes the widget,
+	 * but before GTK necessarily gives it its first allocation. Android still
+	 * provides a valid Surface during that interval; returning NULL here makes
+	 * EGL window-surface creation fail permanently for clients that create EGL
+	 * synchronously from surfaceCreated (Flutter does this). Use a 1x1 backing
+	 * size until the first GTK resize arrives; on_resize() then publishes the
+	 * allocated size to EGL and its render buffers. */
+	int buffer_width = MAX(width, 1);
+	int buffer_height = MAX(height, 1);
 
 	// get position of the SurfaceView widget wrt the toplevel window
 	ret = gtk_widget_compute_point(surface_view_widget, window, &GRAPHENE_POINT_INIT(0, 0), &pos);
@@ -372,8 +385,8 @@ static ANativeWindow *window_from_surface_on_main(JNIEnv *env, jobject surface)
 	native_window->refcount = 1;
 	native_window->surface_view_widget = g_object_ref(surface_view_widget);
 	native_window->parent_surface = g_object_ref(gtk_native_get_surface(GTK_NATIVE(window)));
-	native_window->width = width;
-	native_window->height = height;
+	native_window->width = buffer_width;
+	native_window->height = buffer_height;
 
 	GdkDisplay *display = gtk_root_get_display(GTK_ROOT(window));
 	native_window->display = g_object_ref(display);
@@ -409,7 +422,7 @@ static ANativeWindow *window_from_surface_on_main(JNIEnv *env, jobject surface)
 		wl_surface_set_input_region(wayland_surface, empty_region);
 		wl_region_destroy(empty_region);
 
-		struct wl_egl_window *egl_window = wl_egl_window_create(wayland_surface, width, height);
+		struct wl_egl_window *egl_window = wl_egl_window_create(wayland_surface, buffer_width, buffer_height);
 		native_window->egl_window = (EGLNativeWindowType)egl_window;
 		native_window->wayland_display = wl_display;
 		native_window->wayland_surface = wayland_surface;
@@ -448,7 +461,7 @@ static ANativeWindow *window_from_surface_on_main(JNIEnv *env, jobject surface)
 		 * the GTK window selects a visual mode that's not compatible with
 		 * NVIDIA's implementation of EGL for some reason.
 		 */
-		Window x11_window = XCreateSimpleWindow(x11_display, DefaultRootWindow(x11_display), 0, 0, width, height, 0, 0, 0xffffffff);
+		Window x11_window = XCreateSimpleWindow(x11_display, DefaultRootWindow(x11_display), 0, 0, buffer_width, buffer_height, 0, 0, 0xffffffff);
 		XReparentWindow(x11_display, x11_window, toplevel_window, pos.x, pos.y);
 
 		XMapWindow(x11_display, x11_window);

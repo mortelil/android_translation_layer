@@ -2,8 +2,9 @@
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 build=$1; out=$2
+JAVAC=${JAVAC:-javac}
 mkdir -p "$out/classes"
-javac -cp "$build/src/api-impl/hax.jar" -d "$out/classes" "$here/Probe.java"
+"$JAVAC" -source 8 -target 8 -cp "$build/src/api-impl/hax.jar" -d "$out/classes" "$here/Probe.java"
 dx --min-sdk-version=26 --dex --output="$out/classes.dex" "$out/classes"
 case $(uname -m) in x86_64) abi=x86_64;; aarch64) abi=arm64-v8a;; *) exit 2;; esac
 mkdir -p "$out/lib/$abi"

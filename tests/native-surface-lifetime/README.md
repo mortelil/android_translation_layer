@@ -18,6 +18,8 @@ The real JNI/GTK probe checks:
   not root Java consumers. Submission to released/collected consumers fails.
 - Real SurfaceView attachment, native wrapper validity, removal while a producer
   is retained, cached width access after removal and worker-thread final release.
+- Immediate acquisition in surfaceCreated with a zero-sized GTK allocation;
+  the same retained handle must report 100 pixels after the view is resized.
 - Both ATL's composited path and ATL_DIRECT_EGL=1 on X11.
 
 The native fixture inspects ATL reference counts, so it is intentionally not an

@@ -390,7 +390,7 @@ EGLBoolean bionic_eglDestroySurface(EGLDisplay display, EGLSurface surface)
 		}
 		return success;
 	}
-	struct ANativeWindow *native_window = g_hash_table_lookup(egl_surface_hashtable, surface);
+	struct ANativeWindow *native_window = egl_surface_hashtable ? g_hash_table_lookup(egl_surface_hashtable, surface) : NULL;
 
 	if (!native_window)
 		return eglDestroySurface(display, surface);
@@ -618,7 +618,7 @@ EGLBoolean bionic_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
 	}
 	if (getenv("ATL_DIRECT_EGL"))
 		return eglSwapBuffers(display, surface);
-	struct ANativeWindow *native_window = g_hash_table_lookup(egl_surface_hashtable, surface);
+	struct ANativeWindow *native_window = egl_surface_hashtable ? g_hash_table_lookup(egl_surface_hashtable, surface) : NULL;
 	ATLSurface *atl_surface = surface;
 	if (getenv("ATL_DEBUG_SURFACE"))
 		fprintf(stderr, "ATL EGL swap atl_surface=%p native_window=%s back_buffer=%s\n", (void *)atl_surface, native_window ? "yes" : "no",
@@ -657,7 +657,7 @@ EGLBoolean bionic_eglQuerySurface(EGLDisplay display, EGLSurface surface, EGLint
 {
 	if (getenv("ATL_DIRECT_EGL"))
 		return eglQuerySurface(display, surface, attribute, value);
-	struct ANativeWindow *native_window = g_hash_table_lookup(egl_surface_hashtable, surface);
+	struct ANativeWindow *native_window = egl_surface_hashtable ? g_hash_table_lookup(egl_surface_hashtable, surface) : NULL;
 	if (!native_window)
 		return eglQuerySurface(display, surface, attribute, value);
 	if (attribute == EGL_WIDTH) {
