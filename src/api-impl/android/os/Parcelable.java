@@ -2,6 +2,7 @@ package android.os;
 
 public interface Parcelable {
 	public static final int CONTENTS_FILE_DESCRIPTOR = 1;
+	public static final int PARCELABLE_WRITE_RETURN_VALUE = 1;
 
 	public static interface Creator<T> {
 		public T createFromParcel(Parcel parcel);

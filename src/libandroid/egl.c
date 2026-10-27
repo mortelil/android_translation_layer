@@ -43,6 +43,25 @@ static GdkDisplay *egl_gdk_display(void)
 
 static GHashTable *egl_surface_hashtable;
 static GHashTable *texture_surface_hashtable;
+static GMutex texture_surface_lock;
+static _Thread_local EGLint atl_egl_error = EGL_SUCCESS;
+
+EGLint bionic_eglGetError(void)
+{
+    EGLint error = atl_egl_error;
+    atl_egl_error = EGL_SUCCESS;
+    if (error != EGL_SUCCESS) { eglGetError(); return error; }
+    return eglGetError();
+}
+
+static struct ANativeWindow *acquire_texture_window(EGLSurface surface)
+{
+    g_mutex_lock(&texture_surface_lock);
+    struct ANativeWindow *window = texture_surface_hashtable ? g_hash_table_lookup(texture_surface_hashtable, surface) : NULL;
+    if (window) ANativeWindow_acquire(window);
+    g_mutex_unlock(&texture_surface_lock);
+    return window;
+}
 static GHashTable *draw_surface_hashtable;
 static GHashTable *read_surface_hashtable;
 
@@ -313,16 +332,18 @@ EGLSurface bionic_eglCreateWindowSurface(EGLDisplay display, EGLConfig config, s
 	// better than crashing (TODO: check if apps try to use the NULL value anyway)
 	if (!native_window)
 		return NULL;
-	if (native_window->surface_texture) {
+	if (native_window->surface_texture || native_window->remote_producer) {
 		if (native_window->width <= 0 || native_window->height <= 0 || (int64_t)native_window->width * native_window->height * 4 > INT32_MAX)
 			return EGL_NO_SURFACE;
 		EGLint size[] = {EGL_WIDTH, native_window->width, EGL_HEIGHT, native_window->height, EGL_NONE};
 		EGLSurface target = eglCreatePbufferSurface(display, config, size);
 		if (target != EGL_NO_SURFACE) {
+			g_mutex_lock(&texture_surface_lock);
 			if (!texture_surface_hashtable)
 				texture_surface_hashtable = g_hash_table_new(NULL, NULL);
 			ANativeWindow_acquire(native_window);
 			g_hash_table_insert(texture_surface_hashtable, target, native_window);
+            g_mutex_unlock(&texture_surface_lock);
 		}
 		return target;
 	}
@@ -381,13 +402,16 @@ EGLSurface bionic_eglCreateWindowSurface(EGLDisplay display, EGLConfig config, s
 
 EGLBoolean bionic_eglDestroySurface(EGLDisplay display, EGLSurface surface)
 {
-	struct ANativeWindow *texture_window = texture_surface_hashtable ? g_hash_table_lookup(texture_surface_hashtable, surface) : NULL;
+	struct ANativeWindow *texture_window = acquire_texture_window(surface);
 	if (texture_window) {
 		EGLBoolean success = eglDestroySurface(display, surface);
 		if (success) {
-			g_hash_table_remove(texture_surface_hashtable, surface);
-			ANativeWindow_release(texture_window);
+			g_mutex_lock(&texture_surface_lock);
+            gboolean removed = g_hash_table_remove(texture_surface_hashtable, surface);
+            g_mutex_unlock(&texture_surface_lock);
+            if (removed) ANativeWindow_release(texture_window);
 		}
+		ANativeWindow_release(texture_window);
 		return success;
 	}
 	struct ANativeWindow *native_window = egl_surface_hashtable ? g_hash_table_lookup(egl_surface_hashtable, surface) : NULL;
@@ -586,24 +610,18 @@ static bool queue_frame_readback(ATLSurface *atl_surface, struct atl_surface_buf
 
 EGLBoolean bionic_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
 {
-	struct ANativeWindow *texture_window = texture_surface_hashtable ? g_hash_table_lookup(texture_surface_hashtable, surface) : NULL;
+	struct ANativeWindow *texture_window = acquire_texture_window(surface);
 	if (getenv("ATL_DEBUG_SURFACE"))
 		fprintf(stderr, "ATL EGL swap surface=%p texture_window=%s\n", (void *)surface, texture_window ? "yes" : "no");
 	if (texture_window) {
 		int width = texture_window->width, height = texture_window->height;
 		size_t stride = (size_t)width * 4;
-		unsigned char *pixels = g_malloc(stride * height);
-		GLint alignment;
-		glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
-		glPixelStorei(GL_PACK_ALIGNMENT, 1);
-		glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-		glPixelStorei(GL_PACK_ALIGNMENT, alignment);
-		GLenum read_error = glGetError();
-		if (read_error != GL_NO_ERROR) {
-			g_warning("Surface image readback failed: GL error 0x%x", read_error);
-			g_free(pixels);
-			return EGL_FALSE;
-		}
+        // Present the default pbuffer, independently of the app's current FBO,
+        // pixel-pack buffer, row length and skip state. Reuse the guarded path.
+        GBytes *readback = atl_gl_read_rgba(0, width, height);
+        if (!readback) { ANativeWindow_release(texture_window); return EGL_FALSE; }
+        gsize length;
+        unsigned char *pixels = g_bytes_unref_to_data(readback, &length);
 		// GL rows start at the bottom; the Java image/canvas queue uses top-down RGBA.
 		unsigned char *row = g_malloc(stride);
 		for (int y = 0; y < height / 2; ++y) {
@@ -614,6 +632,7 @@ EGLBoolean bionic_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
 		g_free(row);
 		gboolean posted = atl_native_window_post_rgba(texture_window, pixels, width, height);
 		g_free(pixels);
+		ANativeWindow_release(texture_window);
 		return posted ? EGL_TRUE : EGL_FALSE;
 	}
 	if (getenv("ATL_DIRECT_EGL"))
@@ -690,4 +709,18 @@ void bionic_glBindFramebuffer(GLenum target, GLuint framebuffer)
 		return glBindFramebuffer(target, framebuffer);
 	ATLSurface *atl_surface = draw_surface_hashtable ? g_hash_table_lookup(draw_surface_hashtable, eglGetCurrentContext()) : NULL;
 	return glBindFramebuffer(target, atl_surface && atl_surface->back_buffer ? atl_surface->back_buffer->gl_framebuffer : 0);
+}
+
+/* Damage rectangles are optimization hints. ATL's CPU presentation currently
+ * copies the complete frame, including for applications using this extension. */
+EGLBoolean bionic_eglSwapBuffersWithDamageKHR(EGLDisplay display, EGLSurface surface,
+                                            const EGLint *rectangles, EGLint count)
+{
+    if (count < 0 || (count > 0 && !rectangles)) { atl_egl_error = EGL_BAD_PARAMETER; return EGL_FALSE; }
+    return bionic_eglSwapBuffers(display, surface);
+}
+EGLBoolean bionic_eglSwapBuffersWithDamageEXT(EGLDisplay display, EGLSurface surface,
+                                            const EGLint *rectangles, EGLint count)
+{
+    return bionic_eglSwapBuffersWithDamageKHR(display, surface, rectangles, count);
 }

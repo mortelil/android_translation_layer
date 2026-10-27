@@ -7,7 +7,8 @@ import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 
-public class Surface {
+public class Surface implements android.os.Parcelable {
+	private android.os.IBinder producer;
 	public long widget;
 	private java.lang.ref.WeakReference<SurfaceTexture> texture;
 	private long nativeWindow;
@@ -16,9 +17,111 @@ public class Surface {
     // SurfaceView owns this widget-backed surface's creation/destruction cycle.
     synchronized void atlSetWidget(long widget) {
         this.widget = widget;
+        producer = null;
         released = false;
     }
 	private SurfaceCanvas lockedCanvas;
+
+    // AOSP Surface parcel contract: transport a producer capability, never a
+    // process-local widget pointer. ATL uses a private Binder protocol, not the
+    // Android native Parcel wire format. Reference: android-16.0.0_r1 Surface.java.
+    public int describeContents() { return 0; }
+    public void writeToParcel(android.os.Parcel dest, int flags) {
+        if (dest == null) throw new IllegalArgumentException("null parcel");
+        android.os.IBinder endpoint;
+        synchronized (this) { endpoint = producer; }
+        if (endpoint == null && isValid()) {
+            // Do not hold this monitor while acquisition dispatches to GTK.
+            long handle = nativeAcquire(this);
+            if (handle != 0) {
+                synchronized (this) {
+                    if (producer == null) producer = new Producer(handle);
+                    else nativeRelease(handle);
+                    endpoint = producer;
+                }
+            }
+        }
+        dest.writeStrongBinder(endpoint);
+        if ((flags & android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE) != 0) release();
+    }
+    public void readFromParcel(android.os.Parcel source) {
+        if (source == null) throw new IllegalArgumentException("null parcel");
+        android.os.IBinder endpoint = source.readStrongBinder();
+        long handle = endpoint == null ? 0 : nativeRemote(new RemoteProducer(endpoint));
+        synchronized (this) {
+            release();
+            producer = endpoint;
+            nativeWindow = handle;
+            widget = 0;
+            texture = null;
+            released = false;
+        }
+    }
+    public static final android.os.Parcelable.Creator<Surface> CREATOR = new android.os.Parcelable.Creator<Surface>() {
+        public Surface createFromParcel(android.os.Parcel source) {
+            Surface surface = new Surface(); surface.readFromParcel(source); return surface;
+        }
+        public Surface[] newArray(int count) { return new Surface[count]; }
+    };
+    private static final String PROTOCOL = "android.atl.SurfaceProducer.v1";
+    private static final class Producer extends android.os.Binder {
+        private final long handle;
+        Producer(long handle) { this.handle = handle; }
+        @Override protected boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+            if (code != 1 && code != 2) return super.onTransact(code, data, reply, flags);
+            data.enforceInterface(PROTOCOL);
+            if (code == 1) {
+                int[] size = nativeSize(handle);
+                reply.writeNoException(); reply.writeInt(size[0]); reply.writeInt(size[1]);
+            } else {
+                int width = data.readInt(), height = data.readInt();
+                android.os.ParcelFileDescriptor fd = data.readFileDescriptor();
+                boolean queued = false;
+                try { if (fd != null) queued = nativePresent(handle, fd.getFd(), width, height); }
+                finally { if (fd != null) try { fd.close(); } catch (java.io.IOException ignored) {} }
+                reply.writeNoException(); reply.writeInt(queued ? 1 : 0);
+            }
+            return true;
+        }
+        @Override protected void finalize() throws Throwable {
+            try { nativeRelease(handle); } finally { super.finalize(); }
+        }
+    }
+    // Retained by a native producer window; does not retain its Surface wrapper.
+    private static final class RemoteProducer {
+        private final android.os.IBinder endpoint;
+        RemoteProducer(android.os.IBinder endpoint) { this.endpoint = endpoint; }
+        private boolean transact(int code, android.os.Parcel data, android.os.Parcel reply) throws android.os.RemoteException {
+            return endpoint.transact(code, data, reply, 0);
+        }
+        int[] size() {
+            android.os.Parcel data = android.os.Parcel.obtain(), reply = android.os.Parcel.obtain();
+            try {
+                data.writeInterfaceToken(PROTOCOL);
+                if (!transact(1, data, reply)) return new int[]{0,0};
+                reply.readException(); return new int[]{reply.readInt(), reply.readInt()};
+            } catch (android.os.RemoteException e) { return new int[]{0,0}; }
+            finally { data.recycle(); reply.recycle(); }
+        }
+        boolean post(int fd, int width, int height) {
+            android.os.Parcel data = android.os.Parcel.obtain(), reply = android.os.Parcel.obtain();
+            try {
+                android.os.ParcelFileDescriptor copy = android.os.ParcelFileDescriptor.fromFd(fd);
+                try {
+                    data.writeInterfaceToken(PROTOCOL); data.writeInt(width); data.writeInt(height);
+                    data.writeFileDescriptor(copy.getFileDescriptor());
+                    if (!transact(2, data, reply)) return false;
+                    reply.readException(); return reply.readInt() != 0;
+                } finally { copy.close(); }
+            } catch (java.io.IOException e) { return false; }
+              catch (android.os.RemoteException e) { return false; }
+            finally { data.recycle(); reply.recycle(); }
+        }
+    }
+    private static native long nativeAcquire(Surface surface);
+    private static native long nativeRemote(RemoteProducer producer);
+    private static native int[] nativeSize(long handle);
+    private static native boolean nativePresent(long handle, int fd, int width, int height);
 
 	public Surface() {}
 	public Surface(SurfaceTexture surfaceTexture) {
@@ -65,6 +168,7 @@ public class Surface {
 	}
 	public synchronized void release() {
 		released = true;
+		producer = null;
 		long handle = nativeWindow;
 		nativeWindow = 0;
 		if (handle != 0) nativeRelease(handle);

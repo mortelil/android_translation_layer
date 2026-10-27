@@ -9,6 +9,38 @@ extern "C" {
 #endif
 /*
  * Class:     android_view_Surface
+ * Method:    nativeAcquire
+ * Signature: (Landroid/view/Surface;)J
+ */
+JNIEXPORT jlong JNICALL Java_android_view_Surface_nativeAcquire
+  (JNIEnv *, jclass, jobject);
+
+/*
+ * Class:     android_view_Surface
+ * Method:    nativeRemote
+ * Signature: (Landroid/view/Surface/RemoteProducer;)J
+ */
+JNIEXPORT jlong JNICALL Java_android_view_Surface_nativeRemote
+  (JNIEnv *, jclass, jobject);
+
+/*
+ * Class:     android_view_Surface
+ * Method:    nativeSize
+ * Signature: (J)[I
+ */
+JNIEXPORT jintArray JNICALL Java_android_view_Surface_nativeSize
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     android_view_Surface
+ * Method:    nativePresent
+ * Signature: (JIII)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_view_Surface_nativePresent
+  (JNIEnv *, jclass, jlong, jint, jint, jint);
+
+/*
+ * Class:     android_view_Surface
  * Method:    nativeRelease
  * Signature: (J)V
  */

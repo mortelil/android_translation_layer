@@ -21,6 +21,10 @@ struct ANativeWindow {
 	int width;
 	int height;
 	JavaVM *jvm;
+	jobject remote_producer; // strong capability reference; never a GTK pointer
+	GMutex pending_lock;
+	GBytes *pending_frame;
+	int pending_width, pending_height;
 	jweak surface_texture; // consumer must not be rooted through its producer
 	jmethodID queue_frame;
 };
@@ -40,3 +44,6 @@ void ANativeWindow_release(struct ANativeWindow *native_window);
 
 jobject ANativeWindow_toSurface(JNIEnv *env, struct ANativeWindow *window);
 gboolean atl_native_window_is_valid(JNIEnv *env, struct ANativeWindow *window);
+
+struct ANativeWindow *atl_native_window_remote(JNIEnv *, jobject);
+gboolean atl_native_window_present_fd(struct ANativeWindow *, int, int, int);
