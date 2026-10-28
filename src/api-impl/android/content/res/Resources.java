@@ -79,6 +79,71 @@ class Movie {}
  * href="{@docRoot}guide/topics/resources/index.html">Application Resources</a>.</p>
  */
 public class Resources {
+	private final android.util.LruCache<String, android.graphics.Typeface> mFontCache =
+	    new android.util.LruCache<>(16);
+
+	public android.graphics.Typeface getFont(int id) throws NotFoundException {
+		TypedValue value = new TypedValue();
+		getValue(id, value, true);
+		android.graphics.Typeface font = getFont(value, id);
+		if (font == null) throw new NotFoundException("Font resource ID #0x" + Integer.toHexString(id));
+		return font;
+	}
+
+	/* AOSP ResourcesImpl.loadFont contract; native loading uses ATL's existing
+	 * validated FontFamily implementation rather than Android's Minikin loader. */
+	synchronized android.graphics.Typeface getFont(TypedValue value, int id) {
+		if (value.string == null)
+			throw new NotFoundException("Resource #0x" + Integer.toHexString(id) + " is not a font: " + value);
+		String path = value.string.toString();
+		if (!path.startsWith("res/")) return null;
+		String key = value.assetCookie + ":" + path + ":" + mConfiguration.hashCode();
+		android.graphics.Typeface cached = mFontCache.get(key);
+		if (cached != null) return cached;
+		android.graphics.FontFamily family = new android.graphics.FontFamily();
+		boolean frozen = false;
+		try {
+			if (path.endsWith(".xml")) {
+				try (XmlResourceParser parser = getXml(id)) {
+					int event;
+					do { event = parser.next(); } while (event != XmlPullParser.START_TAG && event != XmlPullParser.END_DOCUMENT);
+					if (event != XmlPullParser.START_TAG || !"font-family".equals(parser.getName())) return null;
+					if (parser.getAttributeValue("http://schemas.android.com/apk/res/android", "fontProviderAuthority") != null)
+						throw new NotFoundException("Downloadable font providers are not supported: " + path);
+					int depth = parser.getDepth();
+					while ((event = parser.next()) != XmlPullParser.END_DOCUMENT) {
+						if (event == XmlPullParser.END_TAG && parser.getDepth() == depth) break;
+						if (event != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || !"font".equals(parser.getName())) continue;
+						TypedArray attrs = obtainAttributes(parser, com.android.internal.R.styleable.FontFamilyFont);
+						try {
+							TypedValue font = attrs.peekValue(com.android.internal.R.styleable.FontFamilyFont_font);
+							if (font == null || font.string == null) return null;
+							if (!family.addFontFromAssetManager(mAssets, font.string.toString(), font.assetCookie, false,
+							    attrs.getInt(com.android.internal.R.styleable.FontFamilyFont_ttcIndex, 0),
+							    attrs.getInt(com.android.internal.R.styleable.FontFamilyFont_fontWeight, -1),
+							    attrs.getInt(com.android.internal.R.styleable.FontFamilyFont_fontStyle, -1),
+							    android.graphics.fonts.FontVariationAxis.fromFontVariationSettings(
+							        attrs.getString(com.android.internal.R.styleable.FontFamilyFont_fontVariationSettings)))) return null;
+						} finally { attrs.recycle(); }
+					}
+				}
+			} else if (!family.addFontFromAssetManager(mAssets, path, value.assetCookie, false, 0, -1, -1, null)) {
+				return null;
+			}
+			frozen = true; // freeze closes the builder even when the family is empty
+			if (!family.freeze()) return null;
+			android.graphics.Typeface font = android.graphics.Typeface.createFromFamiliesWithDefault(
+			    new android.graphics.FontFamily[] { family }, -1, -1);
+			mFontCache.put(key, font);
+			return font;
+		} catch (IOException | XmlPullParserException e) {
+			Log.e(TAG, "Unable to load font " + path, e);
+			return null;
+		} finally {
+			if (!frozen) family.abortCreation();
+		}
+	}
+
 	private ClassLoader mClassLoader = ClassLoader.getSystemClassLoader();
 
 	public ClassLoader getClassLoader() {
