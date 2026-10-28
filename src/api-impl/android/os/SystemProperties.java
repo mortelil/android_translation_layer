@@ -4,6 +4,9 @@ import java.util.Properties;
 
 public class SystemProperties {
 	private static final Properties properties = new Properties();
+	// Property reads are often on rendering/media hot paths. Keep verbose
+	// diagnostics opt-in, including their string construction.
+	private static final boolean DEBUG_READS = "1".equals(System.getenv("ATL_DEBUG_SYSTEM_PROPERTIES"));
 
 	static {
 		properties.put("ro.product.brand", "google");
@@ -32,30 +35,30 @@ public class SystemProperties {
 	}
 
 	public static String get(String prop) {
-		android.util.Log.i("SystemProperties", "Grabbing String prop " + prop);
+		if (DEBUG_READS) android.util.Log.i("SystemProperties", "Grabbing String prop " + prop);
 		return value(prop);
 	}
 
 	public static String get(String prop, String def) {
-		android.util.Log.i("SystemProperties", "Grabbing String prop " + prop + ", default " + def);
+		if (DEBUG_READS) android.util.Log.i("SystemProperties", "Grabbing String prop " + prop + ", default " + def);
 		String val = value(prop);
 		return val == null ? def : val;
 	}
 
 	public boolean getBoolean(String prop, boolean def) {
-		android.util.Log.i("SystemProperties", "Grabbing boolean prop " + prop + ", default " + def);
+		if (DEBUG_READS) android.util.Log.i("SystemProperties", "Grabbing boolean prop " + prop + ", default " + def);
 		String val = value(prop);
 		return val == null ? def : Boolean.parseBoolean(val);
 	}
 
 	public static int getInt(String prop, int def) {
-		android.util.Log.i("SystemProperties", "Grabbing int prop " + prop + ", default " + def);
+		if (DEBUG_READS) android.util.Log.i("SystemProperties", "Grabbing int prop " + prop + ", default " + def);
 		String val = value(prop);
 		return val == null ? def : Integer.parseInt(val);
 	}
 
 	public static long getLong(String prop, long def) {
-		android.util.Log.i("SystemProperties", "Grabbing long prop " + prop + ", default " + def);
+		if (DEBUG_READS) android.util.Log.i("SystemProperties", "Grabbing long prop " + prop + ", default " + def);
 		String val = value(prop);
 		return val == null ? def : Long.parseLong(val);
 	}
