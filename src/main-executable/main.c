@@ -26,6 +26,9 @@
 #include <stdio.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
+#include <glib/gstdio.h>
 
 #ifndef DEFFILEMODE
 	#define DEFFILEMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) /* 0666*/
@@ -428,6 +431,43 @@ static void extract_native_libraries(void)
 	}
 }
 
+/* Serialize initial cache population with --prepare and other ATL launches.
+ * Keep the inode: unlinking a lock file permits two independent lock owners.
+ * Release before application callbacks, which may spawn another ATL process. */
+static int startup_cache_lock = -1;
+
+static void lock_startup_cache(void)
+{
+	char *directory = g_build_filename(g_get_user_cache_dir(), "art", NULL);
+	if (g_mkdir_with_parents(directory, 0700) != 0) {
+		fprintf(stderr, "Cannot create ART cache directory: %s\n", strerror(errno));
+		exit(1);
+	}
+	char *path = g_build_filename(directory, ".atl-startup.lock", NULL);
+	startup_cache_lock = g_open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+	g_free(path);
+	g_free(directory);
+	if (startup_cache_lock < 0) {
+		fprintf(stderr, "Cannot open ART startup lock: %s\n", strerror(errno));
+		exit(1);
+	}
+	int result = flock(startup_cache_lock, LOCK_EX | LOCK_NB);
+	if (result < 0 && (errno == EWOULDBLOCK || errno == EINTR)) {
+		fprintf(stderr, "Waiting for ART startup cache lock\n");
+		do { result = flock(startup_cache_lock, LOCK_EX); } while (result < 0 && errno == EINTR);
+	}
+	if (result < 0) {
+		fprintf(stderr, "Cannot lock ART startup cache: %s\n", strerror(errno));
+		exit(1);
+	}
+}
+
+static void unlock_startup_cache(void)
+{
+	if (startup_cache_lock >= 0) close(startup_cache_lock);
+	startup_cache_lock = -1;
+}
+
 /*
  * Shared VM boot: the part of application startup that both the windowed
  * launcher (open()) and the windowless service child (run_service_child()) need
@@ -444,6 +484,7 @@ static JNIEnv *boot_android_vm(const char *apk_classpath, const char *apk_name,
                                const char *instrumentation_class, const char *sdk_int,
                                char **extra_jvm_options, int window_width, int window_height)
 {
+	lock_startup_cache();
 	char *dex_install_dir;
 	char *api_impl_jar;
 	char *test_runner_jar = NULL;
@@ -560,6 +601,47 @@ static JNIEnv *boot_android_vm(const char *apk_classpath, const char *apk_name,
 	return env;
 }
 
+/* Headless, opt-in preparation. No GtkApplication, app constructors, providers
+ * or callbacks. The actual loader supplies the same paths as a later launch. */
+static int run_prepare(int argc, char **argv)
+{
+	gboolean prepare = FALSE;
+	char *sdk = NULL;
+	char **extra = NULL, **files = NULL;
+	GOptionEntry entries[] = {
+		{ "prepare", 0, 0, G_OPTION_ARG_NONE, &prepare, "Prepare startup cache without running the app", NULL },
+		{ "sdk-int", 0, 0, G_OPTION_ARG_STRING, &sdk, "Android API level", "SDK_INT" },
+		{ "extra-jvm-option", 'X', 0, G_OPTION_ARG_STRING_ARRAY, &extra, "ART option", "OPTION" },
+		{ G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &files, NULL, "APK" },
+		{ NULL }
+	};
+	GOptionContext *context = g_option_context_new("--prepare APK");
+	g_option_context_add_main_entries(context, entries, NULL);
+	GError *error = NULL;
+	if (!g_option_context_parse(context, &argc, &argv, &error) ||
+	    !prepare || !files || g_strv_length(files) != 1 || !g_str_has_suffix(files[0], ".apk")) {
+		fprintf(stderr, "Preparation requires one APK and only preparation options: %s\n",
+		        error ? error->message : "expected one .apk path (install/unpack APKM first)");
+		return 2;
+	}
+	if (!g_file_test(files[0], G_FILE_TEST_IS_REGULAR)) {
+		fprintf(stderr, "Preparation APK does not exist: %s\n", files[0]);
+		return 2;
+	}
+	char *apk = g_canonicalize_filename(files[0], NULL);
+	char *name = g_path_get_basename(apk);
+	JNIEnv *env = boot_android_vm(apk, name, NULL, sdk, extra, 0, 0);
+	jclass cls = (*env)->FindClass(env, "android/atl/ATLStartupPreparation");
+	atl_jni_handle_uncaught_exception(env, "Preparation class lookup");
+	jmethodID method = (*env)->GetStaticMethodID(env, cls, "prepare", "()V");
+	atl_jni_handle_uncaught_exception(env, "Preparation method lookup");
+	(*env)->CallStaticVoidMethod(env, cls, method);
+	atl_jni_handle_uncaught_exception(env, "Startup preparation");
+	unlock_startup_cache();
+	printf("ATL PREPARE OK: %s\n", apk);
+	return 0;
+}
+
 /*
  * Child process of android.atl.ATLProcessHost (lifecycle foundation, lane D).
  * The shape is from the Firefox lane's private-process host (parallel-apps
@@ -609,6 +691,7 @@ static int run_service_child(int argc, char **argv)
 
 	prepare_main_looper(env);
 	extract_native_libraries();
+	unlock_startup_cache();
 
 	/* Application attachment; onCreate follows the providers, as in AOSP. */
 	jobject application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,
@@ -692,7 +775,7 @@ void atl_launcher_app_release(void)
 		g_application_release(G_APPLICATION(launcher_app));
 }
 
-static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
+static void open_app(GtkApplication *app, GFile **files, gint nfiles, const gchar *hint, struct jni_callback_data *d)
 {
 	if (window) { // this is not the first launch, but a DBus request to open an URI in the running app
 		fprintf(stderr, "opening uri over DBus %p\n", files[0]);
@@ -814,6 +897,7 @@ static void open(GtkApplication *app, GFile **files, gint nfiles, const gchar *h
 	prepare_main_looper(env);
 
 	extract_native_libraries();
+	unlock_startup_cache();
 
 	// construct Application
 	application_object = (*env)->CallStaticObjectMethod(env, handle_cache.context.class,
@@ -1195,6 +1279,11 @@ int main(int argc, char **argv)
 
 	libc_bio_set_apply_path_overrides_func(apply_path_overrides);
 
+	for (int i = 1; i < argc; ++i) {
+		if (!strcmp(argv[i], "--")) break;
+		if (!strcmp(argv[i], "--prepare")) return run_prepare(argc, argv);
+	}
+
 	/* A child process of ATLProcessHost hosts services in a windowless process
 	 * that needs no X display, so it is handled before any GtkApplication
 	 * exists. The windowless boot is gated on the explicit service-host marker in
@@ -1228,10 +1317,10 @@ int main(int argc, char **argv)
 
 	// cmdline related setup
 	init_cmd_parameters(G_APPLICATION(app), callback_data);
-	g_application_set_option_context_summary(G_APPLICATION(app), "a translation layer for running android applications natively on Linux");
+	g_application_set_option_context_summary(G_APPLICATION(app), "a translation layer for running android applications natively on Linux\nUse --prepare APK to populate startup caches without starting app code (headless).");
 
 	g_signal_connect(app, "activate", G_CALLBACK(activate), callback_data);
-	g_signal_connect(app, "open", G_CALLBACK(open), callback_data);
+	g_signal_connect(app, "open", G_CALLBACK(open_app), callback_data);
 	g_action_map_add_action_entries(G_ACTION_MAP(app), action_entries, action_entries_count, NULL);
 	status = g_application_run(G_APPLICATION(app), argc, argv);
 	remove_ongoing_notifications();
