@@ -12,3 +12,16 @@ prevents VLC 3.7.1 from incorrectly selecting its TV launcher.
 Sound-effect preference semantics reference AOSP View.java, android-17.0.0_r1
 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d. No source copied. Actual UI sound
 playback remains unimplemented; this test does not claim audible click feedback.
+
+Touch focus checks cover the false default, per-view isolation, enabling touch
+focus implies explicit FOCUSABLE, disabling touch focus preserves ordinary
+focusability, both NOT_FOCUSABLE setters clear touch focus, and FOCUSABLE_AUTO
+preserves the touch flag. Semantics reference AOSP View.java,
+android-15.0.0_r1, setFocusable/setFocusableInTouchMode/isFocusableInTouchMode:
+https://android.googlesource.com/platform/frameworks/base/+/android-15.0.0_r1/core/java/android/view/View.java
+No source copied. This does not claim complete touch-mode focus traversal.
+
+Integration regression: Firefox 157.0.1, open a page, menu -> Find in page,
+type a word, select next match, close search. Previously the keyboard helper
+threw NoSuchMethodError for isFocusableInTouchMode; it now searches and
+highlights matches. Tested with an isolated profile, no account.
