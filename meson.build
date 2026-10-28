@@ -62,6 +62,7 @@ libandroid_so = shared_library('android', [
                                           	'src/libandroid/egl.c',
                                           'src/libandroid/egl_lifecycle.c',
                                           'src/libandroid/egl_readback.c',
+                                          'src/libandroid/egl_snapshot.c',
                                           'src/libandroid/egl_dispatch.c',
                                           	'src/libandroid/input.c',
                                           'src/libandroid/hardware_buffer.c',

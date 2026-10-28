@@ -41,6 +41,24 @@ void atl_gl_forget_errors(EGLContext context)
 	g_mutex_unlock(&errors_mutex);
 }
 
+void atl_gl_preserve_context_loss(void)
+{
+	preserve_error(eglGetCurrentContext(), GL_CONTEXT_LOST);
+}
+
+bool atl_gl_preserve_pending_errors(void)
+{
+	EGLContext context = eglGetCurrentContext();
+	if (context == EGL_NO_CONTEXT) return false;
+	for (unsigned i = 0; i < 16; i++) {
+		GLenum error = glGetError();
+		if (error == GL_NO_ERROR) return true;
+		preserve_error(context, error);
+		if (error == GL_CONTEXT_LOST) return false;
+	}
+	return false;
+}
+
 GBytes *atl_gl_read_rgba(GLuint framebuffer, int width, int height)
 {
 	EGLContext context = eglGetCurrentContext();
@@ -51,12 +69,7 @@ GBytes *atl_gl_read_rgba(GLuint framebuffer, int width, int height)
 	guchar *pixels = g_try_malloc(size);
 	if (!pixels) return NULL;
 	/* A lost context can repeat its error indefinitely. Do not spin on it. */
-	for (unsigned i = 0; i < 16; i++) {
-		GLenum error = glGetError();
-		if (error == GL_NO_ERROR) break;
-		preserve_error(context, error);
-		if (error == GL_CONTEXT_LOST) {g_free(pixels);return NULL;}
-	}
+	if (!atl_gl_preserve_pending_errors()) {g_free(pixels);return NULL;}
 	EGLint version = 2;
 	eglQueryContext(eglGetCurrentDisplay(), context, EGL_CONTEXT_CLIENT_VERSION, &version);
 	GLint alignment, binding, pbo=0, row=0, skip_rows=0, skip_pixels=0, read_buffer=0;
