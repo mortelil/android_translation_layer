@@ -25,3 +25,8 @@ Integration regression: Firefox 157.0.1, open a page, menu -> Find in page,
 type a word, select next match, close search. Previously the keyboard helper
 threw NoSuchMethodError for isFocusableInTouchMode; it now searches and
 highlights matches. Tested with an isolated profile, no account.
+
+Lookup regression: nested FrameLayouts override toString() to throw. Self,
+nested group, leaf and missing-ID lookup must complete without invoking those
+overrides or resolving diagnostic resource names. This covers the ReVanced
+back-from-video crash caused by eager Slog message construction in findViewById.

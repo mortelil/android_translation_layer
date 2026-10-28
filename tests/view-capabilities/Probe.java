@@ -3,6 +3,7 @@ package org.atl.viewcapabilities;
 import android.app.Activity;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.content.pm.PackageManager;
 public class Probe extends Activity {
     @Override public void onCreate(Bundle state) {
@@ -29,6 +30,22 @@ public class Probe extends Activity {
         a.setFocusableInTouchMode(true);
         a.setFocusable(View.FOCUSABLE_AUTO);
         ok &= a.isFocusableInTouchMode() && a.getFocusable() == View.FOCUSABLE_AUTO;
+        // Logging must never call application toString() during lookup, even
+        // when the requested ID has no resource-table entry.
+        FrameLayout root = new FrameLayout(this) {
+            @Override public String toString() {
+                throw new AssertionError("findViewById called app toString");
+            }
+        };
+        FrameLayout nested = new FrameLayout(this) {
+            @Override public String toString() {
+                throw new AssertionError("findViewById called child toString");
+            }
+        };
+        root.setId(1001); nested.setId(1002); b.setId(1003);
+        root.addView(nested); nested.addView(b);
+        ok &= root.findViewById(1001) == root && root.findViewById(1002) == nested
+                && root.findViewById(1003) == b && root.findViewById(1004) == null;
         PackageManager pm = getPackageManager();
         boolean distinct = pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN_MULTITOUCH_DISTINCT);
         boolean multi = pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN_MULTITOUCH);
