@@ -993,6 +993,7 @@ public class View implements Drawable.Callback {
 	private boolean atl_enabled = true;
 	private boolean atl_focusable = true;
 	private int atl_focusable_mode = FOCUSABLE_AUTO;
+	private boolean atl_focusable_in_touch_mode;
 
 	private Handler handler;
 
@@ -1074,6 +1075,9 @@ public class View implements Drawable.Callback {
 		if (a.hasValue(com.android.internal.R.styleable.View_focusable)) {
 			atl_focusable = a.getBoolean(com.android.internal.R.styleable.View_focusable, true);
 			atl_focusable_mode = atl_focusable ? FOCUSABLE : NOT_FOCUSABLE;
+		}
+		if (a.hasValue(com.android.internal.R.styleable.View_focusableInTouchMode)) {
+			setFocusableInTouchMode(a.getBoolean(com.android.internal.R.styleable.View_focusableInTouchMode, false));
 		}
 		if (a.hasValue(com.android.internal.R.styleable.View_alpha)) {
 			setAlpha(a.getFloat(com.android.internal.R.styleable.View_alpha, 1.0f));
@@ -1369,17 +1373,23 @@ public class View implements Drawable.Callback {
 	public void setOnKeyListener(OnKeyListener l) {}
 
 	public void setFocusable(boolean focusable) {
-		atl_focusable = focusable;
-		atl_focusable_mode = focusable ? FOCUSABLE : NOT_FOCUSABLE;
+		setFocusable(focusable ? FOCUSABLE : NOT_FOCUSABLE);
 	}
 	public void setFocusable(int focusable) {
 		if (focusable != NOT_FOCUSABLE && focusable != FOCUSABLE && focusable != FOCUSABLE_AUTO)
 			throw new IllegalArgumentException("Invalid focusable mode");
+		if (focusable == NOT_FOCUSABLE) atl_focusable_in_touch_mode = false;
 		atl_focusable_mode = focusable;
 		atl_focusable = focusable == FOCUSABLE || (focusable == FOCUSABLE_AUTO && isClickable());
 	}
 	public int getFocusable() { return atl_focusable_mode; }
-	public void setFocusableInTouchMode(boolean focusableInTouchMode) {}
+	public void setFocusableInTouchMode(boolean focusableInTouchMode) {
+		atl_focusable_in_touch_mode = focusableInTouchMode;
+		// Android makes touch-focusability imply explicit focusability. Clearing
+		// touch-focusability alone must leave ordinary focusability unchanged.
+		if (focusableInTouchMode) setFocusable(FOCUSABLE);
+	}
+	public final boolean isFocusableInTouchMode() { return atl_focusable_in_touch_mode; }
 	public final boolean requestFocus() {
 		return requestFocus(View.FOCUS_DOWN);
 	}
