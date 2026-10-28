@@ -18,6 +18,7 @@
 #include "egl_lifecycle.h"
 #include "egl_attributes.h"
 #include "egl_readback.h"
+#include "egl_snapshot.h"
 #include "native_window.h"
 
 extern GtkWindow *window; // TODO: how do we get rid of this? the app won't pass anything useful to eglGetDisplay
@@ -281,6 +282,7 @@ struct _ATLSurface {
 	GAsyncQueue *vsync;
 	GAsyncQueue *unused_buffers;
 	gboolean destroyed;
+	gint64 snapshot_retry_after;
 };
 G_DECLARE_FINAL_TYPE(ATLSurface, atl_surface, ATL, SURFACE, GObject);
 static void atl_surface_dispose(GObject *object)
@@ -545,24 +547,16 @@ static void frame_callback(SurfaceViewWidget *surface_view_widget)
 /*
  * Presentation of an application GL surface.
  *
- * The application renders into an ATL-owned framebuffer with the Mesa EGL
- * context the application created itself. Presenting that framebuffer must not
- * depend on a GDK GL context: gdk_surface_create_gl_context() cannot be made
- * current on a host without GLX/DRI3 (its failure is the reason the previous
- * GdkGLTextureBuilder path silently presented nothing). Instead the rendered
- * pixels are read back on the CPU and handed to the surface widget as a
- * GdkMemoryTexture, which the widget composite path already supports (it is
- * the same path that draws Bitmap/MediaCodec/SurfaceControl content).
- *
- * Pixel contract: glReadPixels() returns rows bottom-up (OpenGL row 0 is the
- * bottom of the framebuffer), tightly packed width*4 RGBA bytes. That is the
- * layout the widget's needs_flip=TRUE convention expects - the same convention
- * the GL-texture path used - so the buffer is passed through unflipped and the
- * snapshot code flips it once.
+ * The app renders into an ATL framebuffer. Where supported, copy it to an
+ * immutable GPU allocation and import its dma-buf into GTK. This deliberately
+ * does not share the reusable app back buffer. Unsupported/late imports fall
+ * back to CPU readback and GdkMemoryTexture in the same frame.
+ * Both paths retain bottom-up GL rows; the widget flips the image exactly once.
  */
 struct atl_frame {
 	ATLSurface *surface;
 	GBytes *bytes;
+	GdkTexture *texture;
 	struct atl_surface_buffer *buffer;
 	int width;
 	int height;
@@ -575,7 +569,8 @@ static gboolean present_frame(gpointer data)
 	if (getenv("ATL_DEBUG_SURFACE"))
 		fprintf(stderr, "ATL EGL present %dx%d destroyed=%d\n", frame->width, frame->height, g_atomic_int_get(&atl_surface->destroyed));
 	if (!g_atomic_int_get(&atl_surface->destroyed)) {
-		GdkTexture *texture = gdk_memory_texture_new(frame->width, frame->height,
+		GdkTexture *texture = g_steal_pointer(&frame->texture);
+		if (!texture) texture = gdk_memory_texture_new(frame->width, frame->height,
 		                                             GDK_MEMORY_R8G8B8A8_PREMULTIPLIED,
 		                                             frame->bytes, (size_t)frame->width * 4);
 		/* Ask the widget to report back through ->vsync once it has drawn this
@@ -586,7 +581,8 @@ static gboolean present_frame(gpointer data)
 		surface_view_widget_set_texture(atl_surface->surface_view_widget, texture, TRUE);
 	}
 	g_async_queue_push(atl_surface->unused_buffers, frame->buffer);
-	g_bytes_unref(frame->bytes);
+	g_clear_pointer(&frame->bytes, g_bytes_unref);
+	g_clear_object(&frame->texture);
 	g_object_unref(atl_surface);
 	g_free(frame);
 	return G_SOURCE_REMOVE;
@@ -595,13 +591,27 @@ static gboolean present_frame(gpointer data)
 /* Runs on the application's GL thread, with the application's context current. */
 static bool queue_frame_readback(ATLSurface *atl_surface, struct atl_surface_buffer *buffer)
 {
-	GBytes *bytes = atl_gl_read_rgba(buffer->gl_framebuffer, buffer->width, buffer->height);
-	if (!bytes)
+	GdkTexture *texture = NULL;
+	if (g_strcmp0(g_getenv("ATL_EGL_DMABUF"), "0") != 0 &&
+	    g_get_monotonic_time() >= atl_surface->snapshot_retry_after) {
+		EGLint saved = eglGetError();
+		texture = atl_egl_snapshot(buffer->gl_framebuffer, buffer->width, buffer->height);
+		eglGetError(); /* Internal export failures must not change app EGL errors. */
+		if (atl_egl_error == EGL_SUCCESS) atl_egl_error = saved;
+		/* Unsupported formats and a busy GTK thread must not add an export or
+		 * timeout to every frame. Retry later; the original pixels remain valid. */
+		atl_surface->snapshot_retry_after = texture ? 0 : g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+	}
+	GBytes *bytes = texture ? NULL : atl_gl_read_rgba(buffer->gl_framebuffer, buffer->width, buffer->height);
+	if (!bytes && !texture)
 		return false;
+	if (getenv("ATL_DEBUG_SURFACE"))
+		fprintf(stderr, "ATL EGL snapshot %s\n", texture ? "dma-buf" : "CPU");
 	struct atl_frame *frame = g_new0(struct atl_frame, 1);
 	frame->surface = g_object_ref(atl_surface);
 	frame->buffer = buffer;
 	frame->bytes = bytes;
+	frame->texture = texture;
 	frame->width = buffer->width;
 	frame->height = buffer->height;
 	g_idle_add_full(G_PRIORITY_HIGH_IDLE + 20, present_frame, frame, NULL);

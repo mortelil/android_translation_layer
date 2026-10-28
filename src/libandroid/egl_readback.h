@@ -11,6 +11,8 @@
 GBytes *atl_gl_read_rgba(GLuint framebuffer, int width, int height);
 GLenum bionic_glGetError(void);
 void atl_gl_forget_errors(EGLContext context);
+bool atl_gl_preserve_pending_errors(void);
+void atl_gl_preserve_context_loss(void);
 EGLContext bionic_eglCreateContext(EGLDisplay, EGLConfig, EGLContext, const EGLint *);
 EGLBoolean bionic_eglDestroyContext(EGLDisplay, EGLContext);
 #endif
