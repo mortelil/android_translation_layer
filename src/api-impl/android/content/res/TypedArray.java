@@ -21,6 +21,7 @@ package android.content.res;
 import android.annotation.Nullable;
 //import android.annotation.StyleableRes;
 import android.graphics.drawable.Drawable;
+import android.graphics.Typeface;
 import android.os.StrictMode;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
@@ -895,6 +896,25 @@ public class TypedArray implements AutoCloseable {
 				    "Failed to resolve attribute at index " + index + ": " + value);
 			}
 			return mResources.loadDrawable(value, value.resourceId, mTheme);
+		}
+		return null;
+	}
+
+	/** Font lookup following AOSP frameworks/base 94b4c163b7df TypedArray.getFont. */
+	@Nullable
+	public Typeface getFont(int index) {
+		if (mRecycled) {
+			throw new RuntimeException("Cannot make calls to a recycled instance!");
+		}
+		final TypedValue value = mValue;
+		if (getValueAt(index * AssetManager.STYLE_NUM_ENTRIES, value)) {
+			// Older resource-array readers can retain @null as a zero reference.
+			if (value.type == TypedValue.TYPE_REFERENCE && value.data == 0) return null;
+			if (value.type == TypedValue.TYPE_ATTRIBUTE) {
+				throw new UnsupportedOperationException(
+				    "Failed to resolve attribute at index " + index + ": " + value);
+			}
+			return mResources.getFont(value, value.resourceId);
 		}
 		return null;
 	}

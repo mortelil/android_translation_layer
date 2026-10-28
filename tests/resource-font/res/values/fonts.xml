@@ -1,0 +1,4 @@
+<resources>
+  <attr name="unresolvedFont" format="reference"/>
+  <array name="fonts"><item>@font/regular</item><item>@font/family</item><item>@null</item><item>42</item><item>?attr/unresolvedFont</item><item>@font/broken</item></array>
+</resources>
