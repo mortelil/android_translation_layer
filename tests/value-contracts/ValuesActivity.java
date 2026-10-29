@@ -20,7 +20,10 @@ public class ValuesActivity extends android.app.Activity {
   v.setWillNotCacheDrawing(true);TestValues.check(v.destroyed==destroyed+1,"unchanged flag preserves cache");
   TestValues.check(v.getDrawingCache()==null&&v.getDrawingCache(true)==null,"disabled cache");
   v.setWillNotCacheDrawing(false);TestValues.check(!v.willNotCacheDrawing()&&v.destroyed==destroyed+2,"re-enable invalidates cache");
-  TestValues.check(!new android.view.autofill.AutofillManager().hasEnabledAutofillServices(),"no autofill capability");
+  android.view.autofill.AutofillManager autofill=new android.view.autofill.AutofillManager();
+  TestValues.check(!autofill.hasEnabledAutofillServices()&&!autofill.isEnabled(),"no autofill capability");
+  autofill.notifyValueChanged(v);autofill.notifyValueChanged(null);
+  TestValues.check(!autofill.isEnabled(),"value notification does not enable absent provider");
   TestValues.check(!android.appwidget.AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported(),"no widget pinning capability");
   new Thread(new Runnable(){ public void run(){
    try {

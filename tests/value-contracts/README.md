@@ -23,3 +23,9 @@ OMP port from Android 37 SDK sources, with its Apache header retained.
 Also covers AudioFormat parcel round-trip, View traversal ID state and cache
 flag invalidation, and truthful absence of autofill/widget pinning services.
 Traversal IDs do not imply screen-reader traversal integration.
+
+The View overload of AutofillManager.notifyValueChanged is harmless when no
+autofill feature exists, including a null argument: AOSP android-15.0.0_r1
+core/java/android/view/autofill/AutofillManager.java returns at hasAutofillFeature
+before reading the View. This prevents MaterialCheckBox construction from
+crashing Firefox's tab-crash UI; it does not repair the original Gecko crash.

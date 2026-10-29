@@ -34,6 +34,10 @@ public class AutofillManager {
 
 	public void notifyViewEntered(View view, int id, Rect bounds) {}
 
+	// AOSP android-15.0.0_r1 notifyValueChanged(View) returns before touching
+	// the view when hasAutofillFeature() is false. ATL has no autofill service.
+	public void notifyValueChanged(View view) {}
+
 	public void notifyValueChanged(View view, int id, AutofillValue value) {}
 
 	public void notifyViewExited(View view, int id) {}
