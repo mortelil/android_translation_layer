@@ -75,6 +75,11 @@ int main(void)
 	AMediaCrypto_delete(NULL);
 
 	/* --- AMediaDrm: no plugin, so no usable handle --- */
+	CHECK(!AMediaDrm_isCryptoSchemeSupported(uuid, NULL));
+	CHECK(!AMediaDrm_isCryptoSchemeSupported(uuid, "video/mp4"));
+	CHECK(!AMediaDrm_isCryptoSchemeSupported(uuid, "audio/mp4"));
+	AMediaUUID unknown = {0};
+	CHECK(!AMediaDrm_isCryptoSchemeSupported(unknown, "video/webm"));
 	AMediaDrm *drm = AMediaDrm_createByUUID(uuid);
 	CHECK(drm == NULL);
 	AMediaDrm_release(drm);
