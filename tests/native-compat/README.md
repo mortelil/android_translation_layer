@@ -74,3 +74,11 @@ OMP sources: 0b9d6543, 5e15cc7d, 6a8a8c86, f5c885aa, ded2f7d6,
 ee27df35, ccc198b8. Review repaired font double-free, rejected fake fences and
 incorrect execute-protection claims, and hardened descriptor transport. Tests
 were expanded accordingly; implementation and review were AI-assisted.
+
+`AMediaDrm_isCryptoSchemeSupported` is also checked with a scheme-only query,
+video/audio MIME types and an unknown UUID. ATL has no DRM backend, so all
+queries must return false. Contract reference: AOSP frameworks/av
+`media/ndk/NdkMediaDrm.cpp`, android-15.0.0_r1 (no implementation copied).
+Firefox 159 ARM64 imports this API at load time; absence prevented Gecko from
+loading even for ordinary, unprotected pages. Actual launch through ATL Shelf
+on Nura was verified after adding the API. This does not add protected playback.

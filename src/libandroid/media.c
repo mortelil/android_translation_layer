@@ -957,6 +957,14 @@ typedef void (*AMediaDrmKeysChangeListener)(
     AMediaDrm *, const AMediaDrmSessionId *sessionId, const AMediaDrmKeyStatus *keyStatus,
     size_t numKeys, bool hasNewUsableKey);
 
+/* AOSP NdkMediaDrm.cpp, android-15.0.0_r1: a missing DRM backend
+ * answers false for both scheme-only (NULL MIME) and MIME-specific queries.
+ * No plugin is available in ATL; do not advertise protected playback. */
+bool AMediaDrm_isCryptoSchemeSupported(const AMediaUUID uuid, const char *mimeType)
+{
+	return false;
+}
+
 /**
  * Create a DRM instance for the scheme in uuid. There is no plugin to
  * instantiate, so AOSP's "no plugin for this scheme" outcome (a handle whose
