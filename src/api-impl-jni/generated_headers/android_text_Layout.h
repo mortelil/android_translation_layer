@@ -33,6 +33,22 @@ JNIEXPORT jfloat JNICALL Java_android_text_Layout_native_1get_1line_1max
 
 /*
  * Class:     android_text_Layout
+ * Method:    native_selection_ranges
+ * Signature: (JIII)[F
+ */
+JNIEXPORT jfloatArray JNICALL Java_android_text_Layout_native_1selection_1ranges
+  (JNIEnv *, jclass, jlong, jint, jint, jint);
+
+/*
+ * Class:     android_text_Layout
+ * Method:    native_line_rtl
+ * Signature: (JI)Z
+ */
+JNIEXPORT jboolean JNICALL Java_android_text_Layout_native_1line_1rtl
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     android_text_Layout
  * Method:    native_constructor
  * Signature: (Ljava/lang/String;JI)J
  */

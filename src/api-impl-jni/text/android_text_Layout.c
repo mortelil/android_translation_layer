@@ -285,3 +285,44 @@ JNIEXPORT void JNICALL Java_android_text_Layout_native_1free(JNIEnv *env, jclass
 	PangoLayout *pango_layout = _PTR(layout);
 	g_object_unref(pango_layout);
 }
+
+/* Convert public UTF-16 indices before asking Pango for visual (possibly
+ * disconnected bidi) ranges. Never feed Java offsets directly as UTF-8 bytes. */
+static int selection_byte_offset(const char *text, int offset)
+{
+	const char *p = text;
+	for (int units = 0; *p && units < offset; p = g_utf8_next_char(p))
+		units += g_utf8_get_char(p) > 0xffff ? 2 : 1;
+	return p - text;
+}
+
+JNIEXPORT jfloatArray JNICALL Java_android_text_Layout_native_1selection_1ranges(
+        JNIEnv *env, jclass cls, jlong ptr, jint line, jint start, jint end)
+{
+	PangoLayout *layout = _PTR(ptr);
+	PangoLayoutLine *row = pango_layout_get_line_readonly(layout, line);
+	const char *text = pango_layout_get_text(layout);
+	int lo = MAX(selection_byte_offset(text, start), row->start_index);
+	int hi = MIN(selection_byte_offset(text, end), row->start_index + row->length);
+	int *ranges = NULL, count = 0;
+	if (hi > lo) pango_layout_line_get_x_ranges(row, lo, hi, &ranges, &count);
+	jfloatArray result = (*env)->NewFloatArray(env, count * 2);
+	if (result && count) {
+		float *values = g_new(float, count * 2);
+		for (int i = 0; i < count; i++) {
+			values[2*i] = MIN(ranges[2*i], ranges[2*i+1]) / (float)PANGO_SCALE;
+			values[2*i+1] = MAX(ranges[2*i], ranges[2*i+1]) / (float)PANGO_SCALE;
+		}
+		(*env)->SetFloatArrayRegion(env, result, 0, count * 2, values);
+		g_free(values);
+	}
+	g_free(ranges);
+	return result;
+}
+
+JNIEXPORT jboolean JNICALL Java_android_text_Layout_native_1line_1rtl(
+        JNIEnv *env, jclass cls, jlong ptr, jint line)
+{
+	return pango_layout_line_get_resolved_direction(
+		pango_layout_get_line_readonly(_PTR(ptr), line)) == PANGO_DIRECTION_RTL;
+}

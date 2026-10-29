@@ -102,6 +102,15 @@ public class Layout {
 	}
 
 	public void draw(Canvas canvas, Path selectionHighlight, Paint paint, int selectionOffset) {
+		if (selectionHighlight != null && paint != null) {
+			int save = canvas.save();
+			try {
+				canvas.translate(0, selectionOffset);
+				canvas.drawPath(selectionHighlight, paint);
+			} finally {
+				canvas.restoreToCount(save);
+			}
+		}
 		draw(canvas);
 	}
 
@@ -239,10 +248,37 @@ public class Layout {
 		return spacing_add;
 	}
 
+	// AOSP Layout.getSelection/getSelectionPath, android-15.0.0_r1:
+	// reset, normalize direction, highlight visual runs and fill crossed lines.
+	// Pango supplies the shaped visual ranges, including bidi and UTF-16 offsets.
 	public void getSelectionPath(int start, int end, Path path) {
-		if (start != end && getLineDirections(0) == null)
-			throw new NullPointerException();
+		path.reset();
+		if (start == end) return;
+		if (start > end) { int temp = start; start = end; end = temp; }
+		if (start < 0 || end > text.length()) throw new IndexOutOfBoundsException();
+		int first = getLineForOffset(start), last = getLineForOffset(end);
+		for (int line = first; line <= last; line++) {
+			int top = getLineTop(line), bottom = getLineBottom(line);
+			if (line > first && line < last) {
+				path.addRect(0, top, getWidth(), bottom, Path.Direction.CW);
+				continue;
+			}
+			float[] ranges = native_selection_ranges(layout, line, start, end);
+			for (int i = 0; i < ranges.length; i += 2)
+				path.addRect(ranges[i], top, ranges[i + 1], bottom, Path.Direction.CW);
+			if (first != last) {
+				boolean rtl = native_line_rtl(layout, line);
+				if (line == first)
+					path.addRect(rtl ? 0 : getLineRight(line), top,
+						rtl ? getLineLeft(line) : getWidth(), bottom, Path.Direction.CW);
+				else
+					path.addRect(rtl ? getLineRight(line) : 0, top,
+						rtl ? getWidth() : getLineLeft(line), bottom, Path.Direction.CW);
+			}
+		}
 	}
+	private static native float[] native_selection_ranges(long layout, int line, int start, int end);
+	private static native boolean native_line_rtl(long layout, int line);
 
 	public int getParagraphRight(int line) {
 		return getWidth();
